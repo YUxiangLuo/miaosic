@@ -9,28 +9,39 @@ import 'rust_music_scanner.dart';
 typedef TrackCoverCacheUpdated = void Function(Map<String, String?> cache);
 
 Future<void> _extractTrackCoverWorker(List<Object?> message) async {
-  final paths = (message[0] as List<Object?>).cast<String>();
-  final cacheDir = message[1] as String;
-  final resultPort = message[2] as SendPort;
+  final cacheDir = message[0] as String;
+  final readyPort = message[1] as SendPort;
+  final commandPort = ReceivePort();
+  final scanner = RustMusicScanner.tryLoad();
+  readyPort.send(commandPort.sendPort);
 
-  try {
-    final scanner = RustMusicScanner.tryLoad();
-    if (scanner == null) {
-      throw StateError('Rust cover extractor is unavailable');
+  await for (final rawMessage in commandPort) {
+    if (rawMessage == null) {
+      commandPort.close();
+      break;
     }
-    final results = await scanner.extractTrackCovers(paths, cacheDir);
-    resultPort.send([
-      true,
-      results.map((result) => [result.path, result.coverArtPath]).toList(),
-    ]);
-  } catch (error, stackTrace) {
-    resultPort.send([false, error.toString(), stackTrace.toString()]);
+    final request = rawMessage as List<Object?>;
+    final paths = (request[0] as List<Object?>).cast<String>();
+    final resultPort = request[1] as SendPort;
+
+    try {
+      if (scanner == null) {
+        throw StateError('Rust cover extractor is unavailable');
+      }
+      final results = await scanner.extractTrackCovers(paths, cacheDir);
+      resultPort.send([
+        true,
+        results.map((result) => [result.path, result.coverArtPath]).toList(),
+      ]);
+    } catch (error, stackTrace) {
+      resultPort.send([false, error.toString(), stackTrace.toString()]);
+    }
   }
 }
 
 class PlaylistCoverIndexer {
-  static const _batchSize = 12;
-  static const _batchDelay = Duration(milliseconds: 140);
+  static const _batchSize = 24;
+  static const _batchDelay = Duration(milliseconds: 90);
   static const _pauseDelay = Duration(milliseconds: 500);
 
   int _generation = 0;
@@ -72,71 +83,89 @@ class PlaylistCoverIndexer {
     }
 
     final cacheDir = await coverCacheDir();
-    for (var start = 0; start < pending.length; start += _batchSize) {
-      while (_isCurrent(generation) && shouldPause()) {
-        await Future<void>.delayed(_pauseDelay);
-      }
-      if (!_isCurrent(generation)) {
-        return;
-      }
+    final worker = await _TrackCoverWorker.start(cacheDir);
+    try {
+      for (var start = 0; start < pending.length; start += _batchSize) {
+        while (_isCurrent(generation) && shouldPause()) {
+          await Future<void>.delayed(_pauseDelay);
+        }
+        if (!_isCurrent(generation)) {
+          return;
+        }
 
-      final batch = pending
-          .skip(start)
-          .take(_batchSize)
-          .toList(growable: false);
-      final extracted = await _extractBatch(
-        batch.map((track) => track.path).toList(growable: false),
-        cacheDir,
-      );
-      if (!_isCurrent(generation) || extracted.isEmpty) {
-        return;
-      }
+        final batch = pending
+            .skip(start)
+            .take(_batchSize)
+            .toList(growable: false);
+        final extracted = await worker.extract(
+          batch.map((track) => track.path).toList(growable: false),
+        );
+        if (!_isCurrent(generation) || extracted.isEmpty) {
+          return;
+        }
 
-      final byPath = {for (final track in batch) track.path: track};
-      final entries = <TrackCoverCacheEntry>[];
-      final updates = <String, String?>{};
-      for (final result in extracted.entries) {
-        final track = byPath[result.key];
-        if (track == null) {
+        final byPath = {for (final track in batch) track.path: track};
+        final entries = <TrackCoverCacheEntry>[];
+        final updates = <String, String?>{};
+        for (final result in extracted.entries) {
+          final track = byPath[result.key];
+          if (track == null) {
+            continue;
+          }
+          entries.add(
+            TrackCoverCacheEntry(
+              path: track.path,
+              sizeBytes: track.sizeBytes,
+              modifiedMs: track.modifiedMs,
+              coverArtPath: result.value,
+            ),
+          );
+          updates[track.path] = result.value;
+        }
+        if (entries.isEmpty) {
           continue;
         }
-        entries.add(
-          TrackCoverCacheEntry(
-            path: track.path,
-            sizeBytes: track.sizeBytes,
-            modifiedMs: track.modifiedMs,
-            coverArtPath: result.value,
-          ),
-        );
-        updates[track.path] = result.value;
-      }
-      if (entries.isEmpty) {
-        continue;
-      }
 
-      await database.saveTrackCoverCache(entries);
-      if (!_isCurrent(generation)) {
-        return;
+        await database.saveTrackCoverCache(entries);
+        if (!_isCurrent(generation)) {
+          return;
+        }
+        onCacheUpdated(updates);
+        await Future<void>.delayed(_batchDelay);
       }
-      onCacheUpdated(updates);
-      await Future<void>.delayed(_batchDelay);
+    } finally {
+      worker.close();
     }
   }
 
   bool _isCurrent(int generation) => !_disposed && generation == _generation;
+}
 
-  Future<Map<String, String?>> _extractBatch(
-    List<String> paths,
-    String cacheDir,
-  ) async {
-    final resultPort = ReceivePort();
-    Isolate? worker;
+class _TrackCoverWorker {
+  _TrackCoverWorker._(this._sendPort, this._isolate);
+
+  final SendPort _sendPort;
+  final Isolate _isolate;
+
+  static Future<_TrackCoverWorker> start(String cacheDir) async {
+    final readyPort = ReceivePort();
+    Isolate? isolate;
     try {
-      worker = await Isolate.spawn<List<Object?>>(_extractTrackCoverWorker, [
-        paths,
+      isolate = await Isolate.spawn<List<Object?>>(_extractTrackCoverWorker, [
         cacheDir,
-        resultPort.sendPort,
+        readyPort.sendPort,
       ]);
+      final sendPort = await readyPort.first as SendPort;
+      return _TrackCoverWorker._(sendPort, isolate);
+    } finally {
+      readyPort.close();
+    }
+  }
+
+  Future<Map<String, String?>> extract(List<String> paths) async {
+    final resultPort = ReceivePort();
+    try {
+      _sendPort.send([paths, resultPort.sendPort]);
       final message = await resultPort.first;
       return switch (message) {
         [true, final List<Object?> rawResults] => {
@@ -150,8 +179,12 @@ class PlaylistCoverIndexer {
         ),
       };
     } finally {
-      worker?.kill(priority: Isolate.immediate);
       resultPort.close();
     }
+  }
+
+  void close() {
+    _sendPort.send(null);
+    _isolate.kill(priority: Isolate.immediate);
   }
 }

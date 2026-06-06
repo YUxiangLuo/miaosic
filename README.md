@@ -1,6 +1,7 @@
 # Miaosic
 
-Miaosic is a local-first music player prototype. The current MVP focuses on:
+Miaosic is a Linux-only, local-first music player prototype. The current MVP
+focuses on:
 
 - scanning a local FLAC library
 - detecting album folders vs playlist-like folders
@@ -12,6 +13,12 @@ Miaosic is a local-first music player prototype. The current MVP focuses on:
 The scanner core is implemented in Rust under `native/music_core` and is called
 from Flutter through FFI. Dart keeps a fallback scanner for environments where
 the Rust dynamic library is unavailable.
+
+## Platform Scope
+
+Linux is the only supported runtime target for this prototype. The repository
+still contains Flutter's generated Android, iOS, macOS, Windows, and web
+scaffolding, but those platforms are not maintained or verified.
 
 ## Development Library
 

@@ -10,6 +10,7 @@ import 'models.dart';
 import 'rust_music_scanner.dart';
 
 typedef ScanProgressCallback = void Function(ScanProgress progress);
+typedef RustScannerLoader = RustMusicScanner? Function();
 
 Future<void> _rustScanWorker(List<Object?> message) async {
   final rootPath = message[0] as String;
@@ -42,6 +43,9 @@ Future<void> _rustScanWorker(List<Object?> message) async {
 }
 
 class MusicScanner {
+  MusicScanner({this.rustScannerLoader = RustMusicScanner.tryLoad});
+
+  final RustScannerLoader rustScannerLoader;
   RustMusicScanner? _rustScanner;
 
   Future<ScanResult> scan(
@@ -165,7 +169,7 @@ class MusicScanner {
     if (Platform.environment['MIAOSIC_DISABLE_RUST_SCANNER'] == '1') {
       return null;
     }
-    return _rustScanner ??= RustMusicScanner.tryLoad();
+    return _rustScanner ??= rustScannerLoader();
   }
 
   Future<Track> _parseTrack(File file) async {

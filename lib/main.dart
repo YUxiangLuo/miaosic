@@ -10,7 +10,11 @@ import 'library_database.dart';
 import 'library_diff.dart';
 import 'models.dart';
 import 'music_scanner.dart';
+import 'playback_controller.dart';
 import 'playlist_cover_indexer.dart';
+
+part 'library_widgets.dart';
+part 'rescan_dialog.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,304 +82,6 @@ enum _RescanPhase {
   }
 }
 
-class _RescanUiState {
-  const _RescanUiState({
-    required this.phase,
-    this.message = '',
-    this.progress,
-    this.diff,
-    this.error,
-  });
-
-  final _RescanPhase phase;
-  final String message;
-  final ScanProgress? progress;
-  final LibraryDiff? diff;
-  final String? error;
-
-  _RescanUiState copyWith({
-    _RescanPhase? phase,
-    String? message,
-    ScanProgress? progress,
-    LibraryDiff? diff,
-    String? error,
-  }) {
-    return _RescanUiState(
-      phase: phase ?? this.phase,
-      message: message ?? this.message,
-      progress: progress,
-      diff: diff ?? this.diff,
-      error: error,
-    );
-  }
-}
-
-class _RescanDialog extends StatelessWidget {
-  const _RescanDialog({
-    required this.stateListenable,
-    required this.onApply,
-    required this.onRescan,
-  });
-
-  final ValueListenable<_RescanUiState> stateListenable;
-  final Future<void> Function() onApply;
-  final VoidCallback onRescan;
-
-  @override
-  Widget build(BuildContext context) {
-    return ValueListenableBuilder<_RescanUiState>(
-      valueListenable: stateListenable,
-      builder: (context, state, _) {
-        final busy = state.phase.isBusy;
-        final diff = state.diff;
-        return AlertDialog(
-          title: const Text('Rescan library'),
-          content: SizedBox(
-            width: 760,
-            height: 520,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _RescanStatus(state: state),
-                const SizedBox(height: 16),
-                Expanded(child: _RescanBody(state: state)),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: state.phase == _RescanPhase.applying
-                  ? null
-                  : () => Navigator.of(context).pop(),
-              child: const Text('Close'),
-            ),
-            TextButton(
-              onPressed: busy ? null : onRescan,
-              child: Text(
-                state.phase == _RescanPhase.error ? 'Retry' : 'Rescan',
-              ),
-            ),
-            FilledButton(
-              onPressed:
-                  state.phase == _RescanPhase.ready &&
-                      !busy &&
-                      diff != null &&
-                      diff.hasChanges
-                  ? onApply
-                  : null,
-              child: const Text('Apply'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _RescanStatus extends StatelessWidget {
-  const _RescanStatus({required this.state});
-
-  final _RescanUiState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final progress = state.progress;
-    final diff = state.diff;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(_phaseIcon(state.phase), color: scheme.primary),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                state.message.isEmpty
-                    ? _phaseLabel(state.phase)
-                    : state.message,
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ],
-        ),
-        if (state.phase.isBusy) ...[
-          const SizedBox(height: 10),
-          const LinearProgressIndicator(value: null, minHeight: 3),
-        ],
-        if (progress != null) ...[
-          const SizedBox(height: 8),
-          Text(
-            '${progress.tracksParsed} tracks · ${progress.currentPath}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-        ],
-        if (diff != null) ...[
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              _DiffStat(label: 'Added', value: diff.added.length),
-              _DiffStat(label: 'Removed', value: diff.removed.length),
-              _DiffStat(label: 'Modified', value: diff.modified.length),
-              _DiffStat(label: 'Unchanged', value: diff.unchangedCount),
-            ],
-          ),
-        ],
-        if (state.error != null) ...[
-          const SizedBox(height: 10),
-          Text(state.error!, style: TextStyle(color: scheme.error)),
-        ],
-      ],
-    );
-  }
-
-  IconData _phaseIcon(_RescanPhase phase) {
-    return switch (phase) {
-      _RescanPhase.ready => Icons.fact_check,
-      _RescanPhase.done => Icons.check_circle,
-      _RescanPhase.error => Icons.error,
-      _RescanPhase.applying => Icons.save,
-      _ => Icons.sync,
-    };
-  }
-
-  String _phaseLabel(_RescanPhase phase) {
-    return switch (phase) {
-      _RescanPhase.idle => 'Ready to rescan',
-      _RescanPhase.loadingDatabase => 'Loading current library snapshot',
-      _RescanPhase.scanning => 'Scanning local files',
-      _RescanPhase.diffing => 'Comparing scan with database',
-      _RescanPhase.ready => 'Review changes before applying',
-      _RescanPhase.applying => 'Applying library changes',
-      _RescanPhase.done => 'Library refreshed',
-      _RescanPhase.error => 'Rescan failed',
-    };
-  }
-}
-
-class _DiffStat extends StatelessWidget {
-  const _DiffStat({required this.label, required this.value});
-
-  final String label;
-  final int value;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Expanded(
-      child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              value.toString(),
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            Text(label, style: Theme.of(context).textTheme.bodySmall),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _RescanBody extends StatelessWidget {
-  const _RescanBody({required this.state});
-
-  final _RescanUiState state;
-
-  @override
-  Widget build(BuildContext context) {
-    final diff = state.diff;
-    if (state.phase == _RescanPhase.error) {
-      return const _EmptyState(message: 'Fix the error and retry the scan');
-    }
-    if (diff == null) {
-      return const _EmptyState(
-        message: 'Scanning will continue even if this window is closed',
-      );
-    }
-    if (!diff.hasChanges) {
-      return const _EmptyState(message: 'Library is already up to date');
-    }
-    return DefaultTabController(
-      length: 3,
-      child: Column(
-        children: [
-          TabBar(
-            tabs: [
-              Tab(text: 'Added ${diff.added.length}'),
-              Tab(text: 'Removed ${diff.removed.length}'),
-              Tab(text: 'Modified ${diff.modified.length}'),
-            ],
-          ),
-          Expanded(
-            child: TabBarView(
-              children: [
-                _ChangeList(changes: diff.added),
-                _ChangeList(changes: diff.removed),
-                _ChangeList(changes: diff.modified),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ChangeList extends StatelessWidget {
-  const _ChangeList({required this.changes});
-
-  final List<TrackChange> changes;
-
-  @override
-  Widget build(BuildContext context) {
-    if (changes.isEmpty) {
-      return const _EmptyState(message: 'No tracks in this category');
-    }
-    return ListView.builder(
-      itemCount: changes.length,
-      itemBuilder: (context, index) {
-        final change = changes[index];
-        final track = change.newTrack ?? change.oldTrack!;
-        return ListTile(
-          dense: true,
-          leading: Icon(_changeIcon(change.reason)),
-          title: Text(
-            track.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            '${track.artist} · ${track.album.isEmpty ? track.folderName : track.album}\n${track.path}',
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        );
-      },
-    );
-  }
-
-  IconData _changeIcon(TrackChangeReason reason) {
-    return switch (reason) {
-      TrackChangeReason.added => Icons.add_circle,
-      TrackChangeReason.removed => Icons.remove_circle,
-      TrackChangeReason.fileChanged => Icons.change_circle,
-    };
-  }
-}
-
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -387,7 +93,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   static const _tracksCoverPrefetchLimit = 48;
 
   final _scanner = MusicScanner();
-  final _player = Player();
+  final _playback = PlaybackController();
   final _coverIndexer = PlaylistCoverIndexer();
   final _searchController = TextEditingController();
   final _rescanState = ValueNotifier<_RescanUiState>(
@@ -401,50 +107,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
   ScanProgress? _scanProgress;
-  Track? _currentTrack;
   _LibraryView _view = _LibraryView.tracks;
   String? _selectedPlaylistPath;
-  List<Track> _playQueue = const [];
-  int _queueIndex = -1;
   String _query = '';
   bool _loading = true;
   bool _scanning = false;
-  bool _playing = false;
-  Duration _position = Duration.zero;
-  Duration _duration = Duration.zero;
   String? _error;
   bool _rescanDialogOpen = false;
   Future<void>? _rescanTask;
   String? _tracksCoverPrefetchKey;
 
-  late final StreamSubscription<bool> _playingSub;
-  late final StreamSubscription<bool> _completedSub;
-  late final StreamSubscription<Duration> _positionSub;
-  late final StreamSubscription<Duration> _durationSub;
-
   @override
   void initState() {
     super.initState();
-    _playingSub = _player.stream.playing.listen((playing) {
-      if (mounted) {
-        setState(() => _playing = playing);
-      }
-    });
-    _completedSub = _player.stream.completed.listen((completed) {
-      if (completed) {
-        unawaited(_playNextFromQueue());
-      }
-    });
-    _positionSub = _player.stream.position.listen((position) {
-      if (mounted) {
-        setState(() => _position = position);
-      }
-    });
-    _durationSub = _player.stream.duration.listen((duration) {
-      if (mounted) {
-        setState(() => _duration = duration);
-      }
-    });
+    _playback.addListener(_handlePlaybackChanged);
     _searchController.addListener(_handleSearchChanged);
     unawaited(_openLibrary());
   }
@@ -454,13 +130,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _searchController.dispose();
     _rescanState.dispose();
     _coverIndexer.dispose();
-    unawaited(_playingSub.cancel());
-    unawaited(_completedSub.cancel());
-    unawaited(_positionSub.cancel());
-    unawaited(_durationSub.cancel());
-    unawaited(_player.dispose());
+    _playback
+      ..removeListener(_handlePlaybackChanged)
+      ..dispose();
     unawaited(_database?.close());
     super.dispose();
+  }
+
+  void _handlePlaybackChanged() {
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   void _handleSearchChanged() {
@@ -706,20 +386,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (!mounted) {
         return;
       }
-      final current = _currentTrack;
-      if (current != null &&
-          diff.removed.any((change) => change.path == current.path)) {
-        if (mounted) {
-          setState(() {
-            _playQueue = const [];
-            _queueIndex = -1;
-            _currentTrack = null;
-            _position = Duration.zero;
-            _duration = Duration.zero;
-          });
-        }
-        await _player.stop();
-      }
+      await _playback.stopIfCurrentRemoved(
+        diff.removed.map((change) => change.path),
+      );
       _rescanState.value = _rescanState.value.copyWith(
         phase: _RescanPhase.done,
         message: 'Library refreshed',
@@ -762,85 +431,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return confirmed ?? false;
   }
 
-  Future<void> _playQueueFrom(List<Track> queue, Track track) async {
-    if (queue.isEmpty) {
-      return;
-    }
-    final index = queue.indexWhere((candidate) => candidate.path == track.path);
-    final nextIndex = index < 0 ? 0 : index;
-    final nextTrack = queue[nextIndex];
-    setState(() {
-      _playQueue = List.unmodifiable(queue);
-      _queueIndex = nextIndex;
-      _currentTrack = nextTrack;
-      _position = Duration.zero;
-      _duration = Duration.zero;
-    });
-    await _player.open(Media(nextTrack.path), play: true);
+  Future<void> _playQueueFrom(List<Track> queue, Track track) {
+    return _playback.playQueueFrom(queue, track);
   }
 
-  Future<void> _playNextFromQueue() async {
-    if (_playQueue.isEmpty || _queueIndex < 0) {
-      return;
-    }
-    final nextIndex = _queueIndex + 1;
-    if (nextIndex >= _playQueue.length) {
-      return;
-    }
-    await _playQueueAt(nextIndex);
+  Future<void> _togglePlayPause() {
+    return _playback.togglePlayPause(_filteredTracks);
   }
 
-  Future<void> _playQueueAt(int index) async {
-    if (index < 0 || index >= _playQueue.length) {
-      return;
-    }
-    final track = _playQueue[index];
-    setState(() {
-      _queueIndex = index;
-      _currentTrack = track;
-      _position = Duration.zero;
-      _duration = Duration.zero;
-    });
-    await _player.open(Media(track.path), play: true);
-  }
-
-  Future<void> _togglePlayPause() async {
-    if (_currentTrack == null) {
-      final first = _filteredTracks.isEmpty ? null : _filteredTracks.first;
-      if (first != null) {
-        await _playQueueFrom(_filteredTracks, first);
-      }
-      return;
-    }
-    if (_playing) {
-      await _player.pause();
-    } else {
-      await _player.play();
-    }
-  }
-
-  Future<void> _skip(int delta) async {
-    if (_playQueue.isNotEmpty && _queueIndex >= 0) {
-      await _playQueueAt(_queueIndex + delta);
-      return;
-    }
+  Future<void> _skip(int delta) {
     final source = _filteredTracks.isEmpty ? _tracks : _filteredTracks;
-    if (source.isEmpty) {
-      return;
-    }
-    final current = _currentTrack;
-    final currentIndex = current == null
-        ? -1
-        : source.indexWhere((track) => track.path == current.path);
-    final nextIndex = currentIndex < 0
-        ? 0
-        : (currentIndex + delta).clamp(0, source.length - 1);
-    await _playQueueFrom(source, source[nextIndex]);
+    return _playback.skip(delta, source);
   }
 
-  Future<void> _seek(Duration position) async {
-    await _player.seek(position);
-  }
+  Future<void> _seek(Duration position) => _playback.seek(position);
 
   List<Track> get _filteredTracks {
     if (_query.isEmpty) {
@@ -889,6 +493,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentTrack = _playback.currentTrack;
     return Scaffold(
       body: Row(
         children: [
@@ -925,13 +530,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
                 Expanded(child: _buildContent()),
                 _PlayerBar(
-                  track: _currentTrack,
-                  coverArtPath: _currentTrack == null
+                  track: currentTrack,
+                  coverArtPath: currentTrack == null
                       ? null
-                      : _trackArtworkPath(_currentTrack!),
-                  playing: _playing,
-                  position: _position,
-                  duration: _duration,
+                      : _trackArtworkPath(currentTrack),
+                  playing: _playback.playing,
+                  position: _playback.position,
+                  duration: _playback.duration,
                   onPrevious: () => _skip(-1),
                   onToggle: _togglePlayPause,
                   onNext: () => _skip(1),
@@ -952,7 +557,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return switch (_view) {
       _LibraryView.tracks => _LibraryTrackList(
         tracks: _filteredTracks,
-        currentPath: _currentTrack?.path,
+        currentPath: _playback.currentTrack?.path,
         trackCoverCache: _trackCoverCache,
         onPlay: (track) => _playQueueFrom(_filteredTracks, track),
       ),
@@ -981,7 +586,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return _PlaylistDetail(
         folder: selectedFolder,
         tracks: tracks,
-        currentPath: _currentTrack?.path,
+        currentPath: _playback.currentTrack?.path,
         trackCoverCache: _trackCoverCache,
         onBack: () {
           _coverIndexer.cancel();
@@ -1988,221 +1593,6 @@ class _PlaylistMetric extends StatelessWidget {
           ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ],
-    );
-  }
-}
-
-class _PlayerBar extends StatelessWidget {
-  const _PlayerBar({
-    required this.track,
-    required this.coverArtPath,
-    required this.playing,
-    required this.position,
-    required this.duration,
-    required this.onPrevious,
-    required this.onToggle,
-    required this.onNext,
-    required this.onSeek,
-  });
-
-  final Track? track;
-  final String? coverArtPath;
-  final bool playing;
-  final Duration position;
-  final Duration duration;
-  final VoidCallback onPrevious;
-  final VoidCallback onToggle;
-  final VoidCallback onNext;
-  final ValueChanged<Duration> onSeek;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final durationMs = math.max(1, duration.inMilliseconds);
-    final positionMs = position.inMilliseconds.clamp(0, durationMs).toDouble();
-    return SafeArea(
-      top: false,
-      child: Container(
-        decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: scheme.outlineVariant)),
-          color: scheme.surface,
-        ),
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            _Artwork(path: coverArtPath, size: 56, icon: Icons.music_note),
-            const SizedBox(width: 14),
-            Expanded(
-              flex: 3,
-              child: _TwoLineText(
-                title: track?.title ?? 'Nothing playing',
-                subtitle: track == null
-                    ? 'Select a local track'
-                    : '${track!.artist} · ${track!.folderName}',
-              ),
-            ),
-            const SizedBox(width: 12),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  tooltip: 'Previous',
-                  onPressed: track == null ? null : onPrevious,
-                  icon: const Icon(Icons.skip_previous),
-                ),
-                IconButton.filled(
-                  tooltip: playing ? 'Pause' : 'Play',
-                  onPressed: onToggle,
-                  icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-                ),
-                IconButton(
-                  tooltip: 'Next',
-                  onPressed: track == null ? null : onNext,
-                  icon: const Icon(Icons.skip_next),
-                ),
-              ],
-            ),
-            const SizedBox(width: 24),
-            Expanded(
-              flex: 5,
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  SizedBox(width: 42, child: Text(_formatDuration(position))),
-                  Expanded(
-                    child: Slider(
-                      value: positionMs,
-                      max: durationMs.toDouble(),
-                      onChanged: track == null
-                          ? null
-                          : (value) {
-                              onSeek(Duration(milliseconds: value.round()));
-                            },
-                    ),
-                  ),
-                  SizedBox(
-                    width: 42,
-                    child: Text(
-                      _formatDuration(duration),
-                      textAlign: TextAlign.right,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _Artwork extends StatelessWidget {
-  const _Artwork({
-    required this.path,
-    required this.size,
-    required this.icon,
-    this.radius = 8,
-  });
-
-  final String? path;
-  final double size;
-  final IconData icon;
-  final double radius;
-
-  @override
-  Widget build(BuildContext context) {
-    final placeholder = _ArtworkPlaceholder(icon: icon, radius: radius);
-    final imagePath = path;
-    final image = ClipRRect(
-      borderRadius: BorderRadius.circular(radius),
-      child: imagePath == null || imagePath.isEmpty
-          ? placeholder
-          : Image.file(
-              File(imagePath),
-              fit: BoxFit.cover,
-              cacheWidth: size.isFinite ? (size * 2).round() : 320,
-              cacheHeight: size.isFinite ? (size * 2).round() : 320,
-              filterQuality: FilterQuality.low,
-              errorBuilder: (_, _, _) => placeholder,
-            ),
-    );
-
-    if (size.isFinite) {
-      return SizedBox.square(dimension: size, child: image);
-    }
-
-    return AspectRatio(aspectRatio: 1, child: image);
-  }
-}
-
-class _ArtworkPlaceholder extends StatelessWidget {
-  const _ArtworkPlaceholder({required this.icon, required this.radius});
-
-  final IconData icon;
-  final double radius;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(radius),
-      ),
-      child: Icon(icon, color: scheme.onSurfaceVariant),
-    );
-  }
-}
-
-class _TwoLineText extends StatelessWidget {
-  const _TwoLineText({
-    required this.title,
-    required this.subtitle,
-    this.selected = false,
-  });
-
-  final String title;
-  final String subtitle;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(
-            fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: scheme.onSurfaceVariant),
-        ),
-      ],
-    );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.message});
-
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Text(message, style: Theme.of(context).textTheme.titleMedium),
     );
   }
 }
