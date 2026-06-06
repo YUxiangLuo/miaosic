@@ -90,11 +90,9 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
-  static const _tracksCoverPrefetchLimit = 48;
-
   final _scanner = MusicScanner();
   final _playback = PlaybackController();
-  final _coverIndexer = PlaylistCoverIndexer();
+  final _coverIndexer = TrackCoverIndexer();
   final _searchController = TextEditingController();
   final _playlistListScrollController = ScrollController();
   final _rescanState = ValueNotifier<_RescanUiState>(
@@ -118,7 +116,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String? _error;
   bool _rescanDialogOpen = false;
   Future<void>? _rescanTask;
-  String? _tracksCoverPrefetchKey;
 
   @override
   void initState() {
@@ -149,9 +146,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   void _handleSearchChanged() {
     setState(() => _query = _searchController.text.trim().toLowerCase());
-    if (_view == _LibraryView.tracks) {
-      _prefetchTracksPageCovers();
-    }
   }
 
   Future<void> _openLibrary() async {
@@ -198,18 +192,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         }
         _loading = false;
       });
-      final selectedPath = _selectedPlaylistPath;
-      if (selectedPath != null) {
-        final tracksByFolder = _tracksByFolderMap(tracks);
-        unawaited(
-          _indexPlaylistCovers(
-            selectedPath,
-            tracksByFolder[selectedPath] ?? const <Track>[],
-          ),
-        );
-      } else if (_view == _LibraryView.tracks) {
-        _prefetchTracksPageCovers();
-      }
+      _startBackgroundCoverIndexing(tracks, knownCache: trackCoverCache);
     }
   }
 
@@ -220,7 +203,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     _coverIndexer.cancel();
-    _tracksCoverPrefetchKey = null;
     setState(() {
       _scanning = true;
       _loading = false;
@@ -276,7 +258,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     _coverIndexer.cancel();
-    _tracksCoverPrefetchKey = null;
     setState(() {
       _scanning = true;
       _error = null;
@@ -341,6 +322,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _scanning = false;
           _scanProgress = null;
         });
+        _startBackgroundCoverIndexing(_tracks, knownCache: _trackCoverCache);
       }
     }
   }
@@ -432,7 +414,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
     _coverIndexer.cancel();
-    _tracksCoverPrefetchKey = null;
     setState(() {
       _musicRoot = nextRoot;
       _selectedPlaylistPath = null;
@@ -599,15 +580,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             scanning: _scanning,
             onEditMusicRoot: _handleMusicRootPressed,
             onSelected: (view) {
-              _coverIndexer.cancel();
-              _tracksCoverPrefetchKey = null;
               setState(() {
                 _view = view;
                 _selectedPlaylistPath = null;
               });
-              if (view == _LibraryView.tracks) {
-                _prefetchTracksPageCovers();
-              }
             },
           ),
           const VerticalDivider(width: 1),
@@ -683,7 +659,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         currentPath: _playback.currentTrack?.path,
         trackCoverCache: _trackCoverCache,
         onBack: () {
-          _coverIndexer.cancel();
           setState(() => _selectedPlaylistPath = null);
           _restorePlaylistListScrollOffset();
         },
@@ -705,12 +680,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   void _selectPlaylist(FolderSummary folder) {
-    _coverIndexer.cancel();
-    _tracksCoverPrefetchKey = null;
     _savePlaylistListScrollOffset();
     setState(() => _selectedPlaylistPath = folder.path);
-    final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
-    unawaited(_indexPlaylistCovers(folder.path, tracks));
   }
 
   void _savePlaylistListScrollOffset() {
@@ -734,65 +705,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
   }
 
-  void _prefetchTracksPageCovers() {
-    if (_database == null) {
-      return;
-    }
-    final tracks = _filteredTracks.take(_tracksCoverPrefetchLimit).toList();
-    if (tracks.isEmpty) {
-      _tracksCoverPrefetchKey = null;
-      return;
-    }
-    final key = tracks.map((track) => track.path).join('\n');
-    if (key == _tracksCoverPrefetchKey) {
-      return;
-    }
-    _tracksCoverPrefetchKey = key;
-    unawaited(_indexTracksPageCovers(tracks, key));
-  }
-
-  Future<void> _indexTracksPageCovers(List<Track> tracks, String key) async {
+  void _startBackgroundCoverIndexing(
+    List<Track> tracks, {
+    Map<String, String?>? knownCache,
+  }) {
     final database = _database;
     if (database == null || tracks.isEmpty) {
       return;
     }
-    try {
-      await _coverIndexer.indexPlaylist(
-        tracks: tracks,
-        database: database,
-        shouldPause: () =>
-            _scanning ||
-            !mounted ||
-            _view != _LibraryView.tracks ||
-            _tracksCoverPrefetchKey != key,
-        onCacheUpdated: (updates) {
-          if (!mounted || updates.isEmpty || _view != _LibraryView.tracks) {
-            return;
-          }
-          setState(() {
-            _trackCoverCache = {..._trackCoverCache, ...updates};
-          });
-        },
-      );
-    } catch (_) {
-      // Track-page cover prefetch is best-effort and must stay invisible.
-    }
+    unawaited(_runBackgroundCoverIndexing(database, tracks, knownCache));
   }
 
-  Future<void> _indexPlaylistCovers(
-    String playlistPath,
+  Future<void> _runBackgroundCoverIndexing(
+    LibraryDatabase database,
     List<Track> tracks,
+    Map<String, String?>? knownCache,
   ) async {
-    final database = _database;
-    if (database == null || tracks.isEmpty) {
-      return;
-    }
     try {
-      await _coverIndexer.indexPlaylist(
+      await _coverIndexer.indexTracks(
         tracks: tracks,
         database: database,
-        shouldPause: () =>
-            _scanning || !mounted || _selectedPlaylistPath != playlistPath,
+        knownCache: knownCache,
+        shouldPause: () => _scanning || !mounted,
         onCacheUpdated: (updates) {
           if (!mounted || updates.isEmpty) {
             return;
@@ -803,7 +737,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         },
       );
     } catch (_) {
-      // Per-track covers are opportunistic; browsing and playback continue.
+      // Background cover indexing is best-effort and must stay invisible.
     }
   }
 

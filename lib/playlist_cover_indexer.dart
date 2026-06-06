@@ -39,7 +39,7 @@ Future<void> _extractTrackCoverWorker(List<Object?> message) async {
   }
 }
 
-class PlaylistCoverIndexer {
+class TrackCoverIndexer {
   static const _batchSize = 24;
   static const _batchDelay = Duration(milliseconds: 90);
   static const _pauseDelay = Duration(milliseconds: 500);
@@ -56,9 +56,10 @@ class PlaylistCoverIndexer {
     _generation++;
   }
 
-  Future<void> indexPlaylist({
+  Future<void> indexTracks({
     required List<Track> tracks,
     required LibraryDatabase database,
+    Map<String, String?>? knownCache,
     required bool Function() shouldPause,
     required TrackCoverCacheUpdated onCacheUpdated,
   }) async {
@@ -67,11 +68,11 @@ class PlaylistCoverIndexer {
       return;
     }
 
-    final cached = await database.loadTrackCoverCache(tracks);
+    final cached = knownCache ?? await database.loadTrackCoverCache(tracks);
     if (!_isCurrent(generation)) {
       return;
     }
-    if (cached.isNotEmpty) {
+    if (knownCache == null && cached.isNotEmpty) {
       onCacheUpdated(cached);
     }
 
