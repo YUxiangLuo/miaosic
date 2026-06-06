@@ -1,17 +1,52 @@
-# miaosic
+# Miaosic
 
-A new Flutter project.
+Miaosic is a local-first music player prototype. The current MVP focuses on:
 
-## Getting Started
+- scanning a local FLAC library
+- detecting album folders vs playlist-like folders
+- storing the library in SQLite
+- browsing tracks, albums, and playlists
+- playing local files on Linux with `media_kit`
 
-This project is a starting point for a Flutter application.
+## Development Library
 
-A few resources to get you started if this is your first Flutter project:
+The app currently uses this development root:
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+```text
+/mnt/data/music
+```
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+On first launch, Miaosic scans this folder and writes the library database to
+the platform application support directory as `miaosic.db`.
+
+## Run
+
+```sh
+flutter run -d linux
+```
+
+## Verify Scanner
+
+The scanner can be tested without opening the UI:
+
+```sh
+dart run tool/scan_dev.dart /mnt/data/music
+```
+
+For the current development library, the expected shape is around:
+
+```text
+tracks=3389
+folders=163
+album_folders=133
+playlist_folders=30
+albums=133
+```
+
+## Checks
+
+```sh
+flutter analyze
+flutter test
+flutter build linux --debug
+```
