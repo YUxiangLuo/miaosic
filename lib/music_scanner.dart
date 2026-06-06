@@ -10,6 +10,36 @@ import 'rust_music_scanner.dart';
 
 typedef ScanProgressCallback = void Function(ScanProgress progress);
 
+Future<void> _rustScanWorker(List<Object?> message) async {
+  final rootPath = message[0] as String;
+  final coverCacheDir = message[1] as String;
+  final resultPort = message[2] as SendPort;
+  final progressPort = message[3] as SendPort?;
+
+  try {
+    final scanner = RustMusicScanner.tryLoad();
+    if (scanner == null) {
+      throw StateError('Rust scanner became unavailable in worker isolate');
+    }
+    final result = await scanner.scan(
+      rootPath,
+      coverCacheDir,
+      onProgress: progressPort == null
+          ? null
+          : (progress) {
+              progressPort.send([
+                progress.filesSeen,
+                progress.tracksParsed,
+                progress.currentPath,
+              ]);
+            },
+    );
+    resultPort.send([true, result]);
+  } catch (error, stackTrace) {
+    resultPort.send([false, error.toString(), stackTrace.toString()]);
+  }
+}
+
 class MusicScanner {
   RustMusicScanner? _rustScanner;
 
@@ -45,28 +75,21 @@ class MusicScanner {
         });
       }
       final progressSendPort = progressPort?.sendPort;
+      final resultPort = ReceivePort();
+      Isolate? worker;
       try {
-        final result = await Isolate.run(() {
-          final scanner = RustMusicScanner.tryLoad();
-          if (scanner == null) {
-            throw StateError(
-              'Rust scanner became unavailable in worker isolate',
-            );
-          }
-          return scanner.scan(
-            rootPath,
-            coverCacheDir,
-            onProgress: !shouldForwardProgress
-                ? null
-                : (progress) {
-                    progressSendPort!.send([
-                      progress.filesSeen,
-                      progress.tracksParsed,
-                      progress.currentPath,
-                    ]);
-                  },
-          );
-        });
+        worker = await Isolate.spawn<List<Object?>>(_rustScanWorker, [
+          rootPath,
+          coverCacheDir,
+          resultPort.sendPort,
+          shouldForwardProgress ? progressSendPort : null,
+        ]);
+        final message = await resultPort.first;
+        final result = switch (message) {
+          [true, final ScanResult result] => result,
+          [false, final String error, _] => throw StateError(error),
+          _ => throw const FormatException('Unexpected Rust scanner response'),
+        };
         onProgress?.call(
           ScanProgress(
             filesSeen: result.tracks.length,
@@ -76,6 +99,8 @@ class MusicScanner {
         );
         return result;
       } finally {
+        worker?.kill(priority: Isolate.immediate);
+        resultPort.close();
         await progressSub?.cancel();
         progressPort?.close();
       }
