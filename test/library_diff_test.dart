@@ -9,20 +9,35 @@ void main() {
     final removed = _track('/music/c.flac', size: 10, modified: 1);
     final changedNew = _track('/music/b.flac', size: 11, modified: 1);
     final added = _track('/music/d.flac', size: 10, modified: 1);
+    final coverOld = _track(
+      '/music/e.flac',
+      size: 10,
+      modified: 1,
+      cover: '/cache/old.jpg',
+    );
+    final coverNew = _track(
+      '/music/e.flac',
+      size: 10,
+      modified: 1,
+      cover: '/cache/new.jpg',
+    );
 
     final diff = diffLibrary(
       LibrarySnapshot(
-        tracks: [unchanged, changedOld, removed],
+        tracks: [unchanged, changedOld, removed, coverOld],
         folders: const [],
         albums: const [],
         scanState: null,
       ),
-      _scanResult([unchanged, changedNew, added]),
+      _scanResult([unchanged, changedNew, added, coverNew]),
     );
 
     expect(diff.added.map((change) => change.path), ['/music/d.flac']);
     expect(diff.removed.map((change) => change.path), ['/music/c.flac']);
-    expect(diff.modified.map((change) => change.path), ['/music/b.flac']);
+    expect(diff.modified.map((change) => change.path), [
+      '/music/b.flac',
+      '/music/e.flac',
+    ]);
     expect(diff.unchangedCount, 1);
   });
 
@@ -74,7 +89,7 @@ ScanResult _scanResult(List<Track> tracks) {
   );
 }
 
-Track _track(String path, {int size = 1, int modified = 1}) {
+Track _track(String path, {int size = 1, int modified = 1, String? cover}) {
   return Track(
     path: path,
     folderPath: '/music',
@@ -88,6 +103,6 @@ Track _track(String path, {int size = 1, int modified = 1}) {
     durationMs: null,
     sizeBytes: size,
     modifiedMs: modified,
-    coverArtPath: null,
+    coverArtPath: cover,
   );
 }

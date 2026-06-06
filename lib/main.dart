@@ -1274,11 +1274,13 @@ class _TrackList extends StatelessWidget {
     required this.tracks,
     required this.currentPath,
     required this.onPlay,
+    this.showArtwork = true,
   });
 
   final List<Track> tracks;
   final String? currentPath;
   final ValueChanged<Track> onPlay;
+  final bool showArtwork;
 
   @override
   Widget build(BuildContext context) {
@@ -1294,8 +1296,10 @@ class _TrackList extends StatelessWidget {
         final track = tracks[index];
         final selected = track.path == currentPath;
         return _TrackRow(
+          index: index,
           track: track,
           selected: selected,
+          showArtwork: showArtwork,
           onTap: () => onPlay(track),
         );
       },
@@ -1305,13 +1309,17 @@ class _TrackList extends StatelessWidget {
 
 class _TrackRow extends StatelessWidget {
   const _TrackRow({
+    required this.index,
     required this.track,
     required this.selected,
+    required this.showArtwork,
     required this.onTap,
   });
 
+  final int index;
   final Track track;
   final bool selected;
+  final bool showArtwork;
   final VoidCallback onTap;
 
   @override
@@ -1331,12 +1339,26 @@ class _TrackRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            _Artwork(
-              path: track.coverArtPath,
-              size: 42,
-              icon: Icons.music_note,
-            ),
-            const SizedBox(width: 12),
+            if (showArtwork) ...[
+              _Artwork(
+                path: track.coverArtPath,
+                size: 42,
+                icon: Icons.music_note,
+              ),
+              const SizedBox(width: 12),
+            ] else ...[
+              SizedBox(
+                width: 42,
+                child: Text(
+                  (index + 1).toString().padLeft(2, '0'),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
             Expanded(
               flex: 5,
               child: _TwoLineText(
@@ -1588,6 +1610,7 @@ class _PlaylistDetail extends StatelessWidget {
           child: _TrackList(
             tracks: tracks,
             currentPath: currentPath,
+            showArtwork: false,
             onPlay: onPlayTrack,
           ),
         ),

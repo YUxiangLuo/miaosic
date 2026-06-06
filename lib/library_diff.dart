@@ -98,8 +98,7 @@ LibraryDiff diffLibrary(LibrarySnapshot oldSnapshot, ScanResult newResult) {
       );
       continue;
     }
-    if (oldTrack.sizeBytes != newTrack.sizeBytes ||
-        oldTrack.modifiedMs != newTrack.modifiedMs) {
+    if (_trackChanged(oldTrack, newTrack)) {
       modified.add(
         TrackChange(
           path: entry.key,
@@ -138,4 +137,19 @@ LibraryDiff diffLibrary(LibrarySnapshot oldSnapshot, ScanResult newResult) {
     unchangedCount: unchangedCount,
     result: newResult,
   );
+}
+
+bool _trackChanged(Track oldTrack, Track newTrack) {
+  return oldTrack.folderPath != newTrack.folderPath ||
+      oldTrack.title != newTrack.title ||
+      oldTrack.artist != newTrack.artist ||
+      oldTrack.album != newTrack.album ||
+      oldTrack.albumArtist != newTrack.albumArtist ||
+      oldTrack.trackNumber != newTrack.trackNumber ||
+      oldTrack.discNumber != newTrack.discNumber ||
+      oldTrack.year != newTrack.year ||
+      oldTrack.durationMs != newTrack.durationMs ||
+      oldTrack.sizeBytes != newTrack.sizeBytes ||
+      oldTrack.modifiedMs != newTrack.modifiedMs ||
+      oldTrack.coverArtPath != newTrack.coverArtPath;
 }
