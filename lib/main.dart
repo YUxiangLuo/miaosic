@@ -111,6 +111,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   ScanProgress? _scanProgress;
   _LibraryView _view = _LibraryView.tracks;
   String? _selectedPlaylistPath;
+  double _playlistListScrollOffset = 0;
   String _query = '';
   bool _loading = true;
   bool _scanning = false;
@@ -684,6 +685,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         onBack: () {
           _coverIndexer.cancel();
           setState(() => _selectedPlaylistPath = null);
+          _restorePlaylistListScrollOffset();
         },
         onPlayAll: tracks.isEmpty
             ? null
@@ -705,9 +707,31 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _selectPlaylist(FolderSummary folder) {
     _coverIndexer.cancel();
     _tracksCoverPrefetchKey = null;
+    _savePlaylistListScrollOffset();
     setState(() => _selectedPlaylistPath = folder.path);
     final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
     unawaited(_indexPlaylistCovers(folder.path, tracks));
+  }
+
+  void _savePlaylistListScrollOffset() {
+    if (_playlistListScrollController.hasClients) {
+      _playlistListScrollOffset = _playlistListScrollController.offset;
+    }
+  }
+
+  void _restorePlaylistListScrollOffset() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _selectedPlaylistPath != null ||
+          !_playlistListScrollController.hasClients) {
+        return;
+      }
+      final position = _playlistListScrollController.position;
+      final target = _playlistListScrollOffset
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      _playlistListScrollController.jumpTo(target);
+    });
   }
 
   void _prefetchTracksPageCovers() {
