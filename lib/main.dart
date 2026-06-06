@@ -1382,14 +1382,21 @@ class _AlbumGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final columns = math.min(6, math.max(2, (width / 190).floor()));
+        const gridPadding = 26.0;
+        const crossAxisSpacing = 30.0;
+        const mainAxisSpacing = 36.0;
+        const labelExtent = 78.0;
+        final columns = math.min(6, math.max(2, (width / 220).floor()));
+        final usableWidth =
+            width - (gridPadding * 2) - (crossAxisSpacing * (columns - 1));
+        final tileWidth = math.max(0.0, usableWidth / columns);
         return GridView.builder(
-          padding: const EdgeInsets.all(22),
+          padding: const EdgeInsets.all(gridPadding),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            crossAxisSpacing: 22,
-            mainAxisSpacing: 24,
-            childAspectRatio: 0.72,
+            crossAxisSpacing: crossAxisSpacing,
+            mainAxisSpacing: mainAxisSpacing,
+            mainAxisExtent: tileWidth + labelExtent,
           ),
           itemCount: albums.length,
           itemBuilder: (context, index) {
@@ -1419,17 +1426,15 @@ class _AlbumTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Expanded(
-            child: _Artwork(
-              path: album.coverArtPath,
-              size: double.infinity,
-              icon: Icons.album,
-              radius: 8,
-            ),
+          _Artwork(
+            path: album.coverArtPath,
+            size: double.infinity,
+            icon: Icons.album,
+            radius: 8,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Text(
             album.title,
             maxLines: 2,
