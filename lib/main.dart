@@ -1669,18 +1669,35 @@ class _PlaylistRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _PlaylistCoverCollage(coverPaths: coverPaths),
-        const SizedBox(width: 18),
+        const SizedBox(width: 16),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                folder.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      folder.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  IconButton.filled(
+                    tooltip: 'Play playlist',
+                    onPressed: onPlay,
+                    constraints: const BoxConstraints.tightFor(
+                      width: 40,
+                      height: 40,
+                    ),
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.play_arrow),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Wrap(spacing: 16, runSpacing: 8, children: _playlistMetrics()),
@@ -1696,15 +1713,6 @@ class _PlaylistRow extends StatelessWidget {
                   ),
                 ),
             ],
-          ),
-        ),
-        const SizedBox(width: 18),
-        Align(
-          alignment: Alignment.center,
-          child: IconButton.filled(
-            tooltip: 'Play playlist',
-            onPressed: onPlay,
-            icon: const Icon(Icons.play_arrow),
           ),
         ),
       ],
@@ -1753,7 +1761,7 @@ class _PlaylistCoverCollage extends StatelessWidget {
   Widget build(BuildContext context) {
     final paths = coverPaths.take(4).toList(growable: false);
     return SizedBox.square(
-      dimension: 144,
+      dimension: 188,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: paths.length <= 1
