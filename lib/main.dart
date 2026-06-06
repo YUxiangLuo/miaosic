@@ -1065,17 +1065,40 @@ class _LibraryTrackList extends StatelessWidget {
       return const _EmptyState(message: 'No tracks found');
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-      itemCount: tracks.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 8),
-      itemBuilder: (context, index) {
-        final track = tracks[index];
-        return _LibraryTrackTile(
-          track: track,
-          artworkPath: trackCoverCache[track.path] ?? track.coverArtPath,
-          selected: track.path == currentPath,
-          onTap: () => onPlay(track),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const horizontalPadding = 18.0;
+        const spacing = 10.0;
+        const cardHeight = 76.0;
+        final availableWidth = math.max(
+          1.0,
+          constraints.maxWidth - horizontalPadding * 2,
+        );
+        final columns = math.max(1, (availableWidth / 320).floor());
+        final cardWidth = (availableWidth - spacing * (columns - 1)) / columns;
+        return GridView.builder(
+          padding: const EdgeInsets.fromLTRB(
+            horizontalPadding,
+            12,
+            horizontalPadding,
+            18,
+          ),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            childAspectRatio: cardWidth / cardHeight,
+          ),
+          itemCount: tracks.length,
+          itemBuilder: (context, index) {
+            final track = tracks[index];
+            return _LibraryTrackTile(
+              track: track,
+              artworkPath: trackCoverCache[track.path] ?? track.coverArtPath,
+              selected: track.path == currentPath,
+              onTap: () => onPlay(track),
+            );
+          },
         );
       },
     );
@@ -1102,18 +1125,20 @@ class _LibraryTrackTile extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
       child: Container(
-        height: 96,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: selected
               ? scheme.primaryContainer.withValues(alpha: 0.65)
-              : Colors.transparent,
+              : scheme.surface,
+          border: Border.all(
+            color: selected ? scheme.primary : scheme.outlineVariant,
+          ),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
-            _Artwork(path: artworkPath, size: 74, icon: Icons.music_note),
-            const SizedBox(width: 14),
+            _Artwork(path: artworkPath, size: 56, icon: Icons.music_note),
+            const SizedBox(width: 10),
             Expanded(
               child: _LibraryTrackText(
                 title: track.title,
@@ -1150,18 +1175,18 @@ class _LibraryTrackText extends StatelessWidget {
           title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
             fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Text(
           artist,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: Theme.of(
             context,
-          ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+          ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
         ),
       ],
     );
