@@ -9,7 +9,7 @@ Future<String> coverCacheDir() async {
       (env['HOME'] == null
           ? p.join(Directory.systemTemp.path, 'miaosic')
           : p.join(env['HOME']!, '.local', 'share'));
-  final dir = Directory(p.join(dataHome, 'com.example.miaosic', 'covers'));
+  final dir = Directory(p.join(dataHome, 'dev.vesein.miaosic', 'covers'));
   if (!await dir.exists()) {
     await dir.create(recursive: true);
   }
