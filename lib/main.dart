@@ -393,6 +393,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Track? _currentTrack;
   _LibraryView _view = _LibraryView.tracks;
   String? _selectedPlaylistPath;
+  List<Track> _playQueue = const [];
+  int _queueIndex = -1;
   String _query = '';
   bool _loading = true;
   bool _scanning = false;
@@ -404,6 +406,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Future<void>? _rescanTask;
 
   late final StreamSubscription<bool> _playingSub;
+  late final StreamSubscription<bool> _completedSub;
   late final StreamSubscription<Duration> _positionSub;
   late final StreamSubscription<Duration> _durationSub;
 
@@ -413,6 +416,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _playingSub = _player.stream.playing.listen((playing) {
       if (mounted) {
         setState(() => _playing = playing);
+      }
+    });
+    _completedSub = _player.stream.completed.listen((completed) {
+      if (completed) {
+        unawaited(_playNextFromQueue());
       }
     });
     _positionSub = _player.stream.position.listen((position) {
@@ -436,6 +444,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _searchController.dispose();
     _rescanState.dispose();
     unawaited(_playingSub.cancel());
+    unawaited(_completedSub.cancel());
     unawaited(_positionSub.cancel());
     unawaited(_durationSub.cancel());
     unawaited(_player.dispose());
@@ -670,14 +679,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
       final current = _currentTrack;
       if (current != null &&
           diff.removed.any((change) => change.path == current.path)) {
-        await _player.stop();
         if (mounted) {
           setState(() {
+            _playQueue = const [];
+            _queueIndex = -1;
             _currentTrack = null;
             _position = Duration.zero;
             _duration = Duration.zero;
           });
         }
+        await _player.stop();
       }
       _rescanState.value = _rescanState.value.copyWith(
         phase: _RescanPhase.done,
@@ -721,10 +732,44 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return confirmed ?? false;
   }
 
-  Future<void> _playTrack(Track track) async {
+  Future<void> _playQueueFrom(List<Track> queue, Track track) async {
+    if (queue.isEmpty) {
+      return;
+    }
+    final index = queue.indexWhere((candidate) => candidate.path == track.path);
+    final nextIndex = index < 0 ? 0 : index;
+    final nextTrack = queue[nextIndex];
     setState(() {
+      _playQueue = List.unmodifiable(queue);
+      _queueIndex = nextIndex;
+      _currentTrack = nextTrack;
+      _position = Duration.zero;
+      _duration = Duration.zero;
+    });
+    await _player.open(Media(nextTrack.path), play: true);
+  }
+
+  Future<void> _playNextFromQueue() async {
+    if (_playQueue.isEmpty || _queueIndex < 0) {
+      return;
+    }
+    final nextIndex = _queueIndex + 1;
+    if (nextIndex >= _playQueue.length) {
+      return;
+    }
+    await _playQueueAt(nextIndex);
+  }
+
+  Future<void> _playQueueAt(int index) async {
+    if (index < 0 || index >= _playQueue.length) {
+      return;
+    }
+    final track = _playQueue[index];
+    setState(() {
+      _queueIndex = index;
       _currentTrack = track;
       _position = Duration.zero;
+      _duration = Duration.zero;
     });
     await _player.open(Media(track.path), play: true);
   }
@@ -733,7 +778,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_currentTrack == null) {
       final first = _filteredTracks.isEmpty ? null : _filteredTracks.first;
       if (first != null) {
-        await _playTrack(first);
+        await _playQueueFrom(_filteredTracks, first);
       }
       return;
     }
@@ -745,10 +790,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _skip(int delta) async {
-    if (_tracks.isEmpty) {
+    if (_playQueue.isNotEmpty && _queueIndex >= 0) {
+      await _playQueueAt(_queueIndex + delta);
       return;
     }
     final source = _filteredTracks.isEmpty ? _tracks : _filteredTracks;
+    if (source.isEmpty) {
+      return;
+    }
     final current = _currentTrack;
     final currentIndex = current == null
         ? -1
@@ -756,7 +805,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final nextIndex = currentIndex < 0
         ? 0
         : (currentIndex + delta).clamp(0, source.length - 1);
-    await _playTrack(source[nextIndex]);
+    await _playQueueFrom(source, source[nextIndex]);
   }
 
   Future<void> _seek(Duration position) async {
@@ -866,12 +915,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _LibraryView.tracks => _TrackList(
         tracks: _filteredTracks,
         currentPath: _currentTrack?.path,
-        onPlay: _playTrack,
+        onPlay: (track) => _playQueueFrom(_filteredTracks, track),
       ),
       _LibraryView.albums => _AlbumGrid(
         albums: _filteredAlbums,
         tracksByFolder: _tracksByFolder,
-        onPlay: _playTrack,
+        onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
       ),
       _LibraryView.playlists => _buildPlaylistsContent(),
     };
@@ -895,8 +944,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
         tracks: tracks,
         currentPath: _currentTrack?.path,
         onBack: () => setState(() => _selectedPlaylistPath = null),
-        onPlayAll: tracks.isEmpty ? null : () => _playTrack(tracks.first),
-        onPlayTrack: _playTrack,
+        onPlayAll: tracks.isEmpty
+            ? null
+            : () => _playQueueFrom(tracks, tracks.first),
+        onPlayTrack: (track) => _playQueueFrom(tracks, track),
       );
     }
 
@@ -904,7 +955,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       folders: _playlistFolders,
       tracksByFolder: _tracksByFolder,
       onOpen: (folder) => setState(() => _selectedPlaylistPath = folder.path),
-      onPlay: _playTrack,
+      onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
     );
   }
 }
@@ -1327,7 +1378,7 @@ class _AlbumGrid extends StatelessWidget {
 
   final List<AlbumSummary> albums;
   final Map<String, List<Track>> tracksByFolder;
-  final ValueChanged<Track> onPlay;
+  final ValueChanged<List<Track>> onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -1350,10 +1401,10 @@ class _AlbumGrid extends StatelessWidget {
           itemCount: albums.length,
           itemBuilder: (context, index) {
             final album = albums[index];
-            final firstTrack = tracksByFolder[album.folderPath]?.firstOrNull;
+            final tracks = tracksByFolder[album.folderPath] ?? const <Track>[];
             return _AlbumTile(
               album: album,
-              onTap: firstTrack == null ? null : () => onPlay(firstTrack),
+              onTap: tracks.isEmpty ? null : () => onPlay(tracks),
             );
           },
         );
@@ -1422,7 +1473,7 @@ class _PlaylistList extends StatelessWidget {
   final List<FolderSummary> folders;
   final Map<String, List<Track>> tracksByFolder;
   final ValueChanged<FolderSummary> onOpen;
-  final ValueChanged<Track> onPlay;
+  final ValueChanged<List<Track>> onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -1436,12 +1487,12 @@ class _PlaylistList extends StatelessWidget {
       separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final folder = folders[index];
-        final firstTrack = tracksByFolder[folder.path]?.firstOrNull;
+        final tracks = tracksByFolder[folder.path] ?? const <Track>[];
         return _PlaylistRow(
           index: index,
           folder: folder,
           onOpen: () => onOpen(folder),
-          onPlay: firstTrack == null ? null : () => onPlay(firstTrack),
+          onPlay: tracks.isEmpty ? null : () => onPlay(tracks),
         );
       },
     );
