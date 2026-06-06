@@ -54,11 +54,11 @@ class PlaybackController extends ChangeNotifier {
     await _playQueueAt(List.unmodifiable(queue), nextIndex);
   }
 
-  Future<void> togglePlayPause(List<Track> fallbackQueue) async {
+  Future<void> togglePlayPause(List<Track> defaultQueue) async {
     if (_currentTrack == null) {
-      final first = fallbackQueue.isEmpty ? null : fallbackQueue.first;
+      final first = defaultQueue.isEmpty ? null : defaultQueue.first;
       if (first != null) {
-        await playQueueFrom(fallbackQueue, first);
+        await playQueueFrom(defaultQueue, first);
       }
       return;
     }
@@ -69,22 +69,22 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
-  Future<void> skip(int delta, List<Track> fallbackQueue) async {
+  Future<void> skip(int delta, List<Track> defaultQueue) async {
     if (_queue.isNotEmpty && _queueIndex >= 0) {
       await playQueueAt(_queueIndex + delta);
       return;
     }
-    if (fallbackQueue.isEmpty) {
+    if (defaultQueue.isEmpty) {
       return;
     }
     final current = _currentTrack;
     final currentIndex = current == null
         ? -1
-        : fallbackQueue.indexWhere((track) => track.path == current.path);
+        : defaultQueue.indexWhere((track) => track.path == current.path);
     final nextIndex = currentIndex < 0
         ? 0
-        : (currentIndex + delta).clamp(0, fallbackQueue.length - 1);
-    await playQueueFrom(fallbackQueue, fallbackQueue[nextIndex]);
+        : (currentIndex + delta).clamp(0, defaultQueue.length - 1);
+    await playQueueFrom(defaultQueue, defaultQueue[nextIndex]);
   }
 
   Future<void> playNextFromQueue() async {

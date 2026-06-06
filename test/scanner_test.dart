@@ -8,7 +8,27 @@ import 'package:miaosic/music_scanner.dart';
 import 'package:miaosic/rust_music_scanner.dart';
 
 void main() {
-  test('Dart fallback scans generated FLAC fixture', () async {
+  test('requires Rust scanner dynamic library', () async {
+    final scanner = MusicScanner(rustScannerLoader: () => null);
+
+    expect(
+      scanner.scan('/tmp'),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('Rust scanner dynamic library is required'),
+        ),
+      ),
+    );
+  });
+
+  test('Rust scanner scans generated FLAC fixture', () async {
+    if (RustMusicScanner.tryLoad() == null) {
+      markTestSkipped('Rust dynamic library is not available');
+      return;
+    }
+
     final dir = await Directory.systemTemp.createTemp('miaosic_scan_fixture_');
     addTearDown(() async {
       if (await dir.exists()) {
@@ -17,45 +37,11 @@ void main() {
     });
     await _writeFixture(dir);
 
-    final result = await MusicScanner(
-      rustScannerLoader: () => null,
-    ).scan(dir.path);
+    final result = await MusicScanner().scan(dir.path);
 
-    expect(result.engine, 'dart');
+    expect(result.engine, 'rust');
     _expectFixtureShape(result);
   });
-
-  test(
-    'Rust scanner matches Dart fallback on generated FLAC fixture',
-    () async {
-      if (RustMusicScanner.tryLoad() == null) {
-        markTestSkipped('Rust dynamic library is not available');
-        return;
-      }
-
-      final dir = await Directory.systemTemp.createTemp('miaosic_scan_parity_');
-      addTearDown(() async {
-        if (await dir.exists()) {
-          await dir.delete(recursive: true);
-        }
-      });
-      await _writeFixture(dir);
-
-      final dartResult = await MusicScanner(
-        rustScannerLoader: () => null,
-      ).scan(dir.path);
-      final rustResult = await MusicScanner().scan(dir.path);
-
-      expect(rustResult.engine, 'rust');
-      expect(_trackMaps(rustResult), _trackMaps(dartResult));
-      expect(_folderMaps(rustResult), _folderMaps(dartResult));
-      expect(_albumMaps(rustResult), _albumMaps(dartResult));
-      expect(
-        rustResult.tracks.every((track) => track.coverArtPath == null),
-        true,
-      );
-    },
-  );
 }
 
 Future<void> _writeFixture(Directory root) async {
@@ -188,30 +174,4 @@ void _expectFixtureShape(ScanResult result) {
   expect(result.albums, hasLength(1));
   expect(result.albums.single.title, 'Album');
   expect(result.tracks.every((track) => track.coverArtPath == null), true);
-}
-
-List<Map<String, Object?>> _trackMaps(ScanResult result) {
-  return result.tracks.map((track) => track.toMap()..remove('id')).toList();
-}
-
-List<Map<String, Object?>> _folderMaps(ScanResult result) {
-  return result.folders
-      .map(
-        (folder) => {
-          'path': folder.path,
-          'name': folder.name,
-          'kind': folder.kind.dbValue,
-          'track_count': folder.trackCount,
-          'album_count': folder.albumCount,
-          'album_artist_count': folder.albumArtistCount,
-          'artist_count': folder.artistCount,
-          'year_count': folder.yearCount,
-          'cover_art_path': folder.coverArtPath,
-        },
-      )
-      .toList();
-}
-
-List<Map<String, Object?>> _albumMaps(ScanResult result) {
-  return result.albums.map((album) => album.toMap()).toList();
 }

@@ -11,8 +11,7 @@ focuses on:
 - playing local files on Linux with `media_kit`
 
 The scanner core is implemented in Rust under `native/music_core` and is called
-from Flutter through FFI. Dart keeps a fallback scanner for environments where
-the Rust dynamic library is unavailable.
+from Flutter through FFI. The Rust dynamic library is required at runtime.
 
 ## Platform Scope
 
