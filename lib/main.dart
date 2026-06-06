@@ -1493,6 +1493,7 @@ class _PlayerBar extends StatelessWidget {
         ),
         padding: const EdgeInsets.fromLTRB(20, 10, 20, 12),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             _Artwork(
               path: track?.coverArtPath,
@@ -1501,7 +1502,7 @@ class _PlayerBar extends StatelessWidget {
             ),
             const SizedBox(width: 14),
             Expanded(
-              flex: 4,
+              flex: 3,
               child: _TwoLineText(
                 title: track?.title ?? 'Nothing playing',
                 subtitle: track == null
@@ -1509,61 +1510,55 @@ class _PlayerBar extends StatelessWidget {
                     : '${track!.artist} · ${track!.folderName}',
               ),
             ),
+            const SizedBox(width: 12),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  tooltip: 'Previous',
+                  onPressed: track == null ? null : onPrevious,
+                  icon: const Icon(Icons.skip_previous),
+                ),
+                IconButton.filled(
+                  tooltip: playing ? 'Pause' : 'Play',
+                  onPressed: onToggle,
+                  icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+                ),
+                IconButton(
+                  tooltip: 'Next',
+                  onPressed: track == null ? null : onNext,
+                  icon: const Icon(Icons.skip_next),
+                ),
+              ],
+            ),
+            const SizedBox(width: 24),
             Expanded(
               flex: 5,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      IconButton(
-                        tooltip: 'Previous',
-                        onPressed: track == null ? null : onPrevious,
-                        icon: const Icon(Icons.skip_previous),
-                      ),
-                      IconButton.filled(
-                        tooltip: playing ? 'Pause' : 'Play',
-                        onPressed: onToggle,
-                        icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-                      ),
-                      IconButton(
-                        tooltip: 'Next',
-                        onPressed: track == null ? null : onNext,
-                        icon: const Icon(Icons.skip_next),
-                      ),
-                    ],
+                  SizedBox(width: 42, child: Text(_formatDuration(position))),
+                  Expanded(
+                    child: Slider(
+                      value: positionMs,
+                      max: durationMs.toDouble(),
+                      onChanged: track == null
+                          ? null
+                          : (value) {
+                              onSeek(Duration(milliseconds: value.round()));
+                            },
+                    ),
                   ),
-                  Row(
-                    children: [
-                      SizedBox(
-                        width: 42,
-                        child: Text(_formatDuration(position)),
-                      ),
-                      Expanded(
-                        child: Slider(
-                          value: positionMs,
-                          max: durationMs.toDouble(),
-                          onChanged: track == null
-                              ? null
-                              : (value) {
-                                  onSeek(Duration(milliseconds: value.round()));
-                                },
-                        ),
-                      ),
-                      SizedBox(
-                        width: 42,
-                        child: Text(
-                          _formatDuration(duration),
-                          textAlign: TextAlign.right,
-                        ),
-                      ),
-                    ],
+                  SizedBox(
+                    width: 42,
+                    child: Text(
+                      _formatDuration(duration),
+                      textAlign: TextAlign.right,
+                    ),
                   ),
                 ],
               ),
             ),
-            const Spacer(),
           ],
         ),
       ),
