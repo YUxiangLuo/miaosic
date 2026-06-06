@@ -392,6 +392,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   ScanProgress? _scanProgress;
   Track? _currentTrack;
   _LibraryView _view = _LibraryView.tracks;
+  String? _selectedPlaylistPath;
   String _query = '';
   bool _loading = true;
   bool _scanning = false;
@@ -477,6 +478,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _folders = folders;
         _albums = albums;
         _scanState = scanState;
+        if (_selectedPlaylistPath != null &&
+            !folders.any((folder) => folder.path == _selectedPlaylistPath)) {
+          _selectedPlaylistPath = null;
+        }
         _loading = false;
       });
     }
@@ -815,7 +820,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
             playlists: _playlistCount,
             scanState: _scanState,
             scanning: _scanning,
-            onSelected: (view) => setState(() => _view = view),
+            onSelected: (view) {
+              setState(() {
+                _view = view;
+                _selectedPlaylistPath = null;
+              });
+            },
           ),
           const VerticalDivider(width: 1),
           Expanded(
@@ -863,12 +873,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
         tracksByFolder: _tracksByFolder,
         onPlay: _playTrack,
       ),
-      _LibraryView.playlists => _PlaylistList(
-        folders: _playlistFolders,
-        tracksByFolder: _tracksByFolder,
-        onPlay: _playTrack,
-      ),
+      _LibraryView.playlists => _buildPlaylistsContent(),
     };
+  }
+
+  Widget _buildPlaylistsContent() {
+    final selectedPath = _selectedPlaylistPath;
+    final selectedFolder = selectedPath == null
+        ? null
+        : _folders
+              .where(
+                (folder) =>
+                    folder.kind == FolderKind.playlist &&
+                    folder.path == selectedPath,
+              )
+              .firstOrNull;
+    if (selectedFolder != null) {
+      final tracks = _tracksByFolder[selectedFolder.path] ?? const <Track>[];
+      return _PlaylistDetail(
+        folder: selectedFolder,
+        tracks: tracks,
+        currentPath: _currentTrack?.path,
+        onBack: () => setState(() => _selectedPlaylistPath = null),
+        onPlayAll: tracks.isEmpty ? null : () => _playTrack(tracks.first),
+        onPlayTrack: _playTrack,
+      );
+    }
+
+    return _PlaylistList(
+      folders: _playlistFolders,
+      tracksByFolder: _tracksByFolder,
+      onOpen: (folder) => setState(() => _selectedPlaylistPath = folder.path),
+      onPlay: _playTrack,
+    );
   }
 }
 
@@ -1378,11 +1415,13 @@ class _PlaylistList extends StatelessWidget {
   const _PlaylistList({
     required this.folders,
     required this.tracksByFolder,
+    required this.onOpen,
     required this.onPlay,
   });
 
   final List<FolderSummary> folders;
   final Map<String, List<Track>> tracksByFolder;
+  final ValueChanged<FolderSummary> onOpen;
   final ValueChanged<Track> onPlay;
 
   @override
@@ -1392,68 +1431,232 @@ class _PlaylistList extends StatelessWidget {
     }
 
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(22, 14, 22, 22),
+      padding: const EdgeInsets.fromLTRB(22, 16, 22, 22),
       itemCount: folders.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 6),
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final folder = folders[index];
         final firstTrack = tracksByFolder[folder.path]?.firstOrNull;
         return _PlaylistRow(
+          index: index,
           folder: folder,
-          onTap: firstTrack == null ? null : () => onPlay(firstTrack),
+          onOpen: () => onOpen(folder),
+          onPlay: firstTrack == null ? null : () => onPlay(firstTrack),
         );
       },
     );
   }
 }
 
-class _PlaylistRow extends StatelessWidget {
-  const _PlaylistRow({required this.folder, required this.onTap});
+class _PlaylistDetail extends StatelessWidget {
+  const _PlaylistDetail({
+    required this.folder,
+    required this.tracks,
+    required this.currentPath,
+    required this.onBack,
+    required this.onPlayAll,
+    required this.onPlayTrack,
+  });
 
   final FolderSummary folder;
-  final VoidCallback? onTap;
+  final List<Track> tracks;
+  final String? currentPath;
+  final VoidCallback onBack;
+  final VoidCallback? onPlayAll;
+  final ValueChanged<Track> onPlayTrack;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
+          decoration: BoxDecoration(
+            color: scheme.surface,
+            border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+          ),
+          child: Row(
+            children: [
+              IconButton(
+                tooltip: 'Back to playlists',
+                onPressed: onBack,
+                icon: const Icon(Icons.arrow_back),
+              ),
+              const SizedBox(width: 10),
+              _Artwork(
+                path: folder.coverArtPath,
+                size: 76,
+                icon: Icons.queue_music,
+              ),
+              const SizedBox(width: 18),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      folder.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w900),
+                    ),
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 16,
+                      runSpacing: 8,
+                      children: [
+                        _PlaylistMetric(
+                          icon: Icons.music_note,
+                          label: '${folder.trackCount} tracks',
+                        ),
+                        _PlaylistMetric(
+                          icon: Icons.album,
+                          label: '${folder.albumCount} albums',
+                        ),
+                        _PlaylistMetric(
+                          icon: Icons.person,
+                          label: '${folder.artistCount} artists',
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 16),
+              FilledButton.icon(
+                onPressed: onPlayAll,
+                icon: const Icon(Icons.play_arrow),
+                label: const Text('Play'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: _TrackList(
+            tracks: tracks,
+            currentPath: currentPath,
+            onPlay: onPlayTrack,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaylistRow extends StatelessWidget {
+  const _PlaylistRow({
+    required this.index,
+    required this.folder,
+    required this.onOpen,
+    required this.onPlay,
+  });
+
+  final int index;
+  final FolderSummary folder;
+  final VoidCallback onOpen;
+  final VoidCallback? onPlay;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onTap: onTap,
+      onTap: onOpen,
       child: Container(
-        height: 74,
-        padding: const EdgeInsets.symmetric(horizontal: 12),
+        height: 92,
+        padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+        decoration: BoxDecoration(
+          color: scheme.surface,
+          border: Border.all(color: scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(8),
+        ),
         child: Row(
           children: [
-            _Artwork(
-              path: folder.coverArtPath,
-              size: 54,
-              icon: Icons.queue_music,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: _TwoLineText(
-                title: folder.name,
-                subtitle:
-                    '${folder.trackCount} tracks · ${folder.albumCount} albums · ${folder.artistCount} artists',
-              ),
-            ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: scheme.secondaryContainer,
-                borderRadius: BorderRadius.circular(999),
-              ),
+            SizedBox(
+              width: 44,
               child: Text(
-                '${(folder.confidence * 100).round()}%',
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: scheme.onSecondaryContainer,
-                  fontWeight: FontWeight.w800,
+                'P${(index + 1).toString().padLeft(2, '0')}',
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: scheme.primary,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
+            ),
+            _Artwork(
+              path: folder.coverArtPath,
+              size: 62,
+              icon: Icons.queue_music,
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    folder.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w900),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 14,
+                    runSpacing: 6,
+                    children: [
+                      _PlaylistMetric(
+                        icon: Icons.music_note,
+                        label: '${folder.trackCount} tracks',
+                      ),
+                      _PlaylistMetric(
+                        icon: Icons.album,
+                        label: '${folder.albumCount} albums',
+                      ),
+                      _PlaylistMetric(
+                        icon: Icons.person,
+                        label: '${folder.artistCount} artists',
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            IconButton.filledTonal(
+              tooltip: 'Play playlist',
+              onPressed: onPlay,
+              icon: const Icon(Icons.play_arrow),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _PlaylistMetric extends StatelessWidget {
+  const _PlaylistMetric({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: scheme.onSurfaceVariant),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      ],
     );
   }
 }
