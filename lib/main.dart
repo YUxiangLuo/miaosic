@@ -501,6 +501,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return _playback.playQueueFrom(queue, track);
   }
 
+  Future<void> _playShuffledQueue(List<Track> queue) {
+    if (queue.isEmpty) {
+      return Future<void>.value();
+    }
+    final shuffled = queue.toList(growable: false)..shuffle(math.Random());
+    return _playQueueFrom(shuffled, shuffled.first);
+  }
+
   Future<void> _togglePlayPause() {
     return _playback.togglePlayPause(_filteredTracks);
   }
@@ -665,6 +673,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         onPlayAll: tracks.isEmpty
             ? null
             : () => _playQueueFrom(tracks, tracks.first),
+        onShuffleAll: tracks.isEmpty ? null : () => _playShuffledQueue(tracks),
         onPlayTrack: (track) => _playQueueFrom(tracks, track),
       );
     }
@@ -675,7 +684,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       trackCoverCache: _trackCoverCache,
       scrollController: _playlistListScrollController,
       onOpen: _selectPlaylist,
-      onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
     );
   }
 
@@ -1454,7 +1462,6 @@ class _PlaylistList extends StatelessWidget {
     required this.trackCoverCache,
     required this.scrollController,
     required this.onOpen,
-    required this.onPlay,
   });
 
   final List<FolderSummary> folders;
@@ -1462,7 +1469,6 @@ class _PlaylistList extends StatelessWidget {
   final Map<String, String?> trackCoverCache;
   final ScrollController scrollController;
   final ValueChanged<FolderSummary> onOpen;
-  final ValueChanged<List<Track>> onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -1510,7 +1516,6 @@ class _PlaylistList extends StatelessWidget {
               tracks: tracks,
               trackCoverCache: trackCoverCache,
               onOpen: () => onOpen(folder),
-              onPlay: tracks.isEmpty ? null : () => onPlay(tracks),
             );
           },
         );
@@ -1527,6 +1532,7 @@ class _PlaylistDetail extends StatelessWidget {
     required this.trackCoverCache,
     required this.onBack,
     required this.onPlayAll,
+    required this.onShuffleAll,
     required this.onPlayTrack,
   });
 
@@ -1536,6 +1542,7 @@ class _PlaylistDetail extends StatelessWidget {
   final Map<String, String?> trackCoverCache;
   final VoidCallback onBack;
   final VoidCallback? onPlayAll;
+  final VoidCallback? onShuffleAll;
   final ValueChanged<Track> onPlayTrack;
 
   @override
@@ -1573,12 +1580,32 @@ class _PlaylistDetail extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      folder.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w900),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Flexible(
+                          fit: FlexFit.loose,
+                          child: Text(
+                            folder.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w900),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        FilledButton.icon(
+                          onPressed: onPlayAll,
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('Play'),
+                        ),
+                        const SizedBox(width: 8),
+                        OutlinedButton.icon(
+                          onPressed: onShuffleAll,
+                          icon: const Icon(Icons.shuffle),
+                          label: const Text('Shuffle'),
+                        ),
+                      ],
                     ),
                     const SizedBox(height: 10),
                     Wrap(
@@ -1601,12 +1628,6 @@ class _PlaylistDetail extends StatelessWidget {
                     ),
                   ],
                 ),
-              ),
-              const SizedBox(width: 16),
-              FilledButton.icon(
-                onPressed: onPlayAll,
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Play'),
               ),
             ],
           ),
@@ -1631,14 +1652,12 @@ class _PlaylistRow extends StatelessWidget {
     required this.tracks,
     required this.trackCoverCache,
     required this.onOpen,
-    required this.onPlay,
   });
 
   final FolderSummary folder;
   final List<Track> tracks;
   final Map<String, String?> trackCoverCache;
   final VoidCallback onOpen;
-  final VoidCallback? onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -1672,30 +1691,13 @@ class _PlaylistRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      folder.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  IconButton.filled(
-                    tooltip: 'Play playlist',
-                    onPressed: onPlay,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 40,
-                      height: 40,
-                    ),
-                    padding: EdgeInsets.zero,
-                    icon: const Icon(Icons.play_arrow),
-                  ),
-                ],
+              Text(
+                folder.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
               ),
               const SizedBox(height: 8),
               Wrap(spacing: 16, runSpacing: 8, children: _playlistMetrics()),
