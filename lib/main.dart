@@ -693,6 +693,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return _PlaylistList(
       folders: _playlistFolders,
       tracksByFolder: _tracksByFolder,
+      trackCoverCache: _trackCoverCache,
       onOpen: _selectPlaylist,
       onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
     );
@@ -1489,12 +1490,14 @@ class _PlaylistList extends StatelessWidget {
   const _PlaylistList({
     required this.folders,
     required this.tracksByFolder,
+    required this.trackCoverCache,
     required this.onOpen,
     required this.onPlay,
   });
 
   final List<FolderSummary> folders;
   final Map<String, List<Track>> tracksByFolder;
+  final Map<String, String?> trackCoverCache;
   final ValueChanged<FolderSummary> onOpen;
   final ValueChanged<List<Track>> onPlay;
 
@@ -1514,6 +1517,8 @@ class _PlaylistList extends StatelessWidget {
         return _PlaylistRow(
           index: index,
           folder: folder,
+          tracks: tracks,
+          trackCoverCache: trackCoverCache,
           onOpen: () => onOpen(folder),
           onPlay: tracks.isEmpty ? null : () => onPlay(tracks),
         );
@@ -1632,62 +1637,56 @@ class _PlaylistRow extends StatelessWidget {
   const _PlaylistRow({
     required this.index,
     required this.folder,
+    required this.tracks,
+    required this.trackCoverCache,
     required this.onOpen,
     required this.onPlay,
   });
 
   final int index;
   final FolderSummary folder;
+  final List<Track> tracks;
+  final Map<String, String?> trackCoverCache;
   final VoidCallback onOpen;
   final VoidCallback? onPlay;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
+    final previewTracks = tracks.take(3).toList(growable: false);
+    final coverPaths = _playlistCoverPaths();
     return InkWell(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(10),
       onTap: onOpen,
       child: Container(
-        height: 92,
-        padding: const EdgeInsets.fromLTRB(12, 10, 14, 10),
+        height: 176,
+        padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: scheme.surface,
           border: Border.all(color: scheme.outlineVariant),
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(10),
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            SizedBox(
-              width: 44,
-              child: Text(
-                'P${(index + 1).toString().padLeft(2, '0')}',
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: scheme.primary,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-            ),
-            _Artwork(
-              path: folder.coverArtPath,
-              size: 62,
-              icon: Icons.queue_music,
-            ),
-            const SizedBox(width: 16),
+            _PlaylistCoverCollage(coverPaths: coverPaths),
+            const SizedBox(width: 18),
             Expanded(
               child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
                     folder.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w900),
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w900,
+                    ),
                   ),
-                  const SizedBox(height: 10),
+                  const SizedBox(height: 8),
                   Wrap(
-                    spacing: 14,
-                    runSpacing: 6,
+                    spacing: 16,
+                    runSpacing: 8,
                     children: [
                       _PlaylistMetric(
                         icon: Icons.music_note,
@@ -1703,17 +1702,158 @@ class _PlaylistRow extends StatelessWidget {
                       ),
                     ],
                   ),
+                  const Spacer(),
+                  if (previewTracks.isNotEmpty) ...[
+                    for (final track in previewTracks)
+                      _PlaylistPreviewTrack(track: track),
+                  ] else
+                    Text(
+                      'No tracks found',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
                 ],
               ),
             ),
-            const SizedBox(width: 12),
-            IconButton.filledTonal(
-              tooltip: 'Play playlist',
-              onPressed: onPlay,
-              icon: const Icon(Icons.play_arrow),
+            const SizedBox(width: 18),
+            Align(
+              alignment: Alignment.center,
+              child: IconButton.filled(
+                tooltip: 'Play playlist',
+                onPressed: onPlay,
+                icon: const Icon(Icons.play_arrow),
+              ),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  List<String> _playlistCoverPaths() {
+    final paths = <String>[];
+    for (final track in tracks) {
+      final path = trackCoverCache[track.path] ?? track.coverArtPath;
+      if (path != null && path.isNotEmpty && !paths.contains(path)) {
+        paths.add(path);
+      }
+      if (paths.length >= 4) {
+        return paths;
+      }
+    }
+    final folderCover = folder.coverArtPath;
+    if (folderCover != null && folderCover.isNotEmpty) {
+      paths.add(folderCover);
+    }
+    return paths;
+  }
+}
+
+class _PlaylistCoverCollage extends StatelessWidget {
+  const _PlaylistCoverCollage({required this.coverPaths});
+
+  final List<String> coverPaths;
+
+  @override
+  Widget build(BuildContext context) {
+    final paths = coverPaths.take(4).toList(growable: false);
+    return SizedBox.square(
+      dimension: 144,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: paths.length <= 1
+            ? _Artwork(
+                path: paths.isEmpty ? null : paths.first,
+                size: double.infinity,
+                icon: Icons.queue_music,
+                radius: 10,
+              )
+            : _CoverGrid(paths: paths),
+      ),
+    );
+  }
+}
+
+class _CoverGrid extends StatelessWidget {
+  const _CoverGrid({required this.paths});
+
+  final List<String> paths;
+
+  @override
+  Widget build(BuildContext context) {
+    final padded = paths.toList(growable: true);
+    while (padded.length < 4) {
+      padded.add(paths.last);
+    }
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(
+                child: _Artwork(
+                  path: padded[0],
+                  size: double.infinity,
+                  icon: Icons.music_note,
+                  radius: 0,
+                ),
+              ),
+              Expanded(
+                child: _Artwork(
+                  path: padded[1],
+                  size: double.infinity,
+                  icon: Icons.music_note,
+                  radius: 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(
+                child: _Artwork(
+                  path: padded[2],
+                  size: double.infinity,
+                  icon: Icons.music_note,
+                  radius: 0,
+                ),
+              ),
+              Expanded(
+                child: _Artwork(
+                  path: padded[3],
+                  size: double.infinity,
+                  icon: Icons.music_note,
+                  radius: 0,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaylistPreviewTrack extends StatelessWidget {
+  const _PlaylistPreviewTrack({required this.track});
+
+  final Track track;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Text(
+        '${track.title} · ${track.artist}',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(
+          context,
+        ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
       ),
     );
   }
