@@ -1130,9 +1130,6 @@ class _LibraryTrackTile extends StatelessWidget {
           color: selected
               ? scheme.primaryContainer.withValues(alpha: 0.65)
               : scheme.surface,
-          border: Border.all(
-            color: selected ? scheme.primary : scheme.outlineVariant,
-          ),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
