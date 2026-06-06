@@ -1645,14 +1645,12 @@ class _PlaylistRow extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     final coverPaths = _playlistCoverPaths();
     return InkWell(
-      borderRadius: BorderRadius.circular(10),
       onTap: onOpen,
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: scheme.surface,
           border: Border.all(color: scheme.outlineVariant),
-          borderRadius: BorderRadius.circular(10),
         ),
         child: _buildContent(context, scheme, coverPaths),
       ),
@@ -1763,13 +1761,12 @@ class _PlaylistCoverCollage extends StatelessWidget {
     return SizedBox.square(
       dimension: 188,
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
         child: paths.length <= 1
             ? _Artwork(
                 path: paths.isEmpty ? null : paths.first,
                 size: double.infinity,
                 icon: Icons.queue_music,
-                radius: 10,
+                radius: 0,
               )
             : _CoverGrid(paths: paths),
       ),
