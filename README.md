@@ -8,6 +8,10 @@ Miaosic is a local-first music player prototype. The current MVP focuses on:
 - browsing tracks, albums, and playlists
 - playing local files on Linux with `media_kit`
 
+The scanner core is implemented in Rust under `native/music_core` and is called
+from Flutter through FFI. Dart keeps a fallback scanner for environments where
+the Rust dynamic library is unavailable.
+
 ## Development Library
 
 The app currently uses this development root:
@@ -37,6 +41,7 @@ For the current development library, the expected shape is around:
 
 ```text
 tracks=3389
+engine=rust
 folders=163
 album_folders=133
 playlist_folders=30
@@ -49,4 +54,5 @@ albums=133
 flutter analyze
 flutter test
 flutter build linux --debug
+cargo check --manifest-path native/music_core/Cargo.toml
 ```

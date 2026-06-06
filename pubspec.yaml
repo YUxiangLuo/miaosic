@@ -39,6 +39,7 @@ dependencies:
   sqflite_common_ffi: ^2.4.1
   media_kit: ^1.2.6
   media_kit_libs_linux: ^1.2.1
+  ffi: ^2.2.0
 
 dev_dependencies:
   flutter_test:

@@ -1,18 +1,44 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 
 import 'flac_metadata.dart';
 import 'models.dart';
+import 'rust_music_scanner.dart';
 
 typedef ScanProgressCallback = void Function(ScanProgress progress);
 
 class MusicScanner {
+  RustMusicScanner? _rustScanner;
+
   Future<ScanResult> scan(
     String rootPath, {
     ScanProgressCallback? onProgress,
   }) async {
+    final rustScanner = _loadRustScanner();
+    if (rustScanner != null) {
+      onProgress?.call(
+        ScanProgress(filesSeen: 0, tracksParsed: 0, currentPath: rootPath),
+      );
+      final result = await Isolate.run(() {
+        final scanner = RustMusicScanner.tryLoad();
+        if (scanner == null) {
+          throw StateError('Rust scanner became unavailable in worker isolate');
+        }
+        return scanner.scan(rootPath);
+      });
+      onProgress?.call(
+        ScanProgress(
+          filesSeen: result.tracks.length,
+          tracksParsed: result.tracks.length,
+          currentPath: rootPath,
+        ),
+      );
+      return result;
+    }
+
     final stopwatch = Stopwatch()..start();
     final root = Directory(rootPath);
     if (!await root.exists()) {
@@ -58,11 +84,19 @@ class MusicScanner {
 
     return ScanResult(
       rootPath: rootPath,
+      engine: 'dart',
       tracks: tracks,
       folders: folders,
       albums: albums,
       elapsed: stopwatch.elapsed,
     );
+  }
+
+  RustMusicScanner? _loadRustScanner() {
+    if (Platform.environment['MIAOSIC_DISABLE_RUST_SCANNER'] == '1') {
+      return null;
+    }
+    return _rustScanner ??= RustMusicScanner.tryLoad();
   }
 
   Future<Track> _parseTrack(File file) async {

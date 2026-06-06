@@ -60,6 +60,27 @@ add_subdirectory("runner")
 # Run the Flutter tool portions of the build. This must not be removed.
 add_dependencies(${BINARY_NAME} flutter_assemble)
 
+# Build the Rust scanner core and bundle it beside the other native libraries.
+set(MUSIC_CORE_DIR "${CMAKE_SOURCE_DIR}/../native/music_core")
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+  set(MUSIC_CORE_CARGO_ARGS "")
+  set(MUSIC_CORE_LIBRARY "${MUSIC_CORE_DIR}/target/debug/libmusic_core.so")
+else()
+  set(MUSIC_CORE_CARGO_ARGS "--release")
+  set(MUSIC_CORE_LIBRARY "${MUSIC_CORE_DIR}/target/release/libmusic_core.so")
+endif()
+
+add_custom_command(
+  OUTPUT "${MUSIC_CORE_LIBRARY}"
+  COMMAND cargo build --manifest-path "${MUSIC_CORE_DIR}/Cargo.toml" ${MUSIC_CORE_CARGO_ARGS}
+  DEPENDS "${MUSIC_CORE_DIR}/Cargo.toml" "${MUSIC_CORE_DIR}/src/lib.rs"
+  WORKING_DIRECTORY "${MUSIC_CORE_DIR}"
+  COMMENT "Building Rust music_core"
+  VERBATIM
+)
+add_custom_target(music_core ALL DEPENDS "${MUSIC_CORE_LIBRARY}")
+add_dependencies(${BINARY_NAME} music_core)
+
 # Only the install-generated bundle's copy of the executable will launch
 # correctly, since the resources must in the right relative locations. To avoid
 # people trying to run the unbundled copy, put it in a subdirectory instead of
@@ -105,6 +126,10 @@ foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})
     DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
     COMPONENT Runtime)
 endforeach(bundled_library)
+
+install(FILES "${MUSIC_CORE_LIBRARY}"
+  DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
+  COMPONENT Runtime)
 
 # Copy the native assets provided by the build.dart from all packages.
 set(NATIVE_ASSETS_DIR "${PROJECT_BUILD_DIR}native_assets/linux/")

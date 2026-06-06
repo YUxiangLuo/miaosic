@@ -202,6 +202,7 @@ class AlbumSummary {
 class ScanResult {
   const ScanResult({
     required this.rootPath,
+    required this.engine,
     required this.tracks,
     required this.folders,
     required this.albums,
@@ -209,6 +210,7 @@ class ScanResult {
   });
 
   final String rootPath;
+  final String engine;
   final List<Track> tracks;
   final List<FolderSummary> folders;
   final List<AlbumSummary> albums;

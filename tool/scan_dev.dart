@@ -28,6 +28,7 @@ Future<void> main(List<String> args) async {
       .length;
 
   print('root=${result.rootPath}');
+  print('engine=${result.engine}');
   print('tracks=${result.tracks.length}');
   print('folders=${result.folders.length}');
   print('album_folders=$albumFolders');
