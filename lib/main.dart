@@ -93,7 +93,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final _scanner = MusicScanner();
   final _playback = PlaybackController();
   final _coverIndexer = TrackCoverIndexer();
-  final _searchController = TextEditingController();
   final _playlistListScrollController = ScrollController();
   final _rescanState = ValueNotifier<_RescanUiState>(
     const _RescanUiState(phase: _RescanPhase.idle),
@@ -110,7 +109,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   _LibraryView _view = _LibraryView.tracks;
   String? _selectedPlaylistPath;
   double _playlistListScrollOffset = 0;
-  String _query = '';
   bool _loading = true;
   bool _scanning = false;
   String? _error;
@@ -121,13 +119,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     _playback.addListener(_handlePlaybackChanged);
-    _searchController.addListener(_handleSearchChanged);
     unawaited(_openLibrary());
   }
 
   @override
   void dispose() {
-    _searchController.dispose();
     _playlistListScrollController.dispose();
     _rescanState.dispose();
     _coverIndexer.dispose();
@@ -142,10 +138,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (mounted) {
       setState(() {});
     }
-  }
-
-  void _handleSearchChanged() {
-    setState(() => _query = _searchController.text.trim().toLowerCase());
   }
 
   Future<void> _openLibrary() async {
@@ -510,50 +502,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _togglePlayPause() {
-    return _playback.togglePlayPause(_filteredTracks);
+    return _playback.togglePlayPause(_tracks);
   }
 
   Future<void> _skip(int delta) {
-    final source = _filteredTracks.isEmpty ? _tracks : _filteredTracks;
-    return _playback.skip(delta, source);
+    return _playback.skip(delta, _tracks);
   }
 
   Future<void> _seek(Duration position) => _playback.seek(position);
 
-  List<Track> get _filteredTracks {
-    if (_query.isEmpty) {
-      return _tracks;
-    }
-    return _tracks.where((track) {
-      final haystack =
-          '${track.title} ${track.artist} ${track.album} ${track.folderName}'
-              .toLowerCase();
-      return haystack.contains(_query);
-    }).toList();
-  }
-
-  List<AlbumSummary> get _filteredAlbums {
-    if (_query.isEmpty) {
-      return _albums;
-    }
-    return _albums.where((album) {
-      return '${album.title} ${album.albumArtist}'.toLowerCase().contains(
-        _query,
-      );
-    }).toList();
-  }
-
-  List<FolderSummary> get _playlistFolders {
-    final folders = _folders.where(
-      (folder) => folder.kind == FolderKind.playlist,
-    );
-    if (_query.isEmpty) {
-      return folders.toList();
-    }
-    return folders
-        .where((folder) => folder.name.toLowerCase().contains(_query))
-        .toList();
-  }
+  List<FolderSummary> get _playlistFolders =>
+      _folders.where((folder) => folder.kind == FolderKind.playlist).toList();
 
   int get _playlistCount =>
       _folders.where((folder) => folder.kind == FolderKind.playlist).length;
@@ -586,7 +545,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
             scanState: _scanState,
             musicRoot: _musicRoot,
             scanning: _scanning,
+            progress: _scanProgress,
+            error: _error,
             onEditMusicRoot: _handleMusicRootPressed,
+            onRescan: _handleRescanPressed,
             onSelected: (view) {
               setState(() {
                 _view = view;
@@ -598,14 +560,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
           Expanded(
             child: Column(
               children: [
-                _LibraryToolbar(
-                  view: _view,
-                  controller: _searchController,
-                  scanning: _scanning,
-                  progress: _scanProgress,
-                  error: _error,
-                  onRescan: _handleRescanPressed,
-                ),
                 Expanded(child: _buildContent()),
                 _PlayerBar(
                   track: currentTrack,
@@ -634,13 +588,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
     return switch (_view) {
       _LibraryView.tracks => _LibraryTrackList(
-        tracks: _filteredTracks,
+        tracks: _tracks,
         currentPath: _playback.currentTrack?.path,
         trackCoverCache: _trackCoverCache,
-        onPlay: (track) => _playQueueFrom(_filteredTracks, track),
+        onPlay: (track) => _playQueueFrom(_tracks, track),
       ),
       _LibraryView.albums => _AlbumGrid(
-        albums: _filteredAlbums,
+        albums: _albums,
         tracksByFolder: _tracksByFolder,
         onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
       ),
@@ -763,7 +717,10 @@ class _LibrarySidebar extends StatelessWidget {
     required this.scanState,
     required this.musicRoot,
     required this.scanning,
+    required this.progress,
+    required this.error,
     required this.onEditMusicRoot,
+    required this.onRescan,
     required this.onSelected,
   });
 
@@ -774,7 +731,10 @@ class _LibrarySidebar extends StatelessWidget {
   final Map<String, Object?>? scanState;
   final String musicRoot;
   final bool scanning;
+  final ScanProgress? progress;
+  final String? error;
   final VoidCallback onEditMusicRoot;
+  final VoidCallback onRescan;
   final ValueChanged<_LibraryView> onSelected;
 
   @override
@@ -827,7 +787,10 @@ class _LibrarySidebar extends StatelessWidget {
                 scanState: scanState,
                 musicRoot: musicRoot,
                 scanning: scanning,
+                progress: progress,
+                error: error,
                 onEditMusicRoot: onEditMusicRoot,
+                onRescan: onRescan,
               ),
             ),
           ],
@@ -902,13 +865,19 @@ class _LibraryStats extends StatelessWidget {
     required this.scanState,
     required this.musicRoot,
     required this.scanning,
+    required this.progress,
+    required this.error,
     required this.onEditMusicRoot,
+    required this.onRescan,
   });
 
   final Map<String, Object?>? scanState;
   final String musicRoot;
   final bool scanning;
+  final ScanProgress? progress;
+  final String? error;
   final VoidCallback onEditMusicRoot;
+  final VoidCallback onRescan;
 
   @override
   Widget build(BuildContext context) {
@@ -968,126 +937,51 @@ class _LibraryStats extends StatelessWidget {
               context,
             ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
           ),
+          if (scanning || error != null) ...[
+            const SizedBox(height: 10),
+            if (scanning) LinearProgressIndicator(value: null, minHeight: 3),
+            if (progress != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                '${progress!.tracksParsed} tracks',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+              Text(
+                progress!.currentPath,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+              ),
+            ],
+            if (error != null)
+              Text(
+                error!,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: scheme.error),
+              ),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.tonalIcon(
+              onPressed: scanning ? null : onRescan,
+              icon: scanning
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.refresh, size: 18),
+              label: Text(scanning ? 'Scanning' : 'Rescan'),
+            ),
+          ),
         ],
       ),
     );
-  }
-}
-
-class _LibraryToolbar extends StatelessWidget {
-  const _LibraryToolbar({
-    required this.view,
-    required this.controller,
-    required this.scanning,
-    required this.progress,
-    required this.error,
-    required this.onRescan,
-  });
-
-  final _LibraryView view;
-  final TextEditingController controller;
-  final bool scanning;
-  final ScanProgress? progress;
-  final String? error;
-  final VoidCallback onRescan;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SafeArea(
-      bottom: false,
-      child: Container(
-        padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
-        decoration: BoxDecoration(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
-        ),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        view.label,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        _subtitle,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SizedBox(
-                  width: 360,
-                  child: TextField(
-                    controller: controller,
-                    decoration: InputDecoration(
-                      prefixIcon: const Icon(Icons.search),
-                      hintText: 'Search local library',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      filled: true,
-                      fillColor: scheme.surface,
-                      isDense: true,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                IconButton.filledTonal(
-                  tooltip: 'Rescan library',
-                  onPressed: scanning ? null : onRescan,
-                  icon: scanning
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                ),
-              ],
-            ),
-            if (scanning || error != null) ...[
-              const SizedBox(height: 12),
-              if (scanning) LinearProgressIndicator(value: null, minHeight: 3),
-              if (progress != null) ...[
-                const SizedBox(height: 6),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${progress!.tracksParsed} tracks · ${progress!.currentPath}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ),
-              ],
-              if (error != null)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(error!, style: TextStyle(color: scheme.error)),
-                ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  String get _subtitle {
-    return switch (view) {
-      _LibraryView.tracks => 'Fast local browsing for the whole library',
-      _LibraryView.albums => 'Album folders detected from local metadata',
-      _LibraryView.playlists =>
-        'Playlist-like folders kept separate from albums',
-    };
   }
 }
 
