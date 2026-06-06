@@ -96,6 +96,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final _playback = PlaybackController();
   final _coverIndexer = PlaylistCoverIndexer();
   final _searchController = TextEditingController();
+  final _playlistListScrollController = ScrollController();
   final _rescanState = ValueNotifier<_RescanUiState>(
     const _RescanUiState(phase: _RescanPhase.idle),
   );
@@ -129,6 +130,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _playlistListScrollController.dispose();
     _rescanState.dispose();
     _coverIndexer.dispose();
     _playback
@@ -694,6 +696,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       folders: _playlistFolders,
       tracksByFolder: _tracksByFolder,
       trackCoverCache: _trackCoverCache,
+      scrollController: _playlistListScrollController,
       onOpen: _selectPlaylist,
       onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
     );
@@ -1491,6 +1494,7 @@ class _PlaylistList extends StatelessWidget {
     required this.folders,
     required this.tracksByFolder,
     required this.trackCoverCache,
+    required this.scrollController,
     required this.onOpen,
     required this.onPlay,
   });
@@ -1498,6 +1502,7 @@ class _PlaylistList extends StatelessWidget {
   final List<FolderSummary> folders;
   final Map<String, List<Track>> tracksByFolder;
   final Map<String, String?> trackCoverCache;
+  final ScrollController scrollController;
   final ValueChanged<FolderSummary> onOpen;
   final ValueChanged<List<Track>> onPlay;
 
@@ -1508,6 +1513,7 @@ class _PlaylistList extends StatelessWidget {
     }
 
     return ListView.separated(
+      controller: scrollController,
       padding: const EdgeInsets.fromLTRB(22, 16, 22, 22),
       itemCount: folders.length,
       separatorBuilder: (_, _) => const SizedBox(height: 10),
