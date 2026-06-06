@@ -1142,10 +1142,11 @@ class _PlaylistTrackList extends StatelessWidget {
       return const _EmptyState(message: 'No tracks found');
     }
 
+    final leftPadding = showArtwork ? 18.0 : 60.0;
     return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+      padding: EdgeInsets.fromLTRB(leftPadding, 14, 18, 18),
       itemCount: tracks.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 2),
+      separatorBuilder: (_, _) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         final track = tracks[index];
         final selected = track.path == currentPath;
@@ -1333,7 +1334,7 @@ class _PlaylistTrackRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
       child: Container(
-        height: 58,
+        height: 68,
         padding: const EdgeInsets.symmetric(horizontal: 10),
         decoration: BoxDecoration(
           color: selected
@@ -1344,11 +1345,11 @@ class _PlaylistTrackRow extends StatelessWidget {
         child: Row(
           children: [
             if (showArtwork || artworkPath != null) ...[
-              _Artwork(path: artworkPath, size: 42, icon: Icons.music_note),
-              const SizedBox(width: 12),
+              _Artwork(path: artworkPath, size: 50, icon: Icons.music_note),
+              const SizedBox(width: 14),
             ] else ...[
               SizedBox(
-                width: 42,
+                width: 50,
                 child: Text(
                   (index + 1).toString().padLeft(2, '0'),
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
@@ -1357,7 +1358,7 @@ class _PlaylistTrackRow extends StatelessWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 14),
             ],
             Expanded(
               flex: 5,
@@ -1556,6 +1557,11 @@ class _PlaylistDetail extends StatelessWidget {
               IconButton(
                 tooltip: 'Back to playlists',
                 onPressed: onBack,
+                constraints: const BoxConstraints.tightFor(
+                  width: 38,
+                  height: 38,
+                ),
+                padding: EdgeInsets.zero,
                 icon: const Icon(Icons.arrow_back),
               ),
               const SizedBox(width: 10),
