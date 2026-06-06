@@ -108,6 +108,33 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  test('updates scan state without replacing unchanged tracks', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_scan_state_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+    final unchanged = _track('/music/a.flac', size: 10, modified: 1);
+    await database.replaceLibrary(
+      _scanResult([unchanged], elapsed: const Duration(seconds: 37)),
+    );
+    final unchangedId = (await database.loadTracks()).single.id;
+
+    await database.saveScanState(
+      _scanResult([unchanged], elapsed: const Duration(milliseconds: 25)),
+    );
+
+    final scanState = await database.loadScanState();
+    expect(scanState?['elapsed_ms'], 25);
+    expect((await database.loadTracks()).single.id, unchangedId);
+
+    await database.close();
+    await dir.delete(recursive: true);
+  });
+
   test('loads only valid track cover cache entries', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -220,14 +247,14 @@ Future<Set<String>> _tables(Database db) async {
   return rows.map((row) => row['name'] as String).toSet();
 }
 
-ScanResult _scanResult(List<Track> tracks) {
+ScanResult _scanResult(List<Track> tracks, {Duration elapsed = Duration.zero}) {
   return ScanResult(
     rootPath: '/music',
     engine: 'test',
     tracks: tracks,
     folders: const [],
     albums: const [],
-    elapsed: Duration.zero,
+    elapsed: elapsed,
     coversCached: 0,
   );
 }

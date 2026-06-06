@@ -144,6 +144,13 @@ class LibraryDatabase {
     });
   }
 
+  Future<void> saveScanState(ScanResult result) async {
+    await _db.transaction((txn) async {
+      await txn.delete('scan_state');
+      await txn.insert('scan_state', _scanStateMap(result));
+    });
+  }
+
   Future<Map<String, Object?>?> loadScanState() async {
     final rows = await _db.query('scan_state', limit: 1);
     if (rows.isEmpty) {

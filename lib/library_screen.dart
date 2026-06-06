@@ -211,6 +211,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
         progress: null,
       );
       final diff = diffLibrary(snapshot, result);
+      if (!diff.hasChanges) {
+        await database.saveScanState(result);
+        if (!mounted) {
+          return;
+        }
+        final scanState = await database.loadScanState();
+        if (!mounted) {
+          return;
+        }
+        setState(() => _scanState = scanState);
+      }
       _rescanState.value = _RescanUiState(
         phase: _RescanPhase.ready,
         message: diff.hasChanges
