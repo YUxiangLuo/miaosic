@@ -1470,21 +1470,49 @@ class _PlaylistList extends StatelessWidget {
       return const _EmptyState(message: 'No playlist folders detected');
     }
 
-    return ListView.separated(
-      controller: scrollController,
-      padding: const EdgeInsets.fromLTRB(22, 16, 22, 22),
-      itemCount: folders.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, index) {
-        final folder = folders[index];
-        final tracks = tracksByFolder[folder.path] ?? const <Track>[];
-        return _PlaylistRow(
-          index: index,
-          folder: folder,
-          tracks: tracks,
-          trackCoverCache: trackCoverCache,
-          onOpen: () => onOpen(folder),
-          onPlay: tracks.isEmpty ? null : () => onPlay(tracks),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const horizontalPadding = 22.0;
+        const spacing = 14.0;
+        final availableWidth = math.max(
+          1.0,
+          constraints.maxWidth - horizontalPadding * 2,
+        );
+        final columns = math.min(
+          4,
+          math.max(1, (availableWidth / 440).floor()),
+        );
+        final cardWidth = math.max(
+          1.0,
+          (availableWidth - spacing * (columns - 1)) / columns,
+        );
+        const cardHeight = 220.0;
+        return GridView.builder(
+          controller: scrollController,
+          padding: const EdgeInsets.fromLTRB(
+            horizontalPadding,
+            16,
+            horizontalPadding,
+            22,
+          ),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: spacing,
+            mainAxisSpacing: spacing,
+            childAspectRatio: cardWidth / cardHeight,
+          ),
+          itemCount: folders.length,
+          itemBuilder: (context, index) {
+            final folder = folders[index];
+            final tracks = tracksByFolder[folder.path] ?? const <Track>[];
+            return _PlaylistRow(
+              folder: folder,
+              tracks: tracks,
+              trackCoverCache: trackCoverCache,
+              onOpen: () => onOpen(folder),
+              onPlay: tracks.isEmpty ? null : () => onPlay(tracks),
+            );
+          },
         );
       },
     );
@@ -1599,7 +1627,6 @@ class _PlaylistDetail extends StatelessWidget {
 
 class _PlaylistRow extends StatelessWidget {
   const _PlaylistRow({
-    required this.index,
     required this.folder,
     required this.tracks,
     required this.trackCoverCache,
@@ -1607,7 +1634,6 @@ class _PlaylistRow extends StatelessWidget {
     required this.onPlay,
   });
 
-  final int index;
   final FolderSummary folder;
   final List<Track> tracks;
   final Map<String, String?> trackCoverCache;
@@ -1617,82 +1643,86 @@ class _PlaylistRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final previewTracks = tracks.take(3).toList(growable: false);
     final coverPaths = _playlistCoverPaths();
     return InkWell(
       borderRadius: BorderRadius.circular(10),
       onTap: onOpen,
       child: Container(
-        height: 176,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
           color: scheme.surface,
           border: Border.all(color: scheme.outlineVariant),
           borderRadius: BorderRadius.circular(10),
         ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _PlaylistCoverCollage(coverPaths: coverPaths),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    folder.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 8,
-                    children: [
-                      _PlaylistMetric(
-                        icon: Icons.music_note,
-                        label: '${folder.trackCount} tracks',
-                      ),
-                      _PlaylistMetric(
-                        icon: Icons.album,
-                        label: '${folder.albumCount} albums',
-                      ),
-                      _PlaylistMetric(
-                        icon: Icons.person,
-                        label: '${folder.artistCount} artists',
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  if (previewTracks.isNotEmpty) ...[
-                    for (final track in previewTracks)
-                      _PlaylistPreviewTrack(track: track),
-                  ] else
-                    Text(
-                      'No tracks found',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: scheme.onSurfaceVariant,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 18),
-            Align(
-              alignment: Alignment.center,
-              child: IconButton.filled(
-                tooltip: 'Play playlist',
-                onPressed: onPlay,
-                icon: const Icon(Icons.play_arrow),
-              ),
-            ),
-          ],
-        ),
+        child: _buildContent(context, scheme, coverPaths),
       ),
     );
+  }
+
+  Widget _buildContent(
+    BuildContext context,
+    ColorScheme scheme,
+    List<String> coverPaths,
+  ) {
+    final previewTracks = tracks.take(3).toList(growable: false);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _PlaylistCoverCollage(coverPaths: coverPaths),
+        const SizedBox(width: 18),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                folder.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 8),
+              Wrap(spacing: 16, runSpacing: 8, children: _playlistMetrics()),
+              const Spacer(),
+              if (previewTracks.isNotEmpty) ...[
+                for (final track in previewTracks)
+                  _PlaylistPreviewTrack(track: track),
+              ] else
+                Text(
+                  'No tracks found',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: 18),
+        Align(
+          alignment: Alignment.center,
+          child: IconButton.filled(
+            tooltip: 'Play playlist',
+            onPressed: onPlay,
+            icon: const Icon(Icons.play_arrow),
+          ),
+        ),
+      ],
+    );
+  }
+
+  List<Widget> _playlistMetrics() {
+    return [
+      _PlaylistMetric(
+        icon: Icons.music_note,
+        label: '${folder.trackCount} tracks',
+      ),
+      _PlaylistMetric(icon: Icons.album, label: '${folder.albumCount} albums'),
+      _PlaylistMetric(
+        icon: Icons.person,
+        label: '${folder.artistCount} artists',
+      ),
+    ];
   }
 
   List<String> _playlistCoverPaths() {
