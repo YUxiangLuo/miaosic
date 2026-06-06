@@ -37,11 +37,13 @@ class _RescanDialog extends StatelessWidget {
     required this.stateListenable,
     required this.onApply,
     required this.onRescan,
+    required this.onFullRescan,
   });
 
   final ValueListenable<_RescanUiState> stateListenable;
   final Future<void> Function() onApply;
   final VoidCallback onRescan;
+  final VoidCallback onFullRescan;
 
   @override
   Widget build(BuildContext context) {
@@ -76,6 +78,10 @@ class _RescanDialog extends StatelessWidget {
               child: Text(
                 state.phase == _RescanPhase.error ? 'Retry' : 'Rescan',
               ),
+            ),
+            TextButton(
+              onPressed: busy ? null : onFullRescan,
+              child: const Text('Full rescan'),
             ),
             FilledButton(
               onPressed:

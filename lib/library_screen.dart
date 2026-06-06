@@ -154,14 +154,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _startRescanDiff();
   }
 
-  void _startRescanDiff() {
+  void _startRescanDiff({bool full = false}) {
     if (_rescanTask != null || _rescanState.value.phase.isBusy) {
       return;
     }
-    _rescanTask = _runRescanDiff().whenComplete(() => _rescanTask = null);
+    _rescanTask = _runRescanDiff(
+      full: full,
+    ).whenComplete(() => _rescanTask = null);
   }
 
-  Future<void> _runRescanDiff() async {
+  Future<void> _runRescanDiff({required bool full}) async {
     final database = _database;
     if (database == null) {
       return;
@@ -183,13 +185,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (!mounted) {
         return;
       }
-      _rescanState.value = const _RescanUiState(
+      _rescanState.value = _RescanUiState(
         phase: _RescanPhase.scanning,
-        message: 'Scanning local files',
+        message: full ? 'Fully scanning local files' : 'Scanning local files',
       );
       final result = await _scanner.scan(
         _musicRoot,
-        previousTracks: snapshot.tracks,
+        previousTracks: full ? null : snapshot.tracks,
         onProgress: (progress) {
           if (!mounted) {
             return;
@@ -197,7 +199,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _scanProgress = progress;
           _rescanState.value = _rescanState.value.copyWith(
             progress: progress,
-            message: 'Scanning local files',
+            message: full
+                ? 'Fully scanning local files'
+                : 'Scanning local files',
           );
           setState(() {});
         },
@@ -261,7 +265,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return _RescanDialog(
           stateListenable: _rescanState,
           onApply: _applyPendingDiff,
-          onRescan: _startRescanDiff,
+          onRescan: () => _startRescanDiff(),
+          onFullRescan: () => _startRescanDiff(full: true),
         );
       },
     ).whenComplete(() => _rescanDialogOpen = false);

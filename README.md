@@ -1,39 +1,45 @@
 # Miaosic
 
-Miaosic is a Linux-only, local-first music player prototype. The current MVP
-focuses on:
+Miaosic is a Linux-only, local-first FLAC music player. It scans a local music
+folder, stores the library in SQLite, caches artwork, and plays tracks with
+`media_kit`.
 
-- scanning a local FLAC library
-- detecting album folders vs playlist-like folders
-- caching local cover art for smooth browsing
-- storing the library in SQLite
-- browsing tracks, albums, and playlists
-- playing local files on Linux with `media_kit`
+## Screenshots
 
-The scanner core is implemented in Rust under `native/music_core` and is called
-from Flutter through FFI. The Rust dynamic library is required at runtime.
+| Albums | Playlists |
+| --- | --- |
+| ![Albums view](docs/screenshots/albums.png) | ![Playlists view](docs/screenshots/playlists.png) |
 
-## Platform Scope
+## Features
 
-Linux is the only supported runtime target for this prototype. The repository
-still contains Flutter's generated Android, iOS, macOS, Windows, and web
-scaffolding, but those platforms are not maintained or verified.
+- FLAC library scanning through a Rust FFI scanner.
+- Album, track, and playlist-folder browsing.
+- SQLite-backed local library state.
+- Incremental rescan for fast refreshes after the first scan.
+- Full rescan when metadata needs to be force-refreshed.
+- Local cover art caching for smooth grids and lists.
+- Linux playback through `media_kit`.
 
-## Development Library
+## Scope
 
-The app defaults to the current user's Music folder:
+Miaosic 0.2.0 is intentionally narrow:
+
+- Supported runtime: Linux.
+- Supported library format: `.flac`.
+- Android, iOS, macOS, Windows, and web scaffolding exists but is not maintained.
+
+## Library Data
+
+The default music root is:
 
 ```text
 $HOME/Music
 ```
 
-On first launch, Miaosic scans this folder and writes the library database to
-the platform application support directory as `miaosic.db`. Cover art is cached
-in the same support directory under `covers/`; the UI requests downsampled image
-decodes while rendering lists and grids.
-
-The music root can be changed from the Library panel in the app. The selected
-folder is stored in the local SQLite database and reused on the next launch.
+The music root can be changed from the Library panel. The selected folder,
+scanned library, and scan state are stored locally in the platform application
+support directory. Cover files are cached under `covers/` in the same app data
+area.
 
 ## Run
 
@@ -41,31 +47,29 @@ folder is stored in the local SQLite database and reused on the next launch.
 flutter run -d linux
 ```
 
-## Verify Scanner
-
-The scanner can be tested without opening the UI:
+## Build
 
 ```sh
-dart run tool/scan_dev.dart
+flutter build linux --release
 ```
 
-The output shape is:
+The release bundle is written to:
 
 ```text
-tracks=<number of FLAC tracks>
-engine=rust
-folders=<number of folders>
-album_folders=<number of album folders>
-playlist_folders=<number of playlist folders>
-albums=<number of detected albums>
-covers_cached=<number of newly written cover files>
+build/linux/x64/release/bundle/
 ```
 
-## Checks
+## Development Checks
 
 ```sh
 flutter analyze
 flutter test
-flutter build linux --debug
 cargo check --manifest-path native/music_core/Cargo.toml
+flutter build linux --release
+```
+
+The scanner can also be run without opening the UI:
+
+```sh
+dart run tool/scan_dev.dart
 ```
