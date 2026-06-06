@@ -1382,13 +1382,13 @@ class _AlbumGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final columns = math.max(2, (width / 190).floor());
+        final columns = math.min(6, math.max(2, (width / 190).floor()));
         return GridView.builder(
           padding: const EdgeInsets.all(22),
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 18,
+            crossAxisSpacing: 22,
+            mainAxisSpacing: 24,
             childAspectRatio: 0.72,
           ),
           itemCount: albums.length,
