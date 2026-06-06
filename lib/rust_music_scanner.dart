@@ -11,8 +11,28 @@ typedef _ScanLibraryNative =
     Pointer<Utf8> Function(Pointer<Utf8> rootPath, Pointer<Utf8> coverCacheDir);
 typedef _ScanLibraryDart =
     Pointer<Utf8> Function(Pointer<Utf8> rootPath, Pointer<Utf8> coverCacheDir);
+typedef _ProgressCallbackNative =
+    Void Function(
+      Uint64 filesSeen,
+      Uint64 tracksParsed,
+      Pointer<Utf8> currentPath,
+    );
+typedef _ScanLibraryWithProgressNative =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> rootPath,
+      Pointer<Utf8> coverCacheDir,
+      Pointer<NativeFunction<_ProgressCallbackNative>> progressCallback,
+    );
+typedef _ScanLibraryWithProgressDart =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> rootPath,
+      Pointer<Utf8> coverCacheDir,
+      Pointer<NativeFunction<_ProgressCallbackNative>> progressCallback,
+    );
 typedef _FreeStringNative = Void Function(Pointer<Utf8> value);
 typedef _FreeStringDart = void Function(Pointer<Utf8> value);
+
+typedef RustScanProgressCallback = void Function(ScanProgress progress);
 
 class RustMusicScanner {
   RustMusicScanner._(DynamicLibrary library)
@@ -20,11 +40,13 @@ class RustMusicScanner {
           .lookupFunction<_ScanLibraryNative, _ScanLibraryDart>(
             'miaosic_scan_library_with_covers',
           ),
+      _scanLibraryWithProgress = _lookupScanLibraryWithProgress(library),
       _freeString = library.lookupFunction<_FreeStringNative, _FreeStringDart>(
         'miaosic_free_string',
       );
 
   final _ScanLibraryDart _scanLibrary;
+  final _ScanLibraryWithProgressDart? _scanLibraryWithProgress;
   final _FreeStringDart _freeString;
 
   static RustMusicScanner? tryLoad() {
@@ -38,12 +60,46 @@ class RustMusicScanner {
     return null;
   }
 
-  Future<ScanResult> scan(String rootPath, String coverCacheDir) async {
+  Future<ScanResult> scan(
+    String rootPath,
+    String coverCacheDir, {
+    RustScanProgressCallback? onProgress,
+  }) async {
     final rootPointer = rootPath.toNativeUtf8();
     final coverCachePointer = coverCacheDir.toNativeUtf8();
+    NativeCallable<_ProgressCallbackNative>? progressCallback;
     Pointer<Utf8> responsePointer = nullptr;
     try {
-      responsePointer = _scanLibrary(rootPointer, coverCachePointer);
+      final progressScanner = _scanLibraryWithProgress;
+      if (progressScanner != null && onProgress != null) {
+        void handleProgress(
+          int filesSeen,
+          int tracksParsed,
+          Pointer<Utf8> currentPath,
+        ) {
+          final path = currentPath == nullptr
+              ? rootPath
+              : currentPath.toDartString();
+          onProgress(
+            ScanProgress(
+              filesSeen: filesSeen,
+              tracksParsed: tracksParsed,
+              currentPath: path,
+            ),
+          );
+        }
+
+        progressCallback = NativeCallable<_ProgressCallbackNative>.isolateLocal(
+          handleProgress,
+        );
+        responsePointer = progressScanner(
+          rootPointer,
+          coverCachePointer,
+          progressCallback.nativeFunction,
+        );
+      } else {
+        responsePointer = _scanLibrary(rootPointer, coverCachePointer);
+      }
       if (responsePointer == nullptr) {
         throw const FormatException('Rust scanner returned a null response');
       }
@@ -65,6 +121,20 @@ class RustMusicScanner {
       if (responsePointer != nullptr) {
         _freeString(responsePointer);
       }
+      progressCallback?.close();
+    }
+  }
+
+  static _ScanLibraryWithProgressDart? _lookupScanLibraryWithProgress(
+    DynamicLibrary library,
+  ) {
+    try {
+      return library.lookupFunction<
+        _ScanLibraryWithProgressNative,
+        _ScanLibraryWithProgressDart
+      >('miaosic_scan_library_with_covers_and_progress');
+    } catch (_) {
+      return null;
     }
   }
 

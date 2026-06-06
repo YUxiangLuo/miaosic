@@ -2,6 +2,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'library_diff.dart';
 import 'models.dart';
 
 class LibraryDatabase {
@@ -87,15 +88,7 @@ class LibraryDatabase {
       for (final album in result.albums) {
         batch.insert('albums', album.toMap());
       }
-      batch.insert('scan_state', {
-        'root_path': result.rootPath,
-        'track_count': result.tracks.length,
-        'folder_count': result.folders.length,
-        'album_count': result.albums.length,
-        'scanned_at_ms': DateTime.now().millisecondsSinceEpoch,
-        'elapsed_ms': result.elapsed.inMilliseconds,
-        'cover_cache_version': 1,
-      });
+      batch.insert('scan_state', _scanStateMap(result));
       await batch.commit(noResult: true);
     });
   }
@@ -106,6 +99,56 @@ class LibraryDatabase {
       return null;
     }
     return rows.first;
+  }
+
+  Future<LibrarySnapshot> loadSnapshot() async {
+    return LibrarySnapshot(
+      tracks: await loadTracks(),
+      folders: await loadFolders(),
+      albums: await loadAlbums(),
+      scanState: await loadScanState(),
+    );
+  }
+
+  Future<void> applyDiff(LibraryDiff diff) async {
+    await _db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final change in diff.removed) {
+        batch.delete('tracks', where: 'path = ?', whereArgs: [change.path]);
+      }
+      for (final change in diff.added) {
+        final track = change.newTrack;
+        if (track != null) {
+          batch.insert('tracks', track.toMap()..remove('id'));
+        }
+      }
+      for (final change in diff.modified) {
+        final track = change.newTrack;
+        if (track != null) {
+          final values = track.toMap()
+            ..remove('id')
+            ..remove('path');
+          batch.update(
+            'tracks',
+            values,
+            where: 'path = ?',
+            whereArgs: [track.path],
+          );
+        }
+      }
+
+      batch.delete('folders');
+      batch.delete('albums');
+      batch.delete('scan_state');
+      for (final folder in diff.result.folders) {
+        batch.insert('folders', folder.toMap());
+      }
+      for (final album in diff.result.albums) {
+        batch.insert('albums', album.toMap());
+      }
+      batch.insert('scan_state', _scanStateMap(diff.result));
+      await batch.commit(noResult: true);
+    });
   }
 
   static Future<void> _createSchema(Database db) async {
@@ -200,5 +243,17 @@ class LibraryDatabase {
     if (!exists) {
       await db.execute('ALTER TABLE $table ADD COLUMN $definition');
     }
+  }
+
+  static Map<String, Object?> _scanStateMap(ScanResult result) {
+    return {
+      'root_path': result.rootPath,
+      'track_count': result.tracks.length,
+      'folder_count': result.folders.length,
+      'album_count': result.albums.length,
+      'scanned_at_ms': DateTime.now().millisecondsSinceEpoch,
+      'elapsed_ms': result.elapsed.inMilliseconds,
+      'cover_cache_version': 1,
+    };
   }
 }

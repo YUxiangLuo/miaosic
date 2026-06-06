@@ -23,21 +23,62 @@ class MusicScanner {
       onProgress?.call(
         ScanProgress(filesSeen: 0, tracksParsed: 0, currentPath: rootPath),
       );
-      final result = await Isolate.run(() {
-        final scanner = RustMusicScanner.tryLoad();
-        if (scanner == null) {
-          throw StateError('Rust scanner became unavailable in worker isolate');
-        }
-        return scanner.scan(rootPath, coverCacheDir);
-      });
-      onProgress?.call(
-        ScanProgress(
-          filesSeen: result.tracks.length,
-          tracksParsed: result.tracks.length,
-          currentPath: rootPath,
-        ),
-      );
-      return result;
+      final shouldForwardProgress = onProgress != null;
+      final progressPort = shouldForwardProgress ? ReceivePort() : null;
+      StreamSubscription<Object?>? progressSub;
+      final progressListener = onProgress;
+      if (progressPort != null && progressListener != null) {
+        progressSub = progressPort.listen((message) {
+          if (message case [
+            final int filesSeen,
+            final int tracksParsed,
+            final String path,
+          ]) {
+            progressListener(
+              ScanProgress(
+                filesSeen: filesSeen,
+                tracksParsed: tracksParsed,
+                currentPath: path,
+              ),
+            );
+          }
+        });
+      }
+      final progressSendPort = progressPort?.sendPort;
+      try {
+        final result = await Isolate.run(() {
+          final scanner = RustMusicScanner.tryLoad();
+          if (scanner == null) {
+            throw StateError(
+              'Rust scanner became unavailable in worker isolate',
+            );
+          }
+          return scanner.scan(
+            rootPath,
+            coverCacheDir,
+            onProgress: !shouldForwardProgress
+                ? null
+                : (progress) {
+                    progressSendPort!.send([
+                      progress.filesSeen,
+                      progress.tracksParsed,
+                      progress.currentPath,
+                    ]);
+                  },
+          );
+        });
+        onProgress?.call(
+          ScanProgress(
+            filesSeen: result.tracks.length,
+            tracksParsed: result.tracks.length,
+            currentPath: rootPath,
+          ),
+        );
+        return result;
+      } finally {
+        await progressSub?.cancel();
+        progressPort?.close();
+      }
     }
 
     final stopwatch = Stopwatch()..start();

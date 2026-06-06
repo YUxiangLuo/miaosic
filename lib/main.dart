@@ -2,10 +2,12 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
 
 import 'library_database.dart';
+import 'library_diff.dart';
 import 'models.dart';
 import 'music_scanner.dart';
 
@@ -55,6 +57,318 @@ enum _LibraryView {
   final IconData icon;
 }
 
+enum _RescanPhase {
+  idle,
+  loadingDatabase,
+  scanning,
+  diffing,
+  ready,
+  applying,
+  done,
+  error;
+
+  bool get isBusy {
+    return this == _RescanPhase.loadingDatabase ||
+        this == _RescanPhase.scanning ||
+        this == _RescanPhase.diffing ||
+        this == _RescanPhase.applying;
+  }
+}
+
+class _RescanUiState {
+  const _RescanUiState({
+    required this.phase,
+    this.message = '',
+    this.progress,
+    this.diff,
+    this.error,
+  });
+
+  final _RescanPhase phase;
+  final String message;
+  final ScanProgress? progress;
+  final LibraryDiff? diff;
+  final String? error;
+
+  _RescanUiState copyWith({
+    _RescanPhase? phase,
+    String? message,
+    ScanProgress? progress,
+    LibraryDiff? diff,
+    String? error,
+  }) {
+    return _RescanUiState(
+      phase: phase ?? this.phase,
+      message: message ?? this.message,
+      progress: progress,
+      diff: diff ?? this.diff,
+      error: error,
+    );
+  }
+}
+
+class _RescanDialog extends StatelessWidget {
+  const _RescanDialog({
+    required this.stateListenable,
+    required this.onApply,
+    required this.onRetry,
+  });
+
+  final ValueListenable<_RescanUiState> stateListenable;
+  final Future<void> Function() onApply;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<_RescanUiState>(
+      valueListenable: stateListenable,
+      builder: (context, state, _) {
+        final busy = state.phase.isBusy;
+        final diff = state.diff;
+        return AlertDialog(
+          title: const Text('Rescan library'),
+          content: SizedBox(
+            width: 760,
+            height: 520,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _RescanStatus(state: state),
+                const SizedBox(height: 16),
+                Expanded(child: _RescanBody(state: state)),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: state.phase == _RescanPhase.applying
+                  ? null
+                  : () => Navigator.of(context).pop(),
+              child: const Text('Close'),
+            ),
+            if (state.phase == _RescanPhase.error)
+              TextButton(onPressed: onRetry, child: const Text('Retry')),
+            FilledButton(
+              onPressed:
+                  state.phase == _RescanPhase.ready &&
+                      !busy &&
+                      diff != null &&
+                      diff.hasChanges
+                  ? onApply
+                  : null,
+              child: const Text('Apply'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _RescanStatus extends StatelessWidget {
+  const _RescanStatus({required this.state});
+
+  final _RescanUiState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final progress = state.progress;
+    final diff = state.diff;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(_phaseIcon(state.phase), color: scheme.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                state.message.isEmpty
+                    ? _phaseLabel(state.phase)
+                    : state.message,
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+        if (state.phase.isBusy) ...[
+          const SizedBox(height: 10),
+          const LinearProgressIndicator(value: null, minHeight: 3),
+        ],
+        if (progress != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            '${progress.tracksParsed} tracks · ${progress.currentPath}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+        if (diff != null) ...[
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _DiffStat(label: 'Added', value: diff.added.length),
+              _DiffStat(label: 'Removed', value: diff.removed.length),
+              _DiffStat(label: 'Modified', value: diff.modified.length),
+              _DiffStat(label: 'Unchanged', value: diff.unchangedCount),
+            ],
+          ),
+        ],
+        if (state.error != null) ...[
+          const SizedBox(height: 10),
+          Text(state.error!, style: TextStyle(color: scheme.error)),
+        ],
+      ],
+    );
+  }
+
+  IconData _phaseIcon(_RescanPhase phase) {
+    return switch (phase) {
+      _RescanPhase.ready => Icons.fact_check,
+      _RescanPhase.done => Icons.check_circle,
+      _RescanPhase.error => Icons.error,
+      _RescanPhase.applying => Icons.save,
+      _ => Icons.sync,
+    };
+  }
+
+  String _phaseLabel(_RescanPhase phase) {
+    return switch (phase) {
+      _RescanPhase.idle => 'Ready to rescan',
+      _RescanPhase.loadingDatabase => 'Loading current library snapshot',
+      _RescanPhase.scanning => 'Scanning local files',
+      _RescanPhase.diffing => 'Comparing scan with database',
+      _RescanPhase.ready => 'Review changes before applying',
+      _RescanPhase.applying => 'Applying library changes',
+      _RescanPhase.done => 'Library refreshed',
+      _RescanPhase.error => 'Rescan failed',
+    };
+  }
+}
+
+class _DiffStat extends StatelessWidget {
+  const _DiffStat({required this.label, required this.value});
+
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Expanded(
+      child: Container(
+        margin: const EdgeInsets.only(right: 8),
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: scheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              value.toString(),
+              style: Theme.of(
+                context,
+              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+            ),
+            Text(label, style: Theme.of(context).textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RescanBody extends StatelessWidget {
+  const _RescanBody({required this.state});
+
+  final _RescanUiState state;
+
+  @override
+  Widget build(BuildContext context) {
+    final diff = state.diff;
+    if (state.phase == _RescanPhase.error) {
+      return const _EmptyState(message: 'Fix the error and retry the scan');
+    }
+    if (diff == null) {
+      return const _EmptyState(
+        message: 'Scanning will continue even if this window is closed',
+      );
+    }
+    if (!diff.hasChanges) {
+      return const _EmptyState(message: 'Library is already up to date');
+    }
+    return DefaultTabController(
+      length: 3,
+      child: Column(
+        children: [
+          TabBar(
+            tabs: [
+              Tab(text: 'Added ${diff.added.length}'),
+              Tab(text: 'Removed ${diff.removed.length}'),
+              Tab(text: 'Modified ${diff.modified.length}'),
+            ],
+          ),
+          Expanded(
+            child: TabBarView(
+              children: [
+                _ChangeList(changes: diff.added),
+                _ChangeList(changes: diff.removed),
+                _ChangeList(changes: diff.modified),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChangeList extends StatelessWidget {
+  const _ChangeList({required this.changes});
+
+  final List<TrackChange> changes;
+
+  @override
+  Widget build(BuildContext context) {
+    if (changes.isEmpty) {
+      return const _EmptyState(message: 'No tracks in this category');
+    }
+    return ListView.builder(
+      itemCount: changes.length,
+      itemBuilder: (context, index) {
+        final change = changes[index];
+        final track = change.newTrack ?? change.oldTrack!;
+        return ListTile(
+          dense: true,
+          leading: Icon(_changeIcon(change.reason)),
+          title: Text(
+            track.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          subtitle: Text(
+            '${track.artist} · ${track.album.isEmpty ? track.folderName : track.album}\n${track.path}',
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+          ),
+        );
+      },
+    );
+  }
+
+  IconData _changeIcon(TrackChangeReason reason) {
+    return switch (reason) {
+      TrackChangeReason.added => Icons.add_circle,
+      TrackChangeReason.removed => Icons.remove_circle,
+      TrackChangeReason.fileChanged => Icons.change_circle,
+    };
+  }
+}
+
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
 
@@ -66,6 +380,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final _scanner = MusicScanner();
   final _player = Player();
   final _searchController = TextEditingController();
+  final _rescanState = ValueNotifier<_RescanUiState>(
+    const _RescanUiState(phase: _RescanPhase.idle),
+  );
 
   LibraryDatabase? _database;
   List<Track> _tracks = const [];
@@ -82,6 +399,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   String? _error;
+  bool _rescanDialogOpen = false;
+  Future<void>? _rescanTask;
 
   late final StreamSubscription<bool> _playingSub;
   late final StreamSubscription<Duration> _positionSub;
@@ -114,6 +433,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _rescanState.dispose();
     unawaited(_playingSub.cancel());
     unawaited(_positionSub.cancel());
     unawaited(_durationSub.cancel());
@@ -202,6 +522,198 @@ class _LibraryScreenState extends State<LibraryScreen> {
         });
       }
     }
+  }
+
+  void _handleRescanPressed() {
+    _openRescanModal();
+    final phase = _rescanState.value.phase;
+    final currentDiff = _rescanState.value.diff;
+    final canStart =
+        phase == _RescanPhase.idle ||
+        phase == _RescanPhase.done ||
+        phase == _RescanPhase.error ||
+        (phase == _RescanPhase.ready && currentDiff?.hasChanges == false);
+    if (canStart && _rescanTask == null) {
+      _rescanTask = _runRescanDiff().whenComplete(() => _rescanTask = null);
+    }
+  }
+
+  Future<void> _runRescanDiff() async {
+    final database = _database;
+    if (database == null) {
+      return;
+    }
+
+    setState(() {
+      _scanning = true;
+      _error = null;
+      _scanProgress = null;
+    });
+    _rescanState.value = const _RescanUiState(
+      phase: _RescanPhase.loadingDatabase,
+      message: 'Loading current library snapshot',
+    );
+
+    try {
+      final snapshot = await database.loadSnapshot();
+      if (!mounted) {
+        return;
+      }
+      _rescanState.value = const _RescanUiState(
+        phase: _RescanPhase.scanning,
+        message: 'Scanning local files',
+      );
+      final result = await _scanner.scan(
+        defaultMusicRoot,
+        onProgress: (progress) {
+          if (!mounted) {
+            return;
+          }
+          _scanProgress = progress;
+          _rescanState.value = _rescanState.value.copyWith(
+            progress: progress,
+            message: 'Scanning local files',
+          );
+          setState(() {});
+        },
+      );
+      if (!mounted) {
+        return;
+      }
+      _rescanState.value = _rescanState.value.copyWith(
+        phase: _RescanPhase.diffing,
+        message: 'Comparing scan with database',
+        progress: null,
+      );
+      final diff = diffLibrary(snapshot, result);
+      _rescanState.value = _RescanUiState(
+        phase: _RescanPhase.ready,
+        message: diff.hasChanges
+            ? 'Review changes before applying'
+            : 'Library is up to date',
+        diff: diff,
+      );
+    } catch (error) {
+      if (mounted) {
+        _rescanState.value = _RescanUiState(
+          phase: _RescanPhase.error,
+          message: 'Rescan failed',
+          error: error.toString(),
+        );
+        setState(() => _error = error.toString());
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _scanning = false;
+          _scanProgress = null;
+        });
+      }
+    }
+  }
+
+  void _openRescanModal() {
+    if (_rescanDialogOpen) {
+      return;
+    }
+    _rescanDialogOpen = true;
+    showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (context) {
+        return _RescanDialog(
+          stateListenable: _rescanState,
+          onApply: _applyPendingDiff,
+          onRetry: () {
+            _rescanTask ??= _runRescanDiff().whenComplete(
+              () => _rescanTask = null,
+            );
+          },
+        );
+      },
+    ).whenComplete(() => _rescanDialogOpen = false);
+  }
+
+  Future<void> _applyPendingDiff() async {
+    final database = _database;
+    final diff = _rescanState.value.diff;
+    if (database == null || diff == null || !diff.hasChanges) {
+      return;
+    }
+
+    final risk = diff.deletionRisk();
+    if (risk.isLargeDeletion) {
+      final confirmed = await _confirmLargeDeletion(risk);
+      if (!mounted || !confirmed) {
+        return;
+      }
+    }
+
+    _rescanState.value = _rescanState.value.copyWith(
+      phase: _RescanPhase.applying,
+      message: 'Applying library changes',
+    );
+    try {
+      await database.applyDiff(diff);
+      if (!mounted) {
+        return;
+      }
+      await _loadFromDatabase();
+      if (!mounted) {
+        return;
+      }
+      final current = _currentTrack;
+      if (current != null &&
+          diff.removed.any((change) => change.path == current.path)) {
+        await _player.stop();
+        if (mounted) {
+          setState(() {
+            _currentTrack = null;
+            _position = Duration.zero;
+            _duration = Duration.zero;
+          });
+        }
+      }
+      _rescanState.value = _rescanState.value.copyWith(
+        phase: _RescanPhase.done,
+        message: 'Library refreshed',
+      );
+    } catch (error) {
+      if (mounted) {
+        _rescanState.value = _rescanState.value.copyWith(
+          phase: _RescanPhase.error,
+          message: 'Apply failed',
+          error: error.toString(),
+        );
+      }
+    }
+  }
+
+  Future<bool> _confirmLargeDeletion(DeletionRisk risk) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Confirm large removal'),
+          content: Text(
+            'This refresh would remove ${risk.removedCount} tracks '
+            '(${(risk.removedRatio * 100).toStringAsFixed(1)}% of the current library). '
+            'Check that the drive is mounted and the music root is correct before applying.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: const Text('Apply anyway'),
+            ),
+          ],
+        );
+      },
+    );
+    return confirmed ?? false;
   }
 
   Future<void> _playTrack(Track track) async {
@@ -315,7 +827,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   scanning: _scanning,
                   progress: _scanProgress,
                   error: _error,
-                  onRescan: _scanLibrary,
+                  onRescan: _handleRescanPressed,
                 ),
                 Expanded(child: _buildContent()),
                 _PlayerBar(

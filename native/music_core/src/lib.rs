@@ -10,6 +10,10 @@ use std::time::Instant;
 use walkdir::WalkDir;
 
 const MAX_COVER_BYTES: usize = 5 * 1024 * 1024;
+const PROGRESS_INTERVAL: u64 = 25;
+
+type ProgressCallback =
+    extern "C" fn(files_seen: u64, tracks_parsed: u64, current_path: *const c_char);
 
 #[derive(Serialize)]
 struct ScanResponse {
@@ -90,6 +94,49 @@ struct CoverCache {
     writes: u64,
 }
 
+struct ProgressReporter {
+    callback: Option<ProgressCallback>,
+    files_seen: u64,
+    tracks_parsed: u64,
+}
+
+impl ProgressReporter {
+    fn new(callback: Option<ProgressCallback>) -> Self {
+        Self {
+            callback,
+            files_seen: 0,
+            tracks_parsed: 0,
+        }
+    }
+
+    fn seen_file(&mut self) {
+        self.files_seen += 1;
+    }
+
+    fn parsed_track(&mut self) {
+        self.tracks_parsed += 1;
+    }
+
+    fn should_emit(&self) -> bool {
+        self.files_seen == 1 || self.files_seen % PROGRESS_INTERVAL == 0
+    }
+
+    fn emit_path(&self, current_path: &Path) {
+        self.emit(current_path);
+    }
+
+    fn emit(&self, current_path: &Path) {
+        let Some(callback) = self.callback else {
+            return;
+        };
+        let path = current_path.to_string_lossy();
+        let Ok(path) = CString::new(path.as_bytes()) else {
+            return;
+        };
+        callback(self.files_seen, self.tracks_parsed, path.as_ptr());
+    }
+}
+
 impl CoverCache {
     fn new(dir: Option<PathBuf>) -> Self {
         if let Some(dir) = dir.as_ref() {
@@ -155,9 +202,26 @@ pub extern "C" fn miaosic_scan_library_with_covers(
     root_path: *const c_char,
     cover_cache_dir: *const c_char,
 ) -> *mut c_char {
+    scan_library_response(root_path, cover_cache_dir, None)
+}
+
+#[no_mangle]
+pub extern "C" fn miaosic_scan_library_with_covers_and_progress(
+    root_path: *const c_char,
+    cover_cache_dir: *const c_char,
+    progress_callback: Option<ProgressCallback>,
+) -> *mut c_char {
+    scan_library_response(root_path, cover_cache_dir, progress_callback)
+}
+
+fn scan_library_response(
+    root_path: *const c_char,
+    cover_cache_dir: *const c_char,
+    progress_callback: Option<ProgressCallback>,
+) -> *mut c_char {
     let response = match read_c_string(root_path) {
         Ok(root) => match read_optional_c_string(cover_cache_dir).and_then(|cache_dir| {
-            scan_library(&root, cache_dir.as_deref()).map_err(|e| e.to_string())
+            scan_library(&root, cache_dir.as_deref(), progress_callback).map_err(|e| e.to_string())
         }) {
             Ok(result) => ScanResponse {
                 ok: true,
@@ -212,7 +276,11 @@ fn read_optional_c_string(value: *const c_char) -> Result<Option<String>, String
     read_c_string(value).map(Some)
 }
 
-fn scan_library(root_path: &str, cover_cache_dir: Option<&str>) -> io::Result<ScanResult> {
+fn scan_library(
+    root_path: &str,
+    cover_cache_dir: Option<&str>,
+    progress_callback: Option<ProgressCallback>,
+) -> io::Result<ScanResult> {
     let started = Instant::now();
     let root = Path::new(root_path);
     if !root.exists() {
@@ -224,6 +292,7 @@ fn scan_library(root_path: &str, cover_cache_dir: Option<&str>) -> io::Result<Sc
 
     let mut tracks = Vec::new();
     let mut cover_cache = CoverCache::new(cover_cache_dir.map(PathBuf::from));
+    let mut progress = ProgressReporter::new(progress_callback);
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = match entry {
             Ok(entry) => entry,
@@ -232,10 +301,16 @@ fn scan_library(root_path: &str, cover_cache_dir: Option<&str>) -> io::Result<Sc
         if !entry.file_type().is_file() || !is_audio_path(entry.path()) {
             continue;
         }
+        progress.seen_file();
         if let Ok(track) = parse_track(entry.path()) {
             tracks.push(track);
+            progress.parsed_track();
+        }
+        if progress.should_emit() {
+            progress.emit_path(entry.path());
         }
     }
+    progress.emit_path(root);
 
     tracks.sort_by(compare_tracks);
     apply_folder_covers(&mut tracks, &mut cover_cache);

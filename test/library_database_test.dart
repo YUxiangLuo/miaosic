@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaosic/library_database.dart';
+import 'package:miaosic/library_diff.dart';
+import 'package:miaosic/models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -34,6 +36,52 @@ void main() {
       contains('cover_cache_version'),
     );
     await upgraded.close();
+    await dir.delete(recursive: true);
+  });
+
+  test('applies diff without rewriting unchanged tracks', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp('miaosic_db_apply_test_');
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+    final unchanged = _track('/music/a.flac', size: 10, modified: 1);
+    final changedOld = _track('/music/b.flac', size: 10, modified: 1);
+    final removed = _track('/music/c.flac', size: 10, modified: 1);
+    await database.replaceLibrary(
+      _scanResult([unchanged, changedOld, removed]),
+    );
+
+    final before = await database.loadTracks();
+    final unchangedId = before
+        .firstWhere((track) => track.path == unchanged.path)
+        .id;
+    final changedNew = _track('/music/b.flac', size: 11, modified: 1);
+    final added = _track('/music/d.flac', size: 10, modified: 1);
+    final snapshot = await database.loadSnapshot();
+    final diff = diffLibrary(
+      snapshot,
+      _scanResult([unchanged, changedNew, added]),
+    );
+    await database.applyDiff(diff);
+
+    final after = await database.loadTracks();
+    expect(
+      after.map((track) => track.path),
+      containsAll(['/music/a.flac', '/music/b.flac', '/music/d.flac']),
+    );
+    expect(after.map((track) => track.path), isNot(contains('/music/c.flac')));
+    expect(
+      after.firstWhere((track) => track.path == unchanged.path).id,
+      unchangedId,
+    );
+    expect(
+      after.firstWhere((track) => track.path == changedNew.path).sizeBytes,
+      11,
+    );
+
+    await database.close();
     await dir.delete(recursive: true);
   });
 }
@@ -93,4 +141,34 @@ Future<void> _createV1Schema(Database db) async {
 Future<Set<String>> _columns(Database db, String table) async {
   final rows = await db.rawQuery('PRAGMA table_info($table)');
   return rows.map((row) => row['name'] as String).toSet();
+}
+
+ScanResult _scanResult(List<Track> tracks) {
+  return ScanResult(
+    rootPath: '/music',
+    engine: 'test',
+    tracks: tracks,
+    folders: const [],
+    albums: const [],
+    elapsed: Duration.zero,
+    coversCached: 0,
+  );
+}
+
+Track _track(String path, {required int size, required int modified}) {
+  return Track(
+    path: path,
+    folderPath: '/music',
+    title: path,
+    artist: 'Artist',
+    album: 'Album',
+    albumArtist: 'Artist',
+    trackNumber: null,
+    discNumber: null,
+    year: null,
+    durationMs: null,
+    sizeBytes: size,
+    modifiedMs: modified,
+    coverArtPath: null,
+  );
 }
