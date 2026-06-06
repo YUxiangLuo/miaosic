@@ -112,12 +112,12 @@ class _RescanDialog extends StatelessWidget {
   const _RescanDialog({
     required this.stateListenable,
     required this.onApply,
-    required this.onRetry,
+    required this.onRescan,
   });
 
   final ValueListenable<_RescanUiState> stateListenable;
   final Future<void> Function() onApply;
-  final VoidCallback onRetry;
+  final VoidCallback onRescan;
 
   @override
   Widget build(BuildContext context) {
@@ -147,8 +147,12 @@ class _RescanDialog extends StatelessWidget {
                   : () => Navigator.of(context).pop(),
               child: const Text('Close'),
             ),
-            if (state.phase == _RescanPhase.error)
-              TextButton(onPressed: onRetry, child: const Text('Retry')),
+            TextButton(
+              onPressed: busy ? null : onRescan,
+              child: Text(
+                state.phase == _RescanPhase.error ? 'Retry' : 'Rescan',
+              ),
+            ),
             FilledButton(
               onPressed:
                   state.phase == _RescanPhase.ready &&
@@ -566,16 +570,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   void _handleRescanPressed() {
     _openRescanModal();
-    final phase = _rescanState.value.phase;
-    final currentDiff = _rescanState.value.diff;
-    final canStart =
-        phase == _RescanPhase.idle ||
-        phase == _RescanPhase.done ||
-        phase == _RescanPhase.error ||
-        (phase == _RescanPhase.ready && currentDiff?.hasChanges == false);
-    if (canStart && _rescanTask == null) {
-      _rescanTask = _runRescanDiff().whenComplete(() => _rescanTask = null);
+    _startRescanDiff();
+  }
+
+  void _startRescanDiff() {
+    if (_rescanTask != null || _rescanState.value.phase.isBusy) {
+      return;
     }
+    _rescanTask = _runRescanDiff().whenComplete(() => _rescanTask = null);
   }
 
   Future<void> _runRescanDiff() async {
@@ -666,11 +668,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return _RescanDialog(
           stateListenable: _rescanState,
           onApply: _applyPendingDiff,
-          onRetry: () {
-            _rescanTask ??= _runRescanDiff().whenComplete(
-              () => _rescanTask = null,
-            );
-          },
+          onRescan: _startRescanDiff,
         );
       },
     ).whenComplete(() => _rescanDialogOpen = false);
