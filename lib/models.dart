@@ -116,6 +116,30 @@ class Track {
   }
 }
 
+class TrackCoverCacheEntry {
+  const TrackCoverCacheEntry({
+    required this.path,
+    required this.sizeBytes,
+    required this.modifiedMs,
+    required this.coverArtPath,
+  });
+
+  final String path;
+  final int sizeBytes;
+  final int modifiedMs;
+  final String? coverArtPath;
+
+  Map<String, Object?> toMap() {
+    return {
+      'path': path,
+      'size_bytes': sizeBytes,
+      'modified_ms': modifiedMs,
+      'cover_art_path': coverArtPath,
+      'checked_at_ms': DateTime.now().millisecondsSinceEpoch,
+    };
+  }
+}
+
 class FolderSummary {
   const FolderSummary({
     required this.path,

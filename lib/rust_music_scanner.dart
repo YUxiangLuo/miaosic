@@ -29,6 +29,16 @@ typedef _ScanLibraryWithProgressDart =
       Pointer<Utf8> coverCacheDir,
       Pointer<NativeFunction<_ProgressCallbackNative>> progressCallback,
     );
+typedef _ExtractTrackCoversNative =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> pathsJson,
+      Pointer<Utf8> coverCacheDir,
+    );
+typedef _ExtractTrackCoversDart =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> pathsJson,
+      Pointer<Utf8> coverCacheDir,
+    );
 typedef _FreeStringNative = Void Function(Pointer<Utf8> value);
 typedef _FreeStringDart = void Function(Pointer<Utf8> value);
 
@@ -41,12 +51,14 @@ class RustMusicScanner {
             'miaosic_scan_library_with_covers',
           ),
       _scanLibraryWithProgress = _lookupScanLibraryWithProgress(library),
+      _extractTrackCovers = _lookupExtractTrackCovers(library),
       _freeString = library.lookupFunction<_FreeStringNative, _FreeStringDart>(
         'miaosic_free_string',
       );
 
   final _ScanLibraryDart _scanLibrary;
   final _ScanLibraryWithProgressDart? _scanLibraryWithProgress;
+  final _ExtractTrackCoversDart? _extractTrackCovers;
   final _FreeStringDart _freeString;
 
   static RustMusicScanner? tryLoad() {
@@ -125,6 +137,48 @@ class RustMusicScanner {
     }
   }
 
+  Future<List<RustTrackCoverResult>> extractTrackCovers(
+    List<String> paths,
+    String coverCacheDir,
+  ) async {
+    final extractor = _extractTrackCovers;
+    if (extractor == null) {
+      return const [];
+    }
+    final pathsPointer = jsonEncode({'paths': paths}).toNativeUtf8();
+    final coverCachePointer = coverCacheDir.toNativeUtf8();
+    Pointer<Utf8> responsePointer = nullptr;
+    try {
+      responsePointer = extractor(pathsPointer, coverCachePointer);
+      if (responsePointer == nullptr) {
+        throw const FormatException('Rust cover extractor returned null');
+      }
+      final raw = responsePointer.toDartString();
+      final decoded = jsonDecode(raw) as Map<String, Object?>;
+      if (decoded['ok'] != true) {
+        throw StateError(
+          decoded['error'] as String? ?? 'Rust cover extractor failed',
+        );
+      }
+      final result = decoded['result'] as List<Object?>?;
+      if (result == null) {
+        throw const FormatException(
+          'Rust cover extractor response did not include result',
+        );
+      }
+      return result
+          .cast<Map<String, Object?>>()
+          .map(RustTrackCoverResult.fromJson)
+          .toList();
+    } finally {
+      calloc.free(pathsPointer);
+      calloc.free(coverCachePointer);
+      if (responsePointer != nullptr) {
+        _freeString(responsePointer);
+      }
+    }
+  }
+
   static _ScanLibraryWithProgressDart? _lookupScanLibraryWithProgress(
     DynamicLibrary library,
   ) {
@@ -133,6 +187,19 @@ class RustMusicScanner {
         _ScanLibraryWithProgressNative,
         _ScanLibraryWithProgressDart
       >('miaosic_scan_library_with_covers_and_progress');
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static _ExtractTrackCoversDart? _lookupExtractTrackCovers(
+    DynamicLibrary library,
+  ) {
+    try {
+      return library
+          .lookupFunction<_ExtractTrackCoversNative, _ExtractTrackCoversDart>(
+            'miaosic_extract_track_covers',
+          );
     } catch (_) {
       return null;
     }
@@ -175,6 +242,20 @@ class RustMusicScanner {
         'libmusic_core.so',
       ),
     ];
+  }
+}
+
+class RustTrackCoverResult {
+  const RustTrackCoverResult({required this.path, required this.coverArtPath});
+
+  final String path;
+  final String? coverArtPath;
+
+  static RustTrackCoverResult fromJson(Map<String, Object?> json) {
+    return RustTrackCoverResult(
+      path: json['path'] as String,
+      coverArtPath: json['cover_art_path'] as String?,
+    );
   }
 }
 

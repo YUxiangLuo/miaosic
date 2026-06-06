@@ -10,6 +10,7 @@ import 'library_database.dart';
 import 'library_diff.dart';
 import 'models.dart';
 import 'music_scanner.dart';
+import 'playlist_cover_indexer.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -377,8 +378,11 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class _LibraryScreenState extends State<LibraryScreen> {
+  static const _tracksCoverPrefetchLimit = 48;
+
   final _scanner = MusicScanner();
   final _player = Player();
+  final _coverIndexer = PlaylistCoverIndexer();
   final _searchController = TextEditingController();
   final _rescanState = ValueNotifier<_RescanUiState>(
     const _RescanUiState(phase: _RescanPhase.idle),
@@ -388,6 +392,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<Track> _tracks = const [];
   List<FolderSummary> _folders = const [];
   List<AlbumSummary> _albums = const [];
+  Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
   ScanProgress? _scanProgress;
   Track? _currentTrack;
@@ -404,6 +409,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   String? _error;
   bool _rescanDialogOpen = false;
   Future<void>? _rescanTask;
+  String? _tracksCoverPrefetchKey;
 
   late final StreamSubscription<bool> _playingSub;
   late final StreamSubscription<bool> _completedSub;
@@ -433,9 +439,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         setState(() => _duration = duration);
       }
     });
-    _searchController.addListener(() {
-      setState(() => _query = _searchController.text.trim().toLowerCase());
-    });
+    _searchController.addListener(_handleSearchChanged);
     unawaited(_openLibrary());
   }
 
@@ -443,6 +447,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void dispose() {
     _searchController.dispose();
     _rescanState.dispose();
+    _coverIndexer.dispose();
     unawaited(_playingSub.cancel());
     unawaited(_completedSub.cancel());
     unawaited(_positionSub.cancel());
@@ -450,6 +455,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     unawaited(_player.dispose());
     unawaited(_database?.close());
     super.dispose();
+  }
+
+  void _handleSearchChanged() {
+    setState(() => _query = _searchController.text.trim().toLowerCase());
+    if (_view == _LibraryView.tracks) {
+      _prefetchTracksPageCovers();
+    }
   }
 
   Future<void> _openLibrary() async {
@@ -493,6 +505,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
         }
         _loading = false;
       });
+      final selectedPath = _selectedPlaylistPath;
+      if (selectedPath != null) {
+        final tracksByFolder = _tracksByFolderMap(tracks);
+        unawaited(
+          _indexPlaylistCovers(
+            selectedPath,
+            tracksByFolder[selectedPath] ?? const <Track>[],
+          ),
+        );
+      } else if (_view == _LibraryView.tracks) {
+        _prefetchTracksPageCovers();
+      }
     }
   }
 
@@ -502,6 +526,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
 
+    _coverIndexer.cancel();
+    _tracksCoverPrefetchKey = null;
     setState(() {
       _scanning = true;
       _loading = false;
@@ -558,6 +584,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
 
+    _coverIndexer.cancel();
+    _tracksCoverPrefetchKey = null;
     setState(() {
       _scanning = true;
       _error = null;
@@ -870,10 +898,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
             scanState: _scanState,
             scanning: _scanning,
             onSelected: (view) {
+              _coverIndexer.cancel();
+              _tracksCoverPrefetchKey = null;
               setState(() {
                 _view = view;
                 _selectedPlaylistPath = null;
               });
+              if (view == _LibraryView.tracks) {
+                _prefetchTracksPageCovers();
+              }
             },
           ),
           const VerticalDivider(width: 1),
@@ -891,6 +924,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 Expanded(child: _buildContent()),
                 _PlayerBar(
                   track: _currentTrack,
+                  coverArtPath: _currentTrack == null
+                      ? null
+                      : _trackArtworkPath(_currentTrack!),
                   playing: _playing,
                   position: _position,
                   duration: _duration,
@@ -915,6 +951,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _LibraryView.tracks => _TrackList(
         tracks: _filteredTracks,
         currentPath: _currentTrack?.path,
+        trackCoverCache: _trackCoverCache,
         onPlay: (track) => _playQueueFrom(_filteredTracks, track),
       ),
       _LibraryView.albums => _AlbumGrid(
@@ -943,7 +980,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
         folder: selectedFolder,
         tracks: tracks,
         currentPath: _currentTrack?.path,
-        onBack: () => setState(() => _selectedPlaylistPath = null),
+        trackCoverCache: _trackCoverCache,
+        onBack: () {
+          _coverIndexer.cancel();
+          setState(() => _selectedPlaylistPath = null);
+        },
         onPlayAll: tracks.isEmpty
             ? null
             : () => _playQueueFrom(tracks, tracks.first),
@@ -954,9 +995,94 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return _PlaylistList(
       folders: _playlistFolders,
       tracksByFolder: _tracksByFolder,
-      onOpen: (folder) => setState(() => _selectedPlaylistPath = folder.path),
+      onOpen: _selectPlaylist,
       onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
     );
+  }
+
+  void _selectPlaylist(FolderSummary folder) {
+    _coverIndexer.cancel();
+    _tracksCoverPrefetchKey = null;
+    setState(() => _selectedPlaylistPath = folder.path);
+    final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
+    unawaited(_indexPlaylistCovers(folder.path, tracks));
+  }
+
+  void _prefetchTracksPageCovers() {
+    if (_database == null) {
+      return;
+    }
+    final tracks = _filteredTracks.take(_tracksCoverPrefetchLimit).toList();
+    if (tracks.isEmpty) {
+      _tracksCoverPrefetchKey = null;
+      return;
+    }
+    final key = tracks.map((track) => track.path).join('\n');
+    if (key == _tracksCoverPrefetchKey) {
+      return;
+    }
+    _tracksCoverPrefetchKey = key;
+    unawaited(_indexTracksPageCovers(tracks, key));
+  }
+
+  Future<void> _indexTracksPageCovers(List<Track> tracks, String key) async {
+    final database = _database;
+    if (database == null || tracks.isEmpty) {
+      return;
+    }
+    try {
+      await _coverIndexer.indexPlaylist(
+        tracks: tracks,
+        database: database,
+        shouldPause: () =>
+            _scanning ||
+            !mounted ||
+            _view != _LibraryView.tracks ||
+            _tracksCoverPrefetchKey != key,
+        onCacheUpdated: (updates) {
+          if (!mounted || updates.isEmpty || _view != _LibraryView.tracks) {
+            return;
+          }
+          setState(() {
+            _trackCoverCache = {..._trackCoverCache, ...updates};
+          });
+        },
+      );
+    } catch (_) {
+      // Track-page cover prefetch is best-effort and must stay invisible.
+    }
+  }
+
+  Future<void> _indexPlaylistCovers(
+    String playlistPath,
+    List<Track> tracks,
+  ) async {
+    final database = _database;
+    if (database == null || tracks.isEmpty) {
+      return;
+    }
+    try {
+      await _coverIndexer.indexPlaylist(
+        tracks: tracks,
+        database: database,
+        shouldPause: () =>
+            _scanning || !mounted || _selectedPlaylistPath != playlistPath,
+        onCacheUpdated: (updates) {
+          if (!mounted || updates.isEmpty) {
+            return;
+          }
+          setState(() {
+            _trackCoverCache = {..._trackCoverCache, ...updates};
+          });
+        },
+      );
+    } catch (_) {
+      // Per-track covers are opportunistic; browsing and playback continue.
+    }
+  }
+
+  String? _trackArtworkPath(Track track) {
+    return _trackCoverCache[track.path] ?? track.coverArtPath;
   }
 }
 
@@ -1274,12 +1400,14 @@ class _TrackList extends StatelessWidget {
     required this.tracks,
     required this.currentPath,
     required this.onPlay,
+    this.trackCoverCache = const {},
     this.showArtwork = true,
   });
 
   final List<Track> tracks;
   final String? currentPath;
   final ValueChanged<Track> onPlay;
+  final Map<String, String?> trackCoverCache;
   final bool showArtwork;
 
   @override
@@ -1295,11 +1423,15 @@ class _TrackList extends StatelessWidget {
       itemBuilder: (context, index) {
         final track = tracks[index];
         final selected = track.path == currentPath;
+        final trackCoverPath = trackCoverCache[track.path];
         return _TrackRow(
           index: index,
           track: track,
           selected: selected,
           showArtwork: showArtwork,
+          artworkPath: showArtwork
+              ? trackCoverPath ?? track.coverArtPath
+              : trackCoverPath,
           onTap: () => onPlay(track),
         );
       },
@@ -1313,6 +1445,7 @@ class _TrackRow extends StatelessWidget {
     required this.track,
     required this.selected,
     required this.showArtwork,
+    required this.artworkPath,
     required this.onTap,
   });
 
@@ -1320,6 +1453,7 @@ class _TrackRow extends StatelessWidget {
   final Track track;
   final bool selected;
   final bool showArtwork;
+  final String? artworkPath;
   final VoidCallback onTap;
 
   @override
@@ -1339,12 +1473,8 @@ class _TrackRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            if (showArtwork) ...[
-              _Artwork(
-                path: track.coverArtPath,
-                size: 42,
-                icon: Icons.music_note,
-              ),
+            if (showArtwork || artworkPath != null) ...[
+              _Artwork(path: artworkPath, size: 42, icon: Icons.music_note),
               const SizedBox(width: 12),
             ] else ...[
               SizedBox(
@@ -1526,6 +1656,7 @@ class _PlaylistDetail extends StatelessWidget {
     required this.folder,
     required this.tracks,
     required this.currentPath,
+    required this.trackCoverCache,
     required this.onBack,
     required this.onPlayAll,
     required this.onPlayTrack,
@@ -1534,6 +1665,7 @@ class _PlaylistDetail extends StatelessWidget {
   final FolderSummary folder;
   final List<Track> tracks;
   final String? currentPath;
+  final Map<String, String?> trackCoverCache;
   final VoidCallback onBack;
   final VoidCallback? onPlayAll;
   final ValueChanged<Track> onPlayTrack;
@@ -1610,6 +1742,7 @@ class _PlaylistDetail extends StatelessWidget {
           child: _TrackList(
             tracks: tracks,
             currentPath: currentPath,
+            trackCoverCache: trackCoverCache,
             showArtwork: false,
             onPlay: onPlayTrack,
           ),
@@ -1738,6 +1871,7 @@ class _PlaylistMetric extends StatelessWidget {
 class _PlayerBar extends StatelessWidget {
   const _PlayerBar({
     required this.track,
+    required this.coverArtPath,
     required this.playing,
     required this.position,
     required this.duration,
@@ -1748,6 +1882,7 @@ class _PlayerBar extends StatelessWidget {
   });
 
   final Track? track;
+  final String? coverArtPath;
   final bool playing;
   final Duration position;
   final Duration duration;
@@ -1772,11 +1907,7 @@ class _PlayerBar extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _Artwork(
-              path: track?.coverArtPath,
-              size: 56,
-              icon: Icons.music_note,
-            ),
+            _Artwork(path: coverArtPath, size: 56, icon: Icons.music_note),
             const SizedBox(width: 14),
             Expanded(
               flex: 3,

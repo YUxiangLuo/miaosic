@@ -4,6 +4,7 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 
+import 'cover_cache.dart';
 import 'flac_metadata.dart';
 import 'models.dart';
 import 'rust_music_scanner.dart';
@@ -49,7 +50,7 @@ class MusicScanner {
   }) async {
     final rustScanner = _loadRustScanner();
     if (rustScanner != null) {
-      final coverCacheDir = await _coverCacheDir();
+      final cacheDir = await coverCacheDir();
       onProgress?.call(
         ScanProgress(filesSeen: 0, tracksParsed: 0, currentPath: rootPath),
       );
@@ -80,7 +81,7 @@ class MusicScanner {
       try {
         worker = await Isolate.spawn<List<Object?>>(_rustScanWorker, [
           rootPath,
-          coverCacheDir,
+          cacheDir,
           resultPort.sendPort,
           shouldForwardProgress ? progressSendPort : null,
         ]);
@@ -165,20 +166,6 @@ class MusicScanner {
       return null;
     }
     return _rustScanner ??= RustMusicScanner.tryLoad();
-  }
-
-  Future<String> _coverCacheDir() async {
-    final env = Platform.environment;
-    final dataHome =
-        env['XDG_DATA_HOME'] ??
-        (env['HOME'] == null
-            ? p.join(Directory.systemTemp.path, 'miaosic')
-            : p.join(env['HOME']!, '.local', 'share'));
-    final dir = Directory(p.join(dataHome, 'com.example.miaosic', 'covers'));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-    }
-    return dir.path;
   }
 
   Future<Track> _parseTrack(File file) async {

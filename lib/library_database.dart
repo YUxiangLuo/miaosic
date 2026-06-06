@@ -13,7 +13,6 @@ class LibraryDatabase {
 
   static Future<LibraryDatabase> open() async {
     sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
 
     final appDir = await getApplicationSupportDirectory();
     if (!await appDir.exists()) {
@@ -25,18 +24,20 @@ class LibraryDatabase {
 
   static Future<LibraryDatabase> openAtPath(String dbPath) async {
     sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
 
-    final db = await databaseFactory.openDatabase(
+    final db = await databaseFactoryFfi.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: (db, version) async {
           await _createSchema(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await _upgradeToV2(db);
+          }
+          if (oldVersion < 3) {
+            await _upgradeToV3(db);
           }
         },
       ),
@@ -69,6 +70,51 @@ class LibraryDatabase {
       orderBy: 'album_artist COLLATE NOCASE, year, title COLLATE NOCASE',
     );
     return rows.map(AlbumSummary.fromMap).toList();
+  }
+
+  Future<Map<String, String?>> loadTrackCoverCache(List<Track> tracks) async {
+    if (tracks.isEmpty) {
+      return const {};
+    }
+
+    final tracksByPath = {for (final track in tracks) track.path: track};
+    final cached = <String, String?>{};
+    final paths = tracksByPath.keys.toList();
+    for (var start = 0; start < paths.length; start += 450) {
+      final chunk = paths.skip(start).take(450).toList();
+      final placeholders = List.filled(chunk.length, '?').join(', ');
+      final rows = await _db.query(
+        'track_cover_cache',
+        where: 'path IN ($placeholders)',
+        whereArgs: chunk,
+      );
+      for (final row in rows) {
+        final path = row['path'] as String;
+        final track = tracksByPath[path];
+        if (track == null) {
+          continue;
+        }
+        if (row['size_bytes'] == track.sizeBytes &&
+            row['modified_ms'] == track.modifiedMs) {
+          cached[path] = row['cover_art_path'] as String?;
+        }
+      }
+    }
+    return cached;
+  }
+
+  Future<void> saveTrackCoverCache(
+    Iterable<TrackCoverCacheEntry> entries,
+  ) async {
+    final batch = _db.batch();
+    for (final entry in entries) {
+      batch.insert(
+        'track_cover_cache',
+        entry.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   Future<void> replaceLibrary(ScanResult result) async {
@@ -115,6 +161,11 @@ class LibraryDatabase {
       final batch = txn.batch();
       for (final change in diff.removed) {
         batch.delete('tracks', where: 'path = ?', whereArgs: [change.path]);
+        batch.delete(
+          'track_cover_cache',
+          where: 'path = ?',
+          whereArgs: [change.path],
+        );
       }
       for (final change in diff.added) {
         final track = change.newTrack;
@@ -219,6 +270,7 @@ class LibraryDatabase {
         cover_cache_version INTEGER NOT NULL DEFAULT 1
       )
     ''');
+    await _createTrackCoverCacheTable(db);
   }
 
   static Future<void> _upgradeToV2(Database db) async {
@@ -230,6 +282,22 @@ class LibraryDatabase {
       'scan_state',
       'cover_cache_version INTEGER NOT NULL DEFAULT 0',
     );
+  }
+
+  static Future<void> _upgradeToV3(Database db) async {
+    await _createTrackCoverCacheTable(db);
+  }
+
+  static Future<void> _createTrackCoverCacheTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS track_cover_cache (
+        path TEXT PRIMARY KEY,
+        size_bytes INTEGER NOT NULL,
+        modified_ms INTEGER NOT NULL,
+        cover_art_path TEXT,
+        checked_at_ms INTEGER NOT NULL
+      )
+    ''');
   }
 
   static Future<void> _addColumnIfMissing(

@@ -35,6 +35,7 @@ void main() {
       await _columns(upgraded, 'scan_state'),
       contains('cover_cache_version'),
     );
+    expect(await _tables(upgraded), contains('track_cover_cache'));
     await upgraded.close();
     await dir.delete(recursive: true);
   });
@@ -80,6 +81,53 @@ void main() {
       after.firstWhere((track) => track.path == changedNew.path).sizeBytes,
       11,
     );
+
+    await database.close();
+    await dir.delete(recursive: true);
+  });
+
+  test('loads only valid track cover cache entries', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp('miaosic_cover_test_');
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+    final valid = _track('/music/a.flac', size: 10, modified: 1);
+    final checkedMissing = _track('/music/b.flac', size: 11, modified: 1);
+    final changed = _track('/music/c.flac', size: 12, modified: 1);
+
+    await database.saveTrackCoverCache([
+      TrackCoverCacheEntry(
+        path: valid.path,
+        sizeBytes: valid.sizeBytes,
+        modifiedMs: valid.modifiedMs,
+        coverArtPath: '/cache/a.jpg',
+      ),
+      TrackCoverCacheEntry(
+        path: checkedMissing.path,
+        sizeBytes: checkedMissing.sizeBytes,
+        modifiedMs: checkedMissing.modifiedMs,
+        coverArtPath: null,
+      ),
+      TrackCoverCacheEntry(
+        path: changed.path,
+        sizeBytes: changed.sizeBytes,
+        modifiedMs: changed.modifiedMs + 1,
+        coverArtPath: '/cache/stale.jpg',
+      ),
+    ]);
+
+    final cached = await database.loadTrackCoverCache([
+      valid,
+      checkedMissing,
+      changed,
+    ]);
+
+    expect(cached[valid.path], '/cache/a.jpg');
+    expect(cached.containsKey(checkedMissing.path), isTrue);
+    expect(cached[checkedMissing.path], isNull);
+    expect(cached.containsKey(changed.path), isFalse);
 
     await database.close();
     await dir.delete(recursive: true);
@@ -140,6 +188,13 @@ Future<void> _createV1Schema(Database db) async {
 
 Future<Set<String>> _columns(Database db, String table) async {
   final rows = await db.rawQuery('PRAGMA table_info($table)');
+  return rows.map((row) => row['name'] as String).toSet();
+}
+
+Future<Set<String>> _tables(Database db) async {
+  final rows = await db.rawQuery(
+    "SELECT name FROM sqlite_master WHERE type = 'table'",
+  );
   return rows.map((row) => row['name'] as String).toSet();
 }
 

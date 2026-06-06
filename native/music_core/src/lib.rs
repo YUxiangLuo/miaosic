@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
@@ -20,6 +20,24 @@ struct ScanResponse {
     ok: bool,
     error: Option<String>,
     result: Option<ScanResult>,
+}
+
+#[derive(Serialize)]
+struct TrackCoverResponse {
+    ok: bool,
+    error: Option<String>,
+    result: Option<Vec<TrackCoverResult>>,
+}
+
+#[derive(Serialize)]
+struct TrackCoverResult {
+    path: String,
+    cover_art_path: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct TrackCoverRequest {
+    paths: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -214,6 +232,45 @@ pub extern "C" fn miaosic_scan_library_with_covers_and_progress(
     scan_library_response(root_path, cover_cache_dir, progress_callback)
 }
 
+#[no_mangle]
+pub extern "C" fn miaosic_extract_track_covers(
+    paths_json: *const c_char,
+    cover_cache_dir: *const c_char,
+) -> *mut c_char {
+    let response = match read_c_string(paths_json) {
+        Ok(raw) => match serde_json::from_str::<TrackCoverRequest>(&raw)
+            .map_err(|error| error.to_string())
+            .and_then(|request| {
+                read_optional_c_string(cover_cache_dir).map(|cache_dir| (request, cache_dir))
+            })
+            .map(|(request, cache_dir)| extract_track_covers(request, cache_dir.as_deref()))
+        {
+            Ok(result) => TrackCoverResponse {
+                ok: true,
+                error: None,
+                result: Some(result),
+            },
+            Err(error) => TrackCoverResponse {
+                ok: false,
+                error: Some(error),
+                result: None,
+            },
+        },
+        Err(error) => TrackCoverResponse {
+            ok: false,
+            error: Some(error),
+            result: None,
+        },
+    };
+
+    let json = serde_json::to_string(&response).unwrap_or_else(|error| {
+        format!(
+            r#"{{"ok":false,"error":"failed to serialize track cover response: {error}","result":null}}"#
+        )
+    });
+    CString::new(json).unwrap().into_raw()
+}
+
 fn scan_library_response(
     root_path: *const c_char,
     cover_cache_dir: *const c_char,
@@ -325,6 +382,27 @@ fn scan_library(
         elapsed_ms: started.elapsed().as_millis(),
         covers_cached: cover_cache.writes,
     })
+}
+
+fn extract_track_covers(
+    request: TrackCoverRequest,
+    cover_cache_dir: Option<&str>,
+) -> Vec<TrackCoverResult> {
+    let mut cover_cache = CoverCache::new(cover_cache_dir.map(PathBuf::from));
+    request
+        .paths
+        .into_iter()
+        .map(|path| {
+            let cover_art_path = read_flac_picture(Path::new(&path))
+                .ok()
+                .flatten()
+                .and_then(|image| cover_cache.cache_image(&image));
+            TrackCoverResult {
+                path,
+                cover_art_path,
+            }
+        })
+        .collect()
 }
 
 fn parse_track(path: &Path) -> io::Result<Track> {
@@ -1042,5 +1120,21 @@ mod tests {
         let picture = read_picture_data(&block).expect("picture payload");
         assert_eq!(picture.extension, "jpg");
         assert_eq!(picture.bytes.as_slice(), image.as_slice());
+    }
+
+    #[test]
+    fn batch_track_cover_extraction_preserves_missing_results() {
+        let results = extract_track_covers(
+            TrackCoverRequest {
+                paths: vec!["/missing/a.flac".to_string(), "/missing/b.flac".to_string()],
+            },
+            None,
+        );
+
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].path, "/missing/a.flac");
+        assert!(results[0].cover_art_path.is_none());
+        assert_eq!(results[1].path, "/missing/b.flac");
+        assert!(results[1].cover_art_path.is_none());
     }
 }
