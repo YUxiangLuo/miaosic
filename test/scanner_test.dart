@@ -42,6 +42,101 @@ void main() {
     expect(result.engine, 'rust');
     _expectFixtureShape(result);
   });
+
+  test('incremental Rust scan reuses unchanged track metadata', () async {
+    final rustScanner = RustMusicScanner.tryLoad();
+    if (rustScanner == null) {
+      markTestSkipped('Rust dynamic library is not available');
+      return;
+    }
+    if (!rustScanner.supportsIncrementalScan) {
+      markTestSkipped('Rust dynamic library does not support incremental scan');
+      return;
+    }
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_incremental_scan_fixture_',
+    );
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    await _writeFixture(dir);
+
+    final full = await MusicScanner().scan(dir.path);
+    final previousTracks = full.tracks
+        .map((track) {
+          if (track.title == 'Opening') {
+            return _trackWithTitle(track, 'Cached Opening');
+          }
+          return track;
+        })
+        .toList(growable: false);
+
+    final incremental = await MusicScanner().scan(
+      dir.path,
+      previousTracks: previousTracks,
+    );
+
+    expect(incremental.engine, 'rust');
+    expect(
+      incremental.tracks
+          .firstWhere((track) => track.path.endsWith('Opening.flac'))
+          .title,
+      'Cached Opening',
+    );
+    _expectFixtureShape(incremental);
+  });
+
+  test('incremental Rust scan revalidates changed folder artwork', () async {
+    final rustScanner = RustMusicScanner.tryLoad();
+    if (rustScanner == null) {
+      markTestSkipped('Rust dynamic library is not available');
+      return;
+    }
+    if (!rustScanner.supportsIncrementalScan) {
+      markTestSkipped('Rust dynamic library does not support incremental scan');
+      return;
+    }
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_incremental_cover_fixture_',
+    );
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    await _writeFixture(dir);
+    final cover = File('${dir.path}/Artist - Album (2020)/cover.jpg');
+    await cover.writeAsBytes([0xff, 0xd8, 0xff, 0xd9]);
+
+    final full = await MusicScanner().scan(dir.path);
+    final albumTrack = full.tracks.firstWhere(
+      (track) => track.path.endsWith('Opening.flac'),
+    );
+    expect(albumTrack.coverArtPath, isNotNull);
+
+    await cover.delete();
+    final incremental = await MusicScanner().scan(
+      dir.path,
+      previousTracks: full.tracks,
+    );
+
+    expect(
+      incremental.tracks
+          .firstWhere((track) => track.path.endsWith('Opening.flac'))
+          .coverArtPath,
+      isNull,
+    );
+    expect(
+      incremental.folders
+          .firstWhere((folder) => folder.name == 'Artist - Album (2020)')
+          .coverArtPath,
+      isNull,
+    );
+  });
 }
 
 Future<void> _writeFixture(Directory root) async {
@@ -174,4 +269,23 @@ void _expectFixtureShape(ScanResult result) {
   expect(result.albums, hasLength(1));
   expect(result.albums.single.title, 'Album');
   expect(result.tracks.every((track) => track.coverArtPath == null), true);
+}
+
+Track _trackWithTitle(Track track, String title) {
+  return Track(
+    id: track.id,
+    path: track.path,
+    folderPath: track.folderPath,
+    title: title,
+    artist: track.artist,
+    album: track.album,
+    albumArtist: track.albumArtist,
+    trackNumber: track.trackNumber,
+    discNumber: track.discNumber,
+    year: track.year,
+    durationMs: track.durationMs,
+    sizeBytes: track.sizeBytes,
+    modifiedMs: track.modifiedMs,
+    coverArtPath: track.coverArtPath,
+  );
 }

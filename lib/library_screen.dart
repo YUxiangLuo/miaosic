@@ -189,6 +189,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
       final result = await _scanner.scan(
         _musicRoot,
+        previousTracks: snapshot.tracks,
         onProgress: (progress) {
           if (!mounted) {
             return;

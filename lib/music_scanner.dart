@@ -13,6 +13,7 @@ Future<void> _rustScanWorker(List<Object?> message) async {
   final coverCacheDir = message[1] as String;
   final resultPort = message[2] as SendPort;
   final progressPort = message[3] as SendPort?;
+  final previousTracks = (message[4] as List<Object?>?)?.cast<Track>();
 
   try {
     final scanner = RustMusicScanner.tryLoad();
@@ -22,6 +23,7 @@ Future<void> _rustScanWorker(List<Object?> message) async {
     final result = await scanner.scan(
       rootPath,
       coverCacheDir,
+      previousTracks: previousTracks,
       onProgress: progressPort == null
           ? null
           : (progress) {
@@ -47,6 +49,7 @@ class MusicScanner {
   Future<ScanResult> scan(
     String rootPath, {
     ScanProgressCallback? onProgress,
+    List<Track>? previousTracks,
   }) async {
     final rustScanner = _loadRustScanner();
     if (rustScanner == null) {
@@ -91,6 +94,7 @@ class MusicScanner {
         cacheDir,
         resultPort.sendPort,
         shouldForwardProgress ? progressPort?.sendPort : null,
+        previousTracks,
       ]);
       final message = await resultPort.first;
       final result = switch (message) {

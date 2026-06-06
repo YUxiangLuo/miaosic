@@ -29,6 +29,20 @@ typedef _ScanLibraryWithProgressDart =
       Pointer<Utf8> coverCacheDir,
       Pointer<NativeFunction<_ProgressCallbackNative>> progressCallback,
     );
+typedef _ScanLibraryIncrementalWithProgressNative =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> rootPath,
+      Pointer<Utf8> previousTracksJson,
+      Pointer<Utf8> coverCacheDir,
+      Pointer<NativeFunction<_ProgressCallbackNative>> progressCallback,
+    );
+typedef _ScanLibraryIncrementalWithProgressDart =
+    Pointer<Utf8> Function(
+      Pointer<Utf8> rootPath,
+      Pointer<Utf8> previousTracksJson,
+      Pointer<Utf8> coverCacheDir,
+      Pointer<NativeFunction<_ProgressCallbackNative>> progressCallback,
+    );
 typedef _ExtractTrackCoversNative =
     Pointer<Utf8> Function(
       Pointer<Utf8> pathsJson,
@@ -51,6 +65,8 @@ class RustMusicScanner {
             'miaosic_scan_library_with_covers',
           ),
       _scanLibraryWithProgress = _lookupScanLibraryWithProgress(library),
+      _scanLibraryIncrementalWithProgress =
+          _lookupScanLibraryIncrementalWithProgress(library),
       _extractTrackCovers = _lookupExtractTrackCovers(library),
       _freeString = library.lookupFunction<_FreeStringNative, _FreeStringDart>(
         'miaosic_free_string',
@@ -58,8 +74,13 @@ class RustMusicScanner {
 
   final _ScanLibraryDart _scanLibrary;
   final _ScanLibraryWithProgressDart? _scanLibraryWithProgress;
+  final _ScanLibraryIncrementalWithProgressDart?
+  _scanLibraryIncrementalWithProgress;
   final _ExtractTrackCoversDart? _extractTrackCovers;
   final _FreeStringDart _freeString;
+
+  bool get supportsIncrementalScan =>
+      _scanLibraryIncrementalWithProgress != null;
 
   static RustMusicScanner? tryLoad() {
     for (final candidate in _libraryCandidates()) {
@@ -76,14 +97,23 @@ class RustMusicScanner {
     String rootPath,
     String coverCacheDir, {
     RustScanProgressCallback? onProgress,
+    List<Track>? previousTracks,
   }) async {
     final rootPointer = rootPath.toNativeUtf8();
     final coverCachePointer = coverCacheDir.toNativeUtf8();
+    final previousTracksPointer = previousTracks == null
+        ? nullptr.cast<Utf8>()
+        : jsonEncode({
+            'previous_tracks': [
+              for (final track in previousTracks) track.toMap()..remove('id'),
+            ],
+          }).toNativeUtf8();
     NativeCallable<_ProgressCallbackNative>? progressCallback;
     Pointer<Utf8> responsePointer = nullptr;
     try {
-      final progressScanner = _scanLibraryWithProgress;
-      if (progressScanner != null && onProgress != null) {
+      Pointer<NativeFunction<_ProgressCallbackNative>> progressPointer = nullptr
+          .cast<NativeFunction<_ProgressCallbackNative>>();
+      if (onProgress != null) {
         void handleProgress(
           int filesSeen,
           int tracksParsed,
@@ -104,13 +134,30 @@ class RustMusicScanner {
         progressCallback = NativeCallable<_ProgressCallbackNative>.isolateLocal(
           handleProgress,
         );
-        responsePointer = progressScanner(
+        progressPointer = progressCallback.nativeFunction;
+      }
+
+      final incrementalScanner = _scanLibraryIncrementalWithProgress;
+      if (previousTracks != null &&
+          previousTracks.isNotEmpty &&
+          incrementalScanner != null) {
+        responsePointer = incrementalScanner(
           rootPointer,
+          previousTracksPointer,
           coverCachePointer,
-          progressCallback.nativeFunction,
+          progressPointer,
         );
       } else {
-        responsePointer = _scanLibrary(rootPointer, coverCachePointer);
+        final progressScanner = _scanLibraryWithProgress;
+        if (progressScanner != null && onProgress != null) {
+          responsePointer = progressScanner(
+            rootPointer,
+            coverCachePointer,
+            progressPointer,
+          );
+        } else {
+          responsePointer = _scanLibrary(rootPointer, coverCachePointer);
+        }
       }
       if (responsePointer == nullptr) {
         throw const FormatException('Rust scanner returned a null response');
@@ -130,6 +177,9 @@ class RustMusicScanner {
     } finally {
       calloc.free(rootPointer);
       calloc.free(coverCachePointer);
+      if (previousTracksPointer != nullptr) {
+        calloc.free(previousTracksPointer);
+      }
       if (responsePointer != nullptr) {
         _freeString(responsePointer);
       }
@@ -192,6 +242,18 @@ class RustMusicScanner {
     }
   }
 
+  static _ScanLibraryIncrementalWithProgressDart?
+  _lookupScanLibraryIncrementalWithProgress(DynamicLibrary library) {
+    try {
+      return library.lookupFunction<
+        _ScanLibraryIncrementalWithProgressNative,
+        _ScanLibraryIncrementalWithProgressDart
+      >('miaosic_scan_library_incremental_with_covers_and_progress');
+    } catch (_) {
+      return null;
+    }
+  }
+
   static _ExtractTrackCoversDart? _lookupExtractTrackCovers(
     DynamicLibrary library,
   ) {
@@ -217,16 +279,6 @@ class RustMusicScanner {
       p.join(executableDir, 'lib', 'libmusic_core.so'),
       p.join(
         cwd,
-        'build',
-        'linux',
-        'x64',
-        'debug',
-        'bundle',
-        'lib',
-        'libmusic_core.so',
-      ),
-      p.join(
-        cwd,
         'native',
         'music_core',
         'target',
@@ -239,6 +291,16 @@ class RustMusicScanner {
         'music_core',
         'target',
         'release',
+        'libmusic_core.so',
+      ),
+      p.join(
+        cwd,
+        'build',
+        'linux',
+        'x64',
+        'debug',
+        'bundle',
+        'lib',
         'libmusic_core.so',
       ),
     ];

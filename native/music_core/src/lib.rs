@@ -40,6 +40,11 @@ struct TrackCoverRequest {
     paths: Vec<String>,
 }
 
+#[derive(Deserialize)]
+struct IncrementalScanRequest {
+    previous_tracks: Vec<Track>,
+}
+
 #[derive(Serialize)]
 struct ScanResult {
     root_path: String,
@@ -50,7 +55,7 @@ struct ScanResult {
     covers_cached: u64,
 }
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Deserialize, Serialize)]
 struct Track {
     path: String,
     folder_path: String,
@@ -233,6 +238,21 @@ pub extern "C" fn miaosic_scan_library_with_covers_and_progress(
 }
 
 #[no_mangle]
+pub extern "C" fn miaosic_scan_library_incremental_with_covers_and_progress(
+    root_path: *const c_char,
+    previous_tracks_json: *const c_char,
+    cover_cache_dir: *const c_char,
+    progress_callback: Option<ProgressCallback>,
+) -> *mut c_char {
+    scan_library_incremental_response(
+        root_path,
+        previous_tracks_json,
+        cover_cache_dir,
+        progress_callback,
+    )
+}
+
+#[no_mangle]
 pub extern "C" fn miaosic_extract_track_covers(
     paths_json: *const c_char,
     cover_cache_dir: *const c_char,
@@ -301,6 +321,61 @@ fn scan_library_response(
     let json = serde_json::to_string(&response).unwrap_or_else(|error| {
         format!(
             r#"{{"ok":false,"error":"failed to serialize scan response: {error}","result":null}}"#
+        )
+    });
+    CString::new(json).unwrap().into_raw()
+}
+
+fn scan_library_incremental_response(
+    root_path: *const c_char,
+    previous_tracks_json: *const c_char,
+    cover_cache_dir: *const c_char,
+    progress_callback: Option<ProgressCallback>,
+) -> *mut c_char {
+    let response = match read_c_string(root_path) {
+        Ok(root) => {
+            let result = read_c_string(previous_tracks_json)
+                .and_then(|raw| {
+                    serde_json::from_str::<IncrementalScanRequest>(&raw)
+                        .map_err(|error| error.to_string())
+                })
+                .and_then(|request| {
+                    read_optional_c_string(cover_cache_dir)
+                        .map(|cache_dir| (request.previous_tracks, cache_dir))
+                })
+                .and_then(|(previous_tracks, cache_dir)| {
+                    scan_library_incremental(
+                        &root,
+                        previous_tracks,
+                        cache_dir.as_deref(),
+                        progress_callback,
+                    )
+                    .map_err(|error| error.to_string())
+                });
+
+            match result {
+                Ok(result) => ScanResponse {
+                    ok: true,
+                    error: None,
+                    result: Some(result),
+                },
+                Err(error) => ScanResponse {
+                    ok: false,
+                    error: Some(error),
+                    result: None,
+                },
+            }
+        }
+        Err(error) => ScanResponse {
+            ok: false,
+            error: Some(error),
+            result: None,
+        },
+    };
+
+    let json = serde_json::to_string(&response).unwrap_or_else(|error| {
+        format!(
+            r#"{{"ok":false,"error":"failed to serialize incremental scan response: {error}","result":null}}"#
         )
     });
     CString::new(json).unwrap().into_raw()
@@ -384,6 +459,77 @@ fn scan_library(
     })
 }
 
+fn scan_library_incremental(
+    root_path: &str,
+    previous_tracks: Vec<Track>,
+    cover_cache_dir: Option<&str>,
+    progress_callback: Option<ProgressCallback>,
+) -> io::Result<ScanResult> {
+    let started = Instant::now();
+    let root = Path::new(root_path);
+    if !root.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("music root does not exist: {root_path}"),
+        ));
+    }
+
+    let previous_by_path = previous_tracks
+        .into_iter()
+        .map(|track| (track.path.clone(), track))
+        .collect::<HashMap<_, _>>();
+    let mut tracks = Vec::new();
+    let mut cover_cache = CoverCache::new(cover_cache_dir.map(PathBuf::from));
+    let mut progress = ProgressReporter::new(progress_callback);
+
+    for entry in WalkDir::new(root).follow_links(false) {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(_) => continue,
+        };
+        if !entry.file_type().is_file() || !is_audio_path(entry.path()) {
+            continue;
+        }
+
+        progress.seen_file();
+        let path = entry.path();
+        let path_string = path.to_string_lossy().to_string();
+        let track = match track_file_state(path) {
+            Ok((size_bytes, modified_ms)) => previous_by_path
+                .get(&path_string)
+                .filter(|track| {
+                    track.size_bytes == size_bytes && track.modified_ms == modified_ms
+                })
+                .cloned()
+                .or_else(|| parse_track(path).ok()),
+            Err(_) => None,
+        };
+
+        if let Some(track) = track {
+            tracks.push(track);
+            progress.parsed_track();
+        }
+        if progress.should_emit() {
+            progress.emit_path(path);
+        }
+    }
+    progress.emit_path(root);
+
+    tracks.sort_by(compare_tracks);
+    apply_folder_covers(&mut tracks, &mut cover_cache);
+    let folders = classify_folders(&tracks);
+    let albums = build_albums(&tracks, &folders);
+
+    Ok(ScanResult {
+        root_path: root_path.to_string(),
+        tracks,
+        folders,
+        albums,
+        elapsed_ms: started.elapsed().as_millis(),
+        covers_cached: cover_cache.writes,
+    })
+}
+
 fn extract_track_covers(
     request: TrackCoverRequest,
     cover_cache_dir: Option<&str>,
@@ -406,7 +552,7 @@ fn extract_track_covers(
 }
 
 fn parse_track(path: &Path) -> io::Result<Track> {
-    let metadata = fs::metadata(path)?;
+    let (size_bytes, modified_ms) = track_file_state(path)?;
     let flac = read_flac_metadata(path).unwrap_or_else(|_| FlacMetadata {
         tags: HashMap::new(),
         duration_ms: None,
@@ -430,15 +576,21 @@ fn parse_track(path: &Path) -> io::Result<Track> {
         disc_number: parse_number(first_tag_ref(&flac.tags, &["DISCNUMBER", "DISC"])),
         year: parse_year(first_tag_ref(&flac.tags, &["DATE", "YEAR"])),
         duration_ms: flac.duration_ms,
-        size_bytes: metadata.len() as i64,
-        modified_ms: metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|duration| duration.as_millis() as i64)
-            .unwrap_or(0),
+        size_bytes,
+        modified_ms,
         cover_art_path: None,
     })
+}
+
+fn track_file_state(path: &Path) -> io::Result<(i64, i64)> {
+    let metadata = fs::metadata(path)?;
+    let modified_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_millis() as i64)
+        .unwrap_or(0);
+    Ok((metadata.len() as i64, modified_ms))
 }
 
 fn read_flac_metadata(path: &Path) -> io::Result<FlacMetadata> {
