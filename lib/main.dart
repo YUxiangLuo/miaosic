@@ -14,6 +14,8 @@ import 'playlist_cover_indexer.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  imageCache.maximumSize = 1600;
+  imageCache.maximumSizeBytes = 256 * 1024 * 1024;
   MediaKit.ensureInitialized();
   runApp(const MiaosicApp());
 }
@@ -496,12 +498,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final folders = await database.loadFolders();
     final albums = await database.loadAlbums();
     final scanState = await database.loadScanState();
+    final trackCoverCache = await database.loadTrackCoverCache(tracks);
 
     if (mounted) {
       setState(() {
         _tracks = tracks;
         _folders = folders;
         _albums = albums;
+        _trackCoverCache = trackCoverCache;
         _scanState = scanState;
         if (_selectedPlaylistPath != null &&
             !folders.any((folder) => folder.path == _selectedPlaylistPath)) {
@@ -946,7 +950,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     return switch (_view) {
-      _LibraryView.tracks => _TrackList(
+      _LibraryView.tracks => _LibraryTrackList(
         tracks: _filteredTracks,
         currentPath: _currentTrack?.path,
         trackCoverCache: _trackCoverCache,
@@ -1393,8 +1397,8 @@ class _LibraryToolbar extends StatelessWidget {
   }
 }
 
-class _TrackList extends StatelessWidget {
-  const _TrackList({
+class _PlaylistTrackList extends StatelessWidget {
+  const _PlaylistTrackList({
     required this.tracks,
     required this.currentPath,
     required this.onPlay,
@@ -1422,7 +1426,7 @@ class _TrackList extends StatelessWidget {
         final track = tracks[index];
         final selected = track.path == currentPath;
         final trackCoverPath = trackCoverCache[track.path];
-        return _TrackRow(
+        return _PlaylistTrackRow(
           index: index,
           track: track,
           selected: selected,
@@ -1437,8 +1441,130 @@ class _TrackList extends StatelessWidget {
   }
 }
 
-class _TrackRow extends StatelessWidget {
-  const _TrackRow({
+class _LibraryTrackList extends StatelessWidget {
+  const _LibraryTrackList({
+    required this.tracks,
+    required this.currentPath,
+    required this.trackCoverCache,
+    required this.onPlay,
+  });
+
+  final List<Track> tracks;
+  final String? currentPath;
+  final Map<String, String?> trackCoverCache;
+  final ValueChanged<Track> onPlay;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tracks.isEmpty) {
+      return const _EmptyState(message: 'No tracks found');
+    }
+
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
+      itemCount: tracks.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 8),
+      itemBuilder: (context, index) {
+        final track = tracks[index];
+        return _LibraryTrackTile(
+          track: track,
+          artworkPath: trackCoverCache[track.path] ?? track.coverArtPath,
+          selected: track.path == currentPath,
+          onTap: () => onPlay(track),
+        );
+      },
+    );
+  }
+}
+
+class _LibraryTrackTile extends StatelessWidget {
+  const _LibraryTrackTile({
+    required this.track,
+    required this.artworkPath,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final Track track;
+  final String? artworkPath;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      onTap: onTap,
+      child: Container(
+        height: 96,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: BoxDecoration(
+          color: selected
+              ? scheme.primaryContainer.withValues(alpha: 0.65)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          children: [
+            _Artwork(path: artworkPath, size: 74, icon: Icons.music_note),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _LibraryTrackText(
+                title: track.title,
+                artist: track.artist,
+                selected: selected,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LibraryTrackText extends StatelessWidget {
+  const _LibraryTrackText({
+    required this.title,
+    required this.artist,
+    required this.selected,
+  });
+
+  final String title;
+  final String artist;
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          artist,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(
+            context,
+          ).textTheme.bodyMedium?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaylistTrackRow extends StatelessWidget {
+  const _PlaylistTrackRow({
     required this.index,
     required this.track,
     required this.selected,
@@ -1737,7 +1863,7 @@ class _PlaylistDetail extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: _TrackList(
+          child: _PlaylistTrackList(
             tracks: tracks,
             currentPath: currentPath,
             trackCoverCache: trackCoverCache,
@@ -1997,6 +2123,8 @@ class _Artwork extends StatelessWidget {
               File(imagePath),
               fit: BoxFit.cover,
               cacheWidth: size.isFinite ? (size * 2).round() : 320,
+              cacheHeight: size.isFinite ? (size * 2).round() : 320,
+              filterQuality: FilterQuality.low,
               errorBuilder: (_, _, _) => placeholder,
             ),
     );
