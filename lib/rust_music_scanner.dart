@@ -7,8 +7,10 @@ import 'package:path/path.dart' as p;
 
 import 'models.dart';
 
-typedef _ScanLibraryNative = Pointer<Utf8> Function(Pointer<Utf8> rootPath);
-typedef _ScanLibraryDart = Pointer<Utf8> Function(Pointer<Utf8> rootPath);
+typedef _ScanLibraryNative =
+    Pointer<Utf8> Function(Pointer<Utf8> rootPath, Pointer<Utf8> coverCacheDir);
+typedef _ScanLibraryDart =
+    Pointer<Utf8> Function(Pointer<Utf8> rootPath, Pointer<Utf8> coverCacheDir);
 typedef _FreeStringNative = Void Function(Pointer<Utf8> value);
 typedef _FreeStringDart = void Function(Pointer<Utf8> value);
 
@@ -16,7 +18,7 @@ class RustMusicScanner {
   RustMusicScanner._(DynamicLibrary library)
     : _scanLibrary = library
           .lookupFunction<_ScanLibraryNative, _ScanLibraryDart>(
-            'miaosic_scan_library',
+            'miaosic_scan_library_with_covers',
           ),
       _freeString = library.lookupFunction<_FreeStringNative, _FreeStringDart>(
         'miaosic_free_string',
@@ -36,11 +38,12 @@ class RustMusicScanner {
     return null;
   }
 
-  Future<ScanResult> scan(String rootPath) async {
+  Future<ScanResult> scan(String rootPath, String coverCacheDir) async {
     final rootPointer = rootPath.toNativeUtf8();
+    final coverCachePointer = coverCacheDir.toNativeUtf8();
     Pointer<Utf8> responsePointer = nullptr;
     try {
-      responsePointer = _scanLibrary(rootPointer);
+      responsePointer = _scanLibrary(rootPointer, coverCachePointer);
       if (responsePointer == nullptr) {
         throw const FormatException('Rust scanner returned a null response');
       }
@@ -58,6 +61,7 @@ class RustMusicScanner {
       return _scanResultFromJson(result);
     } finally {
       calloc.free(rootPointer);
+      calloc.free(coverCachePointer);
       if (responsePointer != nullptr) {
         _freeString(responsePointer);
       }
@@ -112,6 +116,7 @@ ScanResult _scanResultFromJson(Map<String, Object?> json) {
     folders: _list(json['folders']).map(_folderFromJson).toList(),
     albums: _list(json['albums']).map(_albumFromJson).toList(),
     elapsed: Duration(milliseconds: _int(json['elapsed_ms']) ?? 0),
+    coversCached: _int(json['covers_cached']) ?? 0,
   );
 }
 
@@ -129,6 +134,7 @@ Track _trackFromJson(Map<String, Object?> json) {
     durationMs: _int(json['duration_ms']),
     sizeBytes: _int(json['size_bytes']) ?? 0,
     modifiedMs: _int(json['modified_ms']) ?? 0,
+    coverArtPath: json['cover_art_path'] as String?,
   );
 }
 
@@ -143,6 +149,7 @@ FolderSummary _folderFromJson(Map<String, Object?> json) {
     albumArtistCount: _int(json['album_artist_count']) ?? 0,
     artistCount: _int(json['artist_count']) ?? 0,
     yearCount: _int(json['year_count']) ?? 0,
+    coverArtPath: json['cover_art_path'] as String?,
   );
 }
 
@@ -153,6 +160,7 @@ AlbumSummary _albumFromJson(Map<String, Object?> json) {
     albumArtist: json['album_artist'] as String,
     year: _int(json['year']),
     trackCount: _int(json['track_count']) ?? 0,
+    coverArtPath: json['cover_art_path'] as String?,
   );
 }
 

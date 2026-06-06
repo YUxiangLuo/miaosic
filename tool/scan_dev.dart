@@ -35,6 +35,7 @@ Future<void> main(List<String> args) async {
   print('playlist_folders=$playlistFolders');
   print('mixed_folders=$mixedFolders');
   print('albums=${result.albums.length}');
+  print('covers_cached=${result.coversCached}');
   print('elapsed=${result.elapsed.inMilliseconds}ms');
   print('');
   print('Largest playlist-like folders:');

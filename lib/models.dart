@@ -37,6 +37,7 @@ class Track {
     required this.durationMs,
     required this.sizeBytes,
     required this.modifiedMs,
+    required this.coverArtPath,
   });
 
   final int? id;
@@ -52,6 +53,7 @@ class Track {
   final int? durationMs;
   final int sizeBytes;
   final int modifiedMs;
+  final String? coverArtPath;
 
   String get fileName => p.basename(path);
   String get folderName => p.basename(folderPath);
@@ -71,6 +73,7 @@ class Track {
       durationMs: durationMs,
       sizeBytes: sizeBytes,
       modifiedMs: modifiedMs,
+      coverArtPath: coverArtPath,
     );
   }
 
@@ -89,6 +92,7 @@ class Track {
       'duration_ms': durationMs,
       'size_bytes': sizeBytes,
       'modified_ms': modifiedMs,
+      'cover_art_path': coverArtPath,
     };
   }
 
@@ -107,6 +111,7 @@ class Track {
       durationMs: map['duration_ms'] as int?,
       sizeBytes: map['size_bytes'] as int,
       modifiedMs: map['modified_ms'] as int,
+      coverArtPath: map['cover_art_path'] as String?,
     );
   }
 }
@@ -122,6 +127,7 @@ class FolderSummary {
     required this.albumArtistCount,
     required this.artistCount,
     required this.yearCount,
+    required this.coverArtPath,
   });
 
   final String path;
@@ -133,6 +139,7 @@ class FolderSummary {
   final int albumArtistCount;
   final int artistCount;
   final int yearCount;
+  final String? coverArtPath;
 
   Map<String, Object?> toMap() {
     return {
@@ -145,6 +152,7 @@ class FolderSummary {
       'album_artist_count': albumArtistCount,
       'artist_count': artistCount,
       'year_count': yearCount,
+      'cover_art_path': coverArtPath,
     };
   }
 
@@ -159,6 +167,7 @@ class FolderSummary {
       albumArtistCount: map['album_artist_count'] as int,
       artistCount: map['artist_count'] as int,
       yearCount: map['year_count'] as int,
+      coverArtPath: map['cover_art_path'] as String?,
     );
   }
 }
@@ -170,6 +179,7 @@ class AlbumSummary {
     required this.albumArtist,
     required this.year,
     required this.trackCount,
+    required this.coverArtPath,
   });
 
   final String folderPath;
@@ -177,6 +187,7 @@ class AlbumSummary {
   final String albumArtist;
   final int? year;
   final int trackCount;
+  final String? coverArtPath;
 
   Map<String, Object?> toMap() {
     return {
@@ -185,6 +196,7 @@ class AlbumSummary {
       'album_artist': albumArtist,
       'year': year,
       'track_count': trackCount,
+      'cover_art_path': coverArtPath,
     };
   }
 
@@ -195,6 +207,7 @@ class AlbumSummary {
       albumArtist: map['album_artist'] as String,
       year: map['year'] as int?,
       trackCount: map['track_count'] as int,
+      coverArtPath: map['cover_art_path'] as String?,
     );
   }
 }
@@ -207,6 +220,7 @@ class ScanResult {
     required this.folders,
     required this.albums,
     required this.elapsed,
+    required this.coversCached,
   });
 
   final String rootPath;
@@ -215,6 +229,7 @@ class ScanResult {
   final List<FolderSummary> folders;
   final List<AlbumSummary> albums;
   final Duration elapsed;
+  final int coversCached;
 }
 
 class ScanProgress {

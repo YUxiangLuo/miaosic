@@ -4,6 +4,7 @@ Miaosic is a local-first music player prototype. The current MVP focuses on:
 
 - scanning a local FLAC library
 - detecting album folders vs playlist-like folders
+- caching local cover art for smooth browsing
 - storing the library in SQLite
 - browsing tracks, albums, and playlists
 - playing local files on Linux with `media_kit`
@@ -21,7 +22,9 @@ The app currently uses this development root:
 ```
 
 On first launch, Miaosic scans this folder and writes the library database to
-the platform application support directory as `miaosic.db`.
+the platform application support directory as `miaosic.db`. Cover art is cached
+in the same support directory under `covers/`; the UI requests downsampled image
+decodes while rendering lists and grids.
 
 ## Run
 
@@ -46,6 +49,7 @@ folders=163
 album_folders=133
 playlist_folders=30
 albums=133
+covers_cached=<number of newly written cover files>
 ```
 
 ## Checks

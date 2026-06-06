@@ -19,12 +19,24 @@ class LibraryDatabase {
       await appDir.create(recursive: true);
     }
     final dbPath = p.join(appDir.path, 'miaosic.db');
+    return openAtPath(dbPath);
+  }
+
+  static Future<LibraryDatabase> openAtPath(String dbPath) async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
     final db = await databaseFactory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onCreate: (db, version) async {
           await _createSchema(db);
+        },
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await _upgradeToV2(db);
+          }
         },
       ),
     );
@@ -82,6 +94,7 @@ class LibraryDatabase {
         'album_count': result.albums.length,
         'scanned_at_ms': DateTime.now().millisecondsSinceEpoch,
         'elapsed_ms': result.elapsed.inMilliseconds,
+        'cover_cache_version': 1,
       });
       await batch.commit(noResult: true);
     });
@@ -110,7 +123,8 @@ class LibraryDatabase {
         year INTEGER,
         duration_ms INTEGER,
         size_bytes INTEGER NOT NULL,
-        modified_ms INTEGER NOT NULL
+        modified_ms INTEGER NOT NULL,
+        cover_art_path TEXT
       )
     ''');
     await db.execute('CREATE INDEX idx_tracks_folder ON tracks(folder_path)');
@@ -131,7 +145,8 @@ class LibraryDatabase {
         album_count INTEGER NOT NULL,
         album_artist_count INTEGER NOT NULL,
         artist_count INTEGER NOT NULL,
-        year_count INTEGER NOT NULL
+        year_count INTEGER NOT NULL,
+        cover_art_path TEXT
       )
     ''');
     await db.execute('CREATE INDEX idx_folders_kind ON folders(kind)');
@@ -142,7 +157,8 @@ class LibraryDatabase {
         title TEXT NOT NULL,
         album_artist TEXT NOT NULL,
         year INTEGER,
-        track_count INTEGER NOT NULL
+        track_count INTEGER NOT NULL,
+        cover_art_path TEXT
       )
     ''');
     await db.execute(
@@ -156,8 +172,33 @@ class LibraryDatabase {
         folder_count INTEGER NOT NULL,
         album_count INTEGER NOT NULL,
         scanned_at_ms INTEGER NOT NULL,
-        elapsed_ms INTEGER NOT NULL
+        elapsed_ms INTEGER NOT NULL,
+        cover_cache_version INTEGER NOT NULL DEFAULT 1
       )
     ''');
+  }
+
+  static Future<void> _upgradeToV2(Database db) async {
+    await _addColumnIfMissing(db, 'tracks', 'cover_art_path TEXT');
+    await _addColumnIfMissing(db, 'folders', 'cover_art_path TEXT');
+    await _addColumnIfMissing(db, 'albums', 'cover_art_path TEXT');
+    await _addColumnIfMissing(
+      db,
+      'scan_state',
+      'cover_cache_version INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  static Future<void> _addColumnIfMissing(
+    Database db,
+    String table,
+    String definition,
+  ) async {
+    final column = definition.split(' ').first;
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+    final exists = rows.any((row) => row['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE $table ADD COLUMN $definition');
+    }
   }
 }

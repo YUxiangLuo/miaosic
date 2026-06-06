@@ -1,4 +1,5 @@
 use serde::Serialize;
+use sha1::{Digest, Sha1};
 use std::collections::{HashMap, HashSet};
 use std::ffi::{CStr, CString};
 use std::fs::{self, File};
@@ -7,6 +8,8 @@ use std::os::raw::c_char;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use walkdir::WalkDir;
+
+const MAX_COVER_BYTES: usize = 5 * 1024 * 1024;
 
 #[derive(Serialize)]
 struct ScanResponse {
@@ -22,6 +25,7 @@ struct ScanResult {
     folders: Vec<FolderSummary>,
     albums: Vec<AlbumSummary>,
     elapsed_ms: u128,
+    covers_cached: u64,
 }
 
 #[derive(Clone, Serialize)]
@@ -38,6 +42,7 @@ struct Track {
     duration_ms: Option<i64>,
     size_bytes: i64,
     modified_ms: i64,
+    cover_art_path: Option<String>,
 }
 
 #[derive(Clone, Serialize)]
@@ -51,6 +56,7 @@ struct FolderSummary {
     album_artist_count: i64,
     artist_count: i64,
     year_count: i64,
+    cover_art_path: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -60,6 +66,7 @@ struct AlbumSummary {
     album_artist: String,
     year: Option<i64>,
     track_count: i64,
+    cover_art_path: Option<String>,
 }
 
 struct FlacMetadata {
@@ -72,10 +79,86 @@ struct FileNameFallback {
     artist: String,
 }
 
+struct CoverImage {
+    bytes: Vec<u8>,
+    extension: &'static str,
+}
+
+struct CoverCache {
+    dir: Option<PathBuf>,
+    folder_cache: HashMap<PathBuf, Option<String>>,
+    writes: u64,
+}
+
+impl CoverCache {
+    fn new(dir: Option<PathBuf>) -> Self {
+        if let Some(dir) = dir.as_ref() {
+            let _ = fs::create_dir_all(dir);
+        }
+        Self {
+            dir,
+            folder_cache: HashMap::new(),
+            writes: 0,
+        }
+    }
+
+    fn cover_for_folder(&mut self, folder: &Path, sample_track: &Path) -> Option<String> {
+        if let Some(cached) = self.folder_cache.get(folder) {
+            return cached.clone();
+        }
+
+        let cover = find_external_cover(folder)
+            .and_then(|path| {
+                let extension = cover_extension_for_path(&path)?;
+                let bytes = fs::read(path).ok()?;
+                Some(CoverImage { bytes, extension })
+            })
+            .and_then(|image| self.cache_image(&image))
+            .or_else(|| {
+                read_flac_picture(sample_track)
+                    .ok()
+                    .flatten()
+                    .and_then(|image| self.cache_image(&image))
+            });
+        self.folder_cache
+            .insert(folder.to_path_buf(), cover.clone());
+        cover
+    }
+
+    fn cache_image(&mut self, image: &CoverImage) -> Option<String> {
+        let bytes = image.bytes.as_slice();
+        if bytes.len() > MAX_COVER_BYTES {
+            return None;
+        }
+        let dir = self.dir.as_ref()?;
+        let mut hasher = Sha1::new();
+        hasher.update(bytes);
+        let file_name = format!("{}.{}", hex::encode(hasher.finalize()), image.extension);
+        let output_path = dir.join(file_name);
+        if output_path.exists() {
+            return Some(output_path.to_string_lossy().to_string());
+        }
+
+        fs::write(&output_path, bytes).ok()?;
+        self.writes += 1;
+        Some(output_path.to_string_lossy().to_string())
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn miaosic_scan_library(root_path: *const c_char) -> *mut c_char {
+    miaosic_scan_library_with_covers(root_path, std::ptr::null())
+}
+
+#[no_mangle]
+pub extern "C" fn miaosic_scan_library_with_covers(
+    root_path: *const c_char,
+    cover_cache_dir: *const c_char,
+) -> *mut c_char {
     let response = match read_c_string(root_path) {
-        Ok(root) => match scan_library(&root) {
+        Ok(root) => match read_optional_c_string(cover_cache_dir).and_then(|cache_dir| {
+            scan_library(&root, cache_dir.as_deref()).map_err(|e| e.to_string())
+        }) {
             Ok(result) => ScanResponse {
                 ok: true,
                 error: None,
@@ -83,7 +166,7 @@ pub extern "C" fn miaosic_scan_library(root_path: *const c_char) -> *mut c_char 
             },
             Err(error) => ScanResponse {
                 ok: false,
-                error: Some(error.to_string()),
+                error: Some(error),
                 result: None,
             },
         },
@@ -122,7 +205,14 @@ fn read_c_string(value: *const c_char) -> Result<String, String> {
         .map_err(|error| format!("root path is not valid UTF-8: {error}"))
 }
 
-fn scan_library(root_path: &str) -> io::Result<ScanResult> {
+fn read_optional_c_string(value: *const c_char) -> Result<Option<String>, String> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    read_c_string(value).map(Some)
+}
+
+fn scan_library(root_path: &str, cover_cache_dir: Option<&str>) -> io::Result<ScanResult> {
     let started = Instant::now();
     let root = Path::new(root_path);
     if !root.exists() {
@@ -133,6 +223,7 @@ fn scan_library(root_path: &str) -> io::Result<ScanResult> {
     }
 
     let mut tracks = Vec::new();
+    let mut cover_cache = CoverCache::new(cover_cache_dir.map(PathBuf::from));
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = match entry {
             Ok(entry) => entry,
@@ -147,6 +238,7 @@ fn scan_library(root_path: &str) -> io::Result<ScanResult> {
     }
 
     tracks.sort_by(compare_tracks);
+    apply_folder_covers(&mut tracks, &mut cover_cache);
     let folders = classify_folders(&tracks);
     let albums = build_albums(&tracks, &folders);
 
@@ -156,6 +248,7 @@ fn scan_library(root_path: &str) -> io::Result<ScanResult> {
         folders,
         albums,
         elapsed_ms: started.elapsed().as_millis(),
+        covers_cached: cover_cache.writes,
     })
 }
 
@@ -191,6 +284,7 @@ fn parse_track(path: &Path) -> io::Result<Track> {
             .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
             .map(|duration| duration.as_millis() as i64)
             .unwrap_or(0),
+        cover_art_path: None,
     })
 }
 
@@ -234,6 +328,35 @@ fn read_flac_metadata(path: &Path) -> io::Result<FlacMetadata> {
     }
 
     Ok(FlacMetadata { tags, duration_ms })
+}
+
+fn read_flac_picture(path: &Path) -> io::Result<Option<CoverImage>> {
+    let mut file = File::open(path)?;
+    let mut marker = [0_u8; 4];
+    file.read_exact(&mut marker)?;
+    if &marker != b"fLaC" {
+        return Ok(None);
+    }
+
+    loop {
+        let mut header = [0_u8; 4];
+        if file.read_exact(&mut header).is_err() {
+            break;
+        }
+        let is_last = (header[0] & 0x80) != 0;
+        let block_type = header[0] & 0x7f;
+        let length =
+            ((header[1] as usize) << 16) | ((header[2] as usize) << 8) | header[3] as usize;
+        let mut block = vec![0_u8; length];
+        file.read_exact(&mut block)?;
+        if block_type == 6 {
+            return Ok(read_picture_data(&block));
+        }
+        if is_last {
+            break;
+        }
+    }
+    Ok(None)
 }
 
 fn read_streaminfo_duration(block: &[u8]) -> Option<i64> {
@@ -302,6 +425,74 @@ fn read_u32_le(block: &[u8], offset: &mut usize) -> Option<u32> {
     Some(value)
 }
 
+fn read_u32_be(block: &[u8], offset: &mut usize) -> Option<u32> {
+    let end = *offset + 4;
+    if end > block.len() {
+        return None;
+    }
+    let value = u32::from_be_bytes(block[*offset..end].try_into().ok()?);
+    *offset = end;
+    Some(value)
+}
+
+fn read_picture_data(block: &[u8]) -> Option<CoverImage> {
+    let mut offset = 0_usize;
+    let _picture_type = read_u32_be(block, &mut offset)?;
+    let mime_len = read_u32_be(block, &mut offset)? as usize;
+    let mime_end = offset + mime_len;
+    if mime_end > block.len() {
+        return None;
+    }
+    let mime = String::from_utf8_lossy(&block[offset..mime_end]).to_lowercase();
+    offset = mime_end;
+    let extension = if mime.contains("png") {
+        "png"
+    } else if mime.contains("jpeg") || mime.contains("jpg") {
+        "jpg"
+    } else {
+        return None;
+    };
+    let description_len = read_u32_be(block, &mut offset)? as usize;
+    offset = offset.checked_add(description_len)?;
+    if offset + 16 > block.len() {
+        return None;
+    }
+    offset += 16;
+    let data_len = read_u32_be(block, &mut offset)? as usize;
+    if data_len > MAX_COVER_BYTES {
+        return None;
+    }
+    let data_end = offset + data_len;
+    if data_end > block.len() {
+        return None;
+    }
+    Some(CoverImage {
+        bytes: block[offset..data_end].to_vec(),
+        extension,
+    })
+}
+
+fn apply_folder_covers(tracks: &mut [Track], cover_cache: &mut CoverCache) {
+    let mut samples: HashMap<String, String> = HashMap::new();
+    for track in tracks.iter() {
+        samples
+            .entry(track.folder_path.clone())
+            .or_insert_with(|| track.path.clone());
+    }
+
+    let mut covers = HashMap::new();
+    for (folder, sample_track) in samples {
+        let cover = cover_cache.cover_for_folder(Path::new(&folder), Path::new(&sample_track));
+        covers.insert(folder, cover);
+    }
+
+    for track in tracks {
+        track.cover_art_path = covers
+            .get(&track.folder_path)
+            .and_then(|cover| cover.as_ref().cloned());
+    }
+}
+
 fn classify_folders(tracks: &[Track]) -> Vec<FolderSummary> {
     let mut grouped: HashMap<String, Vec<Track>> = HashMap::new();
     for track in tracks {
@@ -344,6 +535,7 @@ fn classify_folders(tracks: &[Track]) -> Vec<FolderSummary> {
             album_artist_count: album_artist_count as i64,
             artist_count: artist_count as i64,
             year_count: year_count as i64,
+            cover_art_path: first_cover_path(&folder_tracks),
         });
     }
 
@@ -390,6 +582,7 @@ fn build_albums(tracks: &[Track], folders: &[FolderSummary]) -> Vec<AlbumSummary
             album_artist,
             year,
             track_count: folder_tracks.len() as i64,
+            cover_art_path: first_cover_path_refs(&folder_tracks),
         });
     }
 
@@ -491,6 +684,36 @@ fn logical_folder_for(path: &Path) -> PathBuf {
         return parent.parent().unwrap_or(parent).to_path_buf();
     }
     parent.to_path_buf()
+}
+
+fn find_external_cover(folder: &Path) -> Option<PathBuf> {
+    let names = [
+        "cover.jpg",
+        "cover.jpeg",
+        "cover.png",
+        "folder.jpg",
+        "folder.jpeg",
+        "folder.png",
+        "front.jpg",
+        "front.jpeg",
+        "front.png",
+    ];
+    for name in names {
+        let candidate = folder.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn cover_extension_for_path(path: &Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_string_lossy().to_lowercase();
+    match extension.as_str() {
+        "jpg" | "jpeg" => Some("jpg"),
+        "png" => Some("png"),
+        _ => None,
+    }
 }
 
 fn is_disc_folder(name: &str) -> bool {
@@ -712,4 +935,37 @@ fn compare_tracks(a: &Track, b: &Track) -> std::cmp::Ordering {
                 .cmp(&b.track_number.unwrap_or(9999))
         })
         .then_with(|| a.path.to_lowercase().cmp(&b.path.to_lowercase()))
+}
+
+fn first_cover_path(tracks: &[Track]) -> Option<String> {
+    tracks.iter().find_map(|track| track.cover_art_path.clone())
+}
+
+fn first_cover_path_refs(tracks: &[&Track]) -> Option<String> {
+    tracks.iter().find_map(|track| track.cover_art_path.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extracts_flac_picture_payload() {
+        let image = b"fake-jpeg-bytes";
+        let mut block = Vec::new();
+        block.extend_from_slice(&3_u32.to_be_bytes());
+        block.extend_from_slice(&10_u32.to_be_bytes());
+        block.extend_from_slice(b"image/jpeg");
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&(image.len() as u32).to_be_bytes());
+        block.extend_from_slice(image);
+
+        let picture = read_picture_data(&block).expect("picture payload");
+        assert_eq!(picture.extension, "jpg");
+        assert_eq!(picture.bytes.as_slice(), image.as_slice());
+    }
 }

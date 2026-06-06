@@ -19,6 +19,7 @@ class MusicScanner {
   }) async {
     final rustScanner = _loadRustScanner();
     if (rustScanner != null) {
+      final coverCacheDir = await _coverCacheDir();
       onProgress?.call(
         ScanProgress(filesSeen: 0, tracksParsed: 0, currentPath: rootPath),
       );
@@ -27,7 +28,7 @@ class MusicScanner {
         if (scanner == null) {
           throw StateError('Rust scanner became unavailable in worker isolate');
         }
-        return scanner.scan(rootPath);
+        return scanner.scan(rootPath, coverCacheDir);
       });
       onProgress?.call(
         ScanProgress(
@@ -89,6 +90,7 @@ class MusicScanner {
       folders: folders,
       albums: albums,
       elapsed: stopwatch.elapsed,
+      coversCached: 0,
     );
   }
 
@@ -97,6 +99,20 @@ class MusicScanner {
       return null;
     }
     return _rustScanner ??= RustMusicScanner.tryLoad();
+  }
+
+  Future<String> _coverCacheDir() async {
+    final env = Platform.environment;
+    final dataHome =
+        env['XDG_DATA_HOME'] ??
+        (env['HOME'] == null
+            ? p.join(Directory.systemTemp.path, 'miaosic')
+            : p.join(env['HOME']!, '.local', 'share'));
+    final dir = Directory(p.join(dataHome, 'com.example.miaosic', 'covers'));
+    if (!await dir.exists()) {
+      await dir.create(recursive: true);
+    }
+    return dir.path;
   }
 
   Future<Track> _parseTrack(File file) async {
@@ -124,6 +140,7 @@ class MusicScanner {
       durationMs: metadata.durationMs,
       sizeBytes: stat.size,
       modifiedMs: stat.modified.millisecondsSinceEpoch,
+      coverArtPath: null,
     );
   }
 
@@ -165,6 +182,9 @@ class MusicScanner {
           albumArtistCount: albumArtists.length,
           artistCount: artists.length,
           yearCount: years.length,
+          coverArtPath: _dominant(
+            folderTracks.map((track) => track.coverArtPath ?? ''),
+          ),
         ),
       );
     }
@@ -212,6 +232,9 @@ class MusicScanner {
           albumArtist: albumArtist,
           year: year,
           trackCount: folderTracks.length,
+          coverArtPath: _dominant(
+            folderTracks.map((track) => track.coverArtPath ?? ''),
+          ),
         ),
       );
     }
