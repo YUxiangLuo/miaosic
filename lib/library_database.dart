@@ -8,6 +8,8 @@ import 'models.dart';
 class LibraryDatabase {
   LibraryDatabase._(this._db, this.path);
 
+  static const musicRootSettingKey = 'music_root';
+
   final Database _db;
   final String path;
 
@@ -28,7 +30,7 @@ class LibraryDatabase {
     final db = await databaseFactoryFfi.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onCreate: (db, version) async {
           await _createSchema(db);
         },
@@ -38,6 +40,9 @@ class LibraryDatabase {
           }
           if (oldVersion < 3) {
             await _upgradeToV3(db);
+          }
+          if (oldVersion < 4) {
+            await _upgradeToV4(db);
           }
         },
       ),
@@ -145,6 +150,28 @@ class LibraryDatabase {
       return null;
     }
     return rows.first;
+  }
+
+  Future<String> loadMusicRoot() async {
+    final rows = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [musicRootSettingKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return defaultMusicRoot;
+    }
+    final value = normalizeMusicRootPath(rows.first['value'] as String);
+    return value.isEmpty ? defaultMusicRoot : value;
+  }
+
+  Future<void> saveMusicRoot(String rootPath) async {
+    await _db.insert('settings', {
+      'key': musicRootSettingKey,
+      'value': normalizeMusicRootPath(rootPath),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   Future<LibrarySnapshot> loadSnapshot() async {
@@ -271,6 +298,7 @@ class LibraryDatabase {
       )
     ''');
     await _createTrackCoverCacheTable(db);
+    await _createSettingsTable(db);
   }
 
   static Future<void> _upgradeToV2(Database db) async {
@@ -288,6 +316,10 @@ class LibraryDatabase {
     await _createTrackCoverCacheTable(db);
   }
 
+  static Future<void> _upgradeToV4(Database db) async {
+    await _createSettingsTable(db);
+  }
+
   static Future<void> _createTrackCoverCacheTable(Database db) async {
     await db.execute('''
       CREATE TABLE IF NOT EXISTS track_cover_cache (
@@ -296,6 +328,15 @@ class LibraryDatabase {
         modified_ms INTEGER NOT NULL,
         cover_art_path TEXT,
         checked_at_ms INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  static Future<void> _createSettingsTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
       )
     ''');
   }

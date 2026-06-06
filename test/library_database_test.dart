@@ -36,7 +36,29 @@ void main() {
       contains('cover_cache_version'),
     );
     expect(await _tables(upgraded), contains('track_cover_cache'));
+    expect(await _tables(upgraded), contains('settings'));
     await upgraded.close();
+    await dir.delete(recursive: true);
+  });
+
+  test('persists configurable music root', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp('miaosic_settings_test_');
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+
+    expect(await database.loadMusicRoot(), defaultMusicRoot);
+
+    await database.saveMusicRoot('/music/custom');
+    expect(await database.loadMusicRoot(), '/music/custom');
+
+    await database.close();
+    final reopened = await LibraryDatabase.openAtPath(dbPath);
+    expect(await reopened.loadMusicRoot(), '/music/custom');
+
+    await reopened.close();
     await dir.delete(recursive: true);
   });
 

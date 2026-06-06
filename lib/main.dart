@@ -106,6 +106,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<AlbumSummary> _albums = const [];
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
+  String _musicRoot = defaultMusicRoot;
   ScanProgress? _scanProgress;
   _LibraryView _view = _LibraryView.tracks;
   String? _selectedPlaylistPath;
@@ -154,8 +155,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     try {
       final database = await LibraryDatabase.open();
       _database = database;
+      _musicRoot = await database.loadMusicRoot();
       await _loadFromDatabase();
-      if (_tracks.isEmpty || _needsCoverCacheRefresh) {
+      if (_tracks.isEmpty || _needsCoverCacheRefresh || _scanRootChanged) {
         await _scanLibrary();
       }
     } catch (error) {
@@ -220,16 +222,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _scanning = true;
       _loading = false;
       _error = null;
-      _scanProgress = const ScanProgress(
+      _scanProgress = ScanProgress(
         filesSeen: 0,
         tracksParsed: 0,
-        currentPath: defaultMusicRoot,
+        currentPath: _musicRoot,
       );
     });
 
     try {
       final result = await _scanner.scan(
-        defaultMusicRoot,
+        _musicRoot,
         onProgress: (progress) {
           if (mounted) {
             setState(() => _scanProgress = progress);
@@ -292,7 +294,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         message: 'Scanning local files',
       );
       final result = await _scanner.scan(
-        defaultMusicRoot,
+        _musicRoot,
         onProgress: (progress) {
           if (!mounted) {
             return;
@@ -404,6 +406,86 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Future<void> _handleMusicRootPressed() async {
+    final database = _database;
+    if (database == null || _scanning) {
+      return;
+    }
+
+    final nextRoot = await _showMusicRootDialog();
+    if (!mounted || nextRoot == null || nextRoot == _musicRoot) {
+      return;
+    }
+
+    if (!await Directory(nextRoot).exists()) {
+      if (mounted) {
+        setState(() => _error = 'Music folder does not exist: $nextRoot');
+      }
+      return;
+    }
+
+    await database.saveMusicRoot(nextRoot);
+    if (!mounted) {
+      return;
+    }
+    _coverIndexer.cancel();
+    _tracksCoverPrefetchKey = null;
+    setState(() {
+      _musicRoot = nextRoot;
+      _selectedPlaylistPath = null;
+      _error = null;
+    });
+    await _scanLibrary();
+  }
+
+  Future<String?> _showMusicRootDialog() async {
+    final controller = TextEditingController(text: _musicRoot);
+    try {
+      return showDialog<String>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text('Music folder'),
+            content: SizedBox(
+              width: 520,
+              child: TextField(
+                controller: controller,
+                autofocus: true,
+                decoration: const InputDecoration(
+                  labelText: 'Folder path',
+                  hintText: '~/Music',
+                ),
+                onSubmitted: (_) =>
+                    _submitMusicRootDialog(context, controller.text),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () =>
+                    _submitMusicRootDialog(context, controller.text),
+                child: const Text('Save and scan'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  void _submitMusicRootDialog(BuildContext context, String rawPath) {
+    final path = normalizeMusicRootPath(rawPath);
+    if (path.isEmpty) {
+      return;
+    }
+    Navigator.of(context).pop(path);
+  }
+
   Future<bool> _confirmLargeDeletion(DeletionRisk risk) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -489,6 +571,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return _tracks.isNotEmpty && (version ?? 0) < 1;
   }
 
+  bool get _scanRootChanged {
+    final scannedRoot = _scanState?['root_path'] as String?;
+    return _tracks.isNotEmpty &&
+        scannedRoot != null &&
+        scannedRoot != _musicRoot;
+  }
+
   Map<String, List<Track>> get _tracksByFolder => _tracksByFolderMap(_tracks);
 
   @override
@@ -503,7 +592,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
             albums: _albums.length,
             playlists: _playlistCount,
             scanState: _scanState,
+            musicRoot: _musicRoot,
             scanning: _scanning,
+            onEditMusicRoot: _handleMusicRootPressed,
             onSelected: (view) {
               _coverIndexer.cancel();
               _tracksCoverPrefetchKey = null;
@@ -700,7 +791,9 @@ class _LibrarySidebar extends StatelessWidget {
     required this.albums,
     required this.playlists,
     required this.scanState,
+    required this.musicRoot,
     required this.scanning,
+    required this.onEditMusicRoot,
     required this.onSelected,
   });
 
@@ -709,7 +802,9 @@ class _LibrarySidebar extends StatelessWidget {
   final int albums;
   final int playlists;
   final Map<String, Object?>? scanState;
+  final String musicRoot;
   final bool scanning;
+  final VoidCallback onEditMusicRoot;
   final ValueChanged<_LibraryView> onSelected;
 
   @override
@@ -758,7 +853,12 @@ class _LibrarySidebar extends StatelessWidget {
             const Spacer(),
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
-              child: _LibraryStats(scanState: scanState, scanning: scanning),
+              child: _LibraryStats(
+                scanState: scanState,
+                musicRoot: musicRoot,
+                scanning: scanning,
+                onEditMusicRoot: onEditMusicRoot,
+              ),
             ),
           ],
         ),
@@ -828,10 +928,17 @@ class _SidebarItem extends StatelessWidget {
 }
 
 class _LibraryStats extends StatelessWidget {
-  const _LibraryStats({required this.scanState, required this.scanning});
+  const _LibraryStats({
+    required this.scanState,
+    required this.musicRoot,
+    required this.scanning,
+    required this.onEditMusicRoot,
+  });
 
   final Map<String, Object?>? scanState;
+  final String musicRoot;
   final bool scanning;
+  final VoidCallback onEditMusicRoot;
 
   @override
   Widget build(BuildContext context) {
@@ -861,11 +968,23 @@ class _LibraryStats extends StatelessWidget {
                 scanning ? 'Scanning' : 'Library',
                 style: const TextStyle(fontWeight: FontWeight.w800),
               ),
+              const Spacer(),
+              IconButton(
+                tooltip: 'Change music folder',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints.tightFor(
+                  width: 30,
+                  height: 30,
+                ),
+                onPressed: scanning ? null : onEditMusicRoot,
+                icon: const Icon(Icons.edit, size: 17),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
-            defaultMusicRoot,
+            musicRoot,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall,

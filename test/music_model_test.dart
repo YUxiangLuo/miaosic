@@ -15,6 +15,11 @@ void main() {
     expect(logicalFolderFor(file), '/music/Artist - Album (2001)');
   });
 
+  test('expands tilde music root paths', () {
+    expect(normalizeMusicRootPath('~/Music'), defaultMusicRoot);
+    expect(normalizeMusicRootPath(' /tmp/music '), '/tmp/music');
+  });
+
   test('maps nullable cover art paths on tracks', () {
     final track = Track.fromMap({
       'id': 1,

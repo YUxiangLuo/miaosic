@@ -2,7 +2,28 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 
-const defaultMusicRoot = '/mnt/data/music';
+String get defaultMusicRoot {
+  return p.join(_homeDirectoryPath, 'Music');
+}
+
+String normalizeMusicRootPath(String path) {
+  final trimmed = path.trim();
+  if (trimmed == '~') {
+    return _homeDirectoryPath;
+  }
+  if (trimmed.startsWith('~/')) {
+    return p.join(_homeDirectoryPath, trimmed.substring(2));
+  }
+  return trimmed;
+}
+
+String get _homeDirectoryPath {
+  final home = Platform.environment['HOME']?.trim();
+  if (home != null && home.isNotEmpty) {
+    return home;
+  }
+  return Directory.current.path;
+}
 
 enum FolderKind {
   album('album'),

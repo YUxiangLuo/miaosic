@@ -22,16 +22,19 @@ scaffolding, but those platforms are not maintained or verified.
 
 ## Development Library
 
-The app currently uses this development root:
+The app defaults to the current user's Music folder:
 
 ```text
-/mnt/data/music
+$HOME/Music
 ```
 
 On first launch, Miaosic scans this folder and writes the library database to
 the platform application support directory as `miaosic.db`. Cover art is cached
 in the same support directory under `covers/`; the UI requests downsampled image
 decodes while rendering lists and grids.
+
+The music root can be changed from the Library panel in the app. The selected
+folder is stored in the local SQLite database and reused on the next launch.
 
 ## Run
 
@@ -44,18 +47,18 @@ flutter run -d linux
 The scanner can be tested without opening the UI:
 
 ```sh
-dart run tool/scan_dev.dart /mnt/data/music
+dart run tool/scan_dev.dart
 ```
 
-For the current development library, the expected shape is around:
+The output shape is:
 
 ```text
-tracks=3389
+tracks=<number of FLAC tracks>
 engine=rust
-folders=163
-album_folders=133
-playlist_folders=30
-albums=133
+folders=<number of folders>
+album_folders=<number of album folders>
+playlist_folders=<number of playlist folders>
+albums=<number of detected albums>
 covers_cached=<number of newly written cover files>
 ```
 
