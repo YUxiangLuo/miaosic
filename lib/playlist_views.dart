@@ -83,18 +83,28 @@ class PlaylistDetail extends StatelessWidget {
     required this.folder,
     required this.tracks,
     required this.trackCoverCache,
+    required this.playbackActive,
+    required this.playing,
     required this.onBack,
     required this.onPlayAll,
     required this.onShuffleAll,
+    required this.onPrevious,
+    required this.onTogglePlayback,
+    required this.onNext,
     required this.onPlayTrack,
   });
 
   final FolderSummary folder;
   final List<Track> tracks;
   final Map<String, String?> trackCoverCache;
+  final bool playbackActive;
+  final bool playing;
   final VoidCallback onBack;
   final VoidCallback? onPlayAll;
   final VoidCallback? onShuffleAll;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onTogglePlayback;
+  final VoidCallback? onNext;
   final ValueChanged<Track> onPlayTrack;
 
   @override
@@ -146,16 +156,14 @@ class PlaylistDetail extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 12),
-                        FilledButton.icon(
-                          onPressed: onPlayAll,
-                          icon: const Icon(Icons.play_arrow),
-                          label: const Text('Play'),
-                        ),
-                        const SizedBox(width: 8),
-                        OutlinedButton.icon(
-                          onPressed: onShuffleAll,
-                          icon: const Icon(Icons.shuffle),
-                          label: const Text('Shuffle'),
+                        _PlaylistHeaderControls(
+                          playbackActive: playbackActive,
+                          playing: playing,
+                          onPlayAll: onPlayAll,
+                          onShuffleAll: onShuffleAll,
+                          onPrevious: onPrevious,
+                          onTogglePlayback: onTogglePlayback,
+                          onNext: onNext,
                         ),
                       ],
                     ),
@@ -190,6 +198,77 @@ class PlaylistDetail extends StatelessWidget {
             trackCoverCache: trackCoverCache,
             onPlay: onPlayTrack,
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaylistHeaderControls extends StatelessWidget {
+  const _PlaylistHeaderControls({
+    required this.playbackActive,
+    required this.playing,
+    required this.onPlayAll,
+    required this.onShuffleAll,
+    required this.onPrevious,
+    required this.onTogglePlayback,
+    required this.onNext,
+  });
+
+  final bool playbackActive;
+  final bool playing;
+  final VoidCallback? onPlayAll;
+  final VoidCallback? onShuffleAll;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onTogglePlayback;
+  final VoidCallback? onNext;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!playbackActive) {
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          FilledButton.icon(
+            onPressed: onPlayAll,
+            icon: const Icon(Icons.play_arrow),
+            label: const Text('Play'),
+          ),
+          const SizedBox(width: 8),
+          OutlinedButton.icon(
+            onPressed: onShuffleAll,
+            icon: const Icon(Icons.shuffle),
+            label: const Text('Shuffle'),
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'Previous',
+          onPressed: onPrevious,
+          icon: const Icon(Icons.skip_previous),
+        ),
+        const SizedBox(width: 4),
+        FilledButton.icon(
+          onPressed: onTogglePlayback,
+          icon: Icon(playing ? Icons.pause : Icons.play_arrow),
+          label: Text(playing ? 'Pause' : 'Play'),
+        ),
+        const SizedBox(width: 4),
+        IconButton(
+          tooltip: 'Next',
+          onPressed: onNext,
+          icon: const Icon(Icons.skip_next),
+        ),
+        const SizedBox(width: 8),
+        OutlinedButton.icon(
+          onPressed: onShuffleAll,
+          icon: const Icon(Icons.shuffle),
+          label: const Text('Shuffle'),
         ),
       ],
     );

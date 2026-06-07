@@ -15,7 +15,7 @@ class AlbumGrid extends StatelessWidget {
 
   final List<AlbumSummary> albums;
   final Map<String, List<Track>> tracksByFolder;
-  final ValueChanged<List<Track>> onPlay;
+  final void Function(AlbumSummary album, List<Track> tracks) onPlay;
 
   @override
   Widget build(BuildContext context) {
@@ -48,7 +48,7 @@ class AlbumGrid extends StatelessWidget {
             final tracks = tracksByFolder[album.folderPath] ?? const <Track>[];
             return _AlbumTile(
               album: album,
-              onTap: tracks.isEmpty ? null : () => onPlay(tracks),
+              onDoubleTap: tracks.isEmpty ? null : () => onPlay(album, tracks),
             );
           },
         );
@@ -58,17 +58,17 @@ class AlbumGrid extends StatelessWidget {
 }
 
 class _AlbumTile extends StatelessWidget {
-  const _AlbumTile({required this.album, required this.onTap});
+  const _AlbumTile({required this.album, required this.onDoubleTap});
 
   final AlbumSummary album;
-  final VoidCallback? onTap;
+  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
-      onTap: onTap,
+      onDoubleTap: onDoubleTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

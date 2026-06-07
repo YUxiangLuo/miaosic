@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'album_playback_view.dart';
 import 'album_views.dart';
 import 'cover_cache.dart';
 import 'library_database.dart';
@@ -43,6 +44,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<AlbumSummary> _albums = const [];
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
+  _ActiveAlbumPlayback? _activeAlbumPlayback;
+  _ActivePlaylistPlayback? _activePlaylistPlayback;
+  String? _lastPlaybackPath;
+  bool _lastPlaybackPlaying = false;
   String _musicRoot = defaultMusicRoot;
   ScanProgress? _scanProgress;
   LibraryView _view = LibraryView.albums;
@@ -57,6 +62,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
+    _playback.addListener(_handlePlaybackChanged);
     unawaited(_openLibrary());
   }
 
@@ -66,9 +72,34 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _rescanState.dispose();
     _trackCoverCacheListenable.dispose();
     _coverIndexer.dispose();
-    _playback.dispose();
+    _playback
+      ..removeListener(_handlePlaybackChanged)
+      ..dispose();
     unawaited(_database?.close());
     super.dispose();
+  }
+
+  void _handlePlaybackChanged() {
+    final activeAlbumPlayback = _activeAlbumPlayback;
+    final activePlaylistPlayback = _activePlaylistPlayback;
+    if (!mounted ||
+        activeAlbumPlayback == null && activePlaylistPlayback == null) {
+      return;
+    }
+    final displayTrack = activeAlbumPlayback == null
+        ? activePlaylistPlayback == null
+              ? null
+              : _currentTrackForPlaylist(activePlaylistPlayback)
+        : _currentTrackForAlbum(activeAlbumPlayback);
+    final nextPath = displayTrack?.path;
+    final nextPlaying = nextPath != null && _playback.playing;
+    if (nextPath == _lastPlaybackPath && nextPlaying == _lastPlaybackPlaying) {
+      return;
+    }
+    setState(() {
+      _lastPlaybackPath = nextPath;
+      _lastPlaybackPlaying = nextPlaying;
+    });
   }
 
   Future<void> _openLibrary() async {
@@ -112,6 +143,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (_selectedPlaylistPath != null &&
             !folders.any((folder) => folder.path == _selectedPlaylistPath)) {
           _selectedPlaylistPath = null;
+        }
+        final currentTrackPaths = tracks.map((track) => track.path).toSet();
+        final activeAlbum = _activeAlbumPlayback;
+        if (activeAlbum != null &&
+            (!albums.any(
+                  (album) => album.folderPath == activeAlbum.album.folderPath,
+                ) ||
+                activeAlbum.tracks.any(
+                  (track) => !currentTrackPaths.contains(track.path),
+                ))) {
+          _activeAlbumPlayback = null;
+        }
+        final activePlaylistPath = _activePlaylistPlayback?.folderPath;
+        final activePlaylist = _activePlaylistPlayback;
+        if (activePlaylist != null &&
+            (!folders.any((folder) => folder.path == activePlaylistPath) ||
+                activePlaylist.tracks.any(
+                  (track) => !currentTrackPaths.contains(track.path),
+                ))) {
+          _activePlaylistPlayback = null;
         }
         _loading = false;
       });
@@ -452,12 +503,57 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return _playback.playQueueFrom(queue, track);
   }
 
-  Future<void> _playShuffledQueue(List<Track> queue) {
-    if (queue.isEmpty) {
-      return Future<void>.value();
+  Future<void> _playAlbum(AlbumSummary album, List<Track> tracks) async {
+    if (tracks.isEmpty) {
+      return;
     }
-    final shuffled = queue.toList(growable: false)..shuffle(math.Random());
-    return _playQueueFrom(shuffled, shuffled.first);
+    setState(() {
+      _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
+      _activePlaylistPlayback = null;
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _playQueueFrom(tracks, tracks.first);
+  }
+
+  Future<void> _playPlaylist(
+    FolderSummary folder,
+    List<Track> tracks, {
+    Track? startTrack,
+  }) async {
+    if (tracks.isEmpty) {
+      return;
+    }
+    setState(() {
+      _activeAlbumPlayback = null;
+      _activePlaylistPlayback = _ActivePlaylistPlayback(
+        folderPath: folder.path,
+        tracks: tracks,
+      );
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _playQueueFrom(tracks, startTrack ?? tracks.first);
+  }
+
+  Future<void> _playPlaylistShuffled(
+    FolderSummary folder,
+    List<Track> tracks,
+  ) async {
+    if (tracks.isEmpty) {
+      return;
+    }
+    final shuffled = tracks.toList(growable: false)..shuffle(math.Random());
+    setState(() {
+      _activeAlbumPlayback = null;
+      _activePlaylistPlayback = _ActivePlaylistPlayback(
+        folderPath: folder.path,
+        tracks: tracks,
+      );
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _playQueueFrom(shuffled, shuffled.first);
   }
 
   List<FolderSummary> get _playlistFolders =>
@@ -482,29 +578,54 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final activeAlbumPlayback = _activeAlbumPlayback;
+    final activeAlbumTrack = activeAlbumPlayback == null
+        ? null
+        : _currentTrackForAlbum(activeAlbumPlayback);
     return Scaffold(
-      body: Row(
+      body: Stack(
         children: [
-          LibrarySidebar(
-            selected: _view,
-            albums: _albums.length,
-            playlists: _playlistCount,
-            scanState: _scanState,
-            musicRoot: _musicRoot,
-            scanning: _scanning,
-            progress: _scanProgress,
-            error: _error,
-            onEditMusicRoot: _handleMusicRootPressed,
-            onRescan: _handleRescanPressed,
-            onSelected: (view) {
-              setState(() {
-                _view = view;
-                _selectedPlaylistPath = null;
-              });
-            },
+          Row(
+            children: [
+              LibrarySidebar(
+                selected: _view,
+                albums: _albums.length,
+                playlists: _playlistCount,
+                scanState: _scanState,
+                musicRoot: _musicRoot,
+                scanning: _scanning,
+                progress: _scanProgress,
+                error: _error,
+                onEditMusicRoot: _handleMusicRootPressed,
+                onRescan: _handleRescanPressed,
+                onSelected: (view) {
+                  setState(() {
+                    _view = view;
+                    _selectedPlaylistPath = null;
+                  });
+                },
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: _buildContent()),
+            ],
           ),
-          const VerticalDivider(width: 1),
-          Expanded(child: _buildContent()),
+          if (activeAlbumPlayback != null)
+            Positioned.fill(
+              child: AlbumPlaybackView(
+                album: activeAlbumPlayback.album,
+                tracks: activeAlbumPlayback.tracks,
+                currentTrack: activeAlbumTrack,
+                playing: activeAlbumTrack != null && _playback.playing,
+                onClose: _closeAlbumPlayback,
+                onPrevious: () =>
+                    unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
+                onToggle: () => unawaited(
+                  _playback.togglePlayPause(activeAlbumPlayback.tracks),
+                ),
+                onNext: () =>
+                    unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
+              ),
+            ),
         ],
       ),
     );
@@ -518,7 +639,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       LibraryView.albums => AlbumGrid(
         albums: _albums,
         tracksByFolder: _tracksByFolder,
-        onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
+        onPlay: _playAlbum,
       ),
       LibraryView.playlists => _buildPlaylistsContent(),
     };
@@ -537,19 +658,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
               .firstOrNull;
     if (selectedFolder != null) {
       final tracks = _tracksByFolder[selectedFolder.path] ?? const <Track>[];
+      final activePlaylistPlayback = _activePlaylistPlayback;
+      final playlistPlaybackActive =
+          activePlaylistPlayback?.folderPath == selectedFolder.path &&
+          _currentTrackForPlaylist(activePlaylistPlayback!) != null;
       return PlaylistDetail(
         folder: selectedFolder,
         tracks: tracks,
         trackCoverCache: _trackCoverCache,
+        playbackActive: playlistPlaybackActive,
+        playing: playlistPlaybackActive && _playback.playing,
         onBack: () {
           setState(() => _selectedPlaylistPath = null);
           _restorePlaylistListScrollOffset();
         },
         onPlayAll: tracks.isEmpty
             ? null
-            : () => _playQueueFrom(tracks, tracks.first),
-        onShuffleAll: tracks.isEmpty ? null : () => _playShuffledQueue(tracks),
-        onPlayTrack: (track) => _playQueueFrom(tracks, track),
+            : () => unawaited(_playPlaylist(selectedFolder, tracks)),
+        onShuffleAll: tracks.isEmpty
+            ? null
+            : () => unawaited(_playPlaylistShuffled(selectedFolder, tracks)),
+        onPrevious: playlistPlaybackActive
+            ? () => unawaited(_playback.skip(-1, activePlaylistPlayback.tracks))
+            : null,
+        onTogglePlayback: playlistPlaybackActive
+            ? () => unawaited(
+                _playback.togglePlayPause(activePlaylistPlayback.tracks),
+              )
+            : null,
+        onNext: playlistPlaybackActive
+            ? () => unawaited(_playback.skip(1, activePlaylistPlayback.tracks))
+            : null,
+        onPlayTrack: (track) =>
+            unawaited(_playPlaylist(selectedFolder, tracks, startTrack: track)),
       );
     }
 
@@ -565,6 +706,32 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _selectPlaylist(FolderSummary folder) {
     _savePlaylistListScrollOffset();
     setState(() => _selectedPlaylistPath = folder.path);
+  }
+
+  void _closeAlbumPlayback() {
+    setState(() => _activeAlbumPlayback = null);
+  }
+
+  Track? _currentTrackForAlbum(_ActiveAlbumPlayback albumPlayback) {
+    final currentTrack = _playback.currentTrack;
+    if (currentTrack == null) {
+      return null;
+    }
+    return albumPlayback.tracks.any((track) => track.path == currentTrack.path)
+        ? currentTrack
+        : null;
+  }
+
+  Track? _currentTrackForPlaylist(_ActivePlaylistPlayback playlistPlayback) {
+    final currentTrack = _playback.currentTrack;
+    if (currentTrack == null) {
+      return null;
+    }
+    return playlistPlayback.tracks.any(
+          (track) => track.path == currentTrack.path,
+        )
+        ? currentTrack
+        : null;
   }
 
   void _savePlaylistListScrollOffset() {
@@ -656,4 +823,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _trackCoverCache = nextCache;
     _trackCoverCacheListenable.value = nextCache;
   }
+}
+
+class _ActiveAlbumPlayback {
+  const _ActiveAlbumPlayback({required this.album, required this.tracks});
+
+  final AlbumSummary album;
+  final List<Track> tracks;
+}
+
+class _ActivePlaylistPlayback {
+  const _ActivePlaylistPlayback({
+    required this.folderPath,
+    required this.tracks,
+  });
+
+  final String folderPath;
+  final List<Track> tracks;
 }
