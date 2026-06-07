@@ -252,7 +252,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return _playback.playQueueFrom(queue, track);
   }
 
-  Future<void> _playAlbum(AlbumSummary album, List<Track> tracks) async {
+  Future<void> _playAlbumFrom(
+    AlbumSummary album,
+    List<Track> tracks,
+    Track track,
+  ) async {
     if (tracks.isEmpty) {
       return;
     }
@@ -262,18 +266,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     });
-    await _playQueueFrom(tracks, tracks.first);
+    await _playQueueFrom(tracks, track);
   }
 
-  void _showAlbumPlayback(AlbumSummary album, List<Track> tracks) {
-    if (tracks.isEmpty || !_isPlayingAlbum(album, tracks)) {
+  Future<void> _playAlbum(AlbumSummary album, List<Track> tracks) async {
+    if (tracks.isEmpty) {
+      return;
+    }
+    await _playAlbumFrom(album, tracks, tracks.first);
+  }
+
+  void _openAlbumPlayback(AlbumSummary album, List<Track> tracks) {
+    if (tracks.isEmpty) {
       return;
     }
     setState(() {
       _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
-      _activePlaylistPlayback = null;
-      _lastPlaybackPath = _playback.currentTrack?.path;
-      _lastPlaybackPlaying = _playback.playing;
+      final currentAlbumTrack = _currentTrackForAlbum(_activeAlbumPlayback!);
+      final showingCurrentAlbum = _playback.isCurrentQueue(tracks);
+      _lastPlaybackPath = showingCurrentAlbum ? currentAlbumTrack?.path : null;
+      _lastPlaybackPlaying =
+          showingCurrentAlbum && currentAlbumTrack != null && _playback.playing;
     });
   }
 
@@ -349,7 +362,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     final activeAlbum = _activeAlbumPlayback;
-    if (activeAlbum != null && _currentTrackForAlbum(activeAlbum) != null) {
+    if (activeAlbum != null &&
+        _playback.isCurrentQueue(activeAlbum.tracks) &&
+        _currentTrackForAlbum(activeAlbum) != null) {
       return _NowPlayingTarget.album(
         album: activeAlbum.album,
         tracks: activeAlbum.tracks,
@@ -441,9 +456,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final activeAlbumPlayback = _activeAlbumPlayback;
-    final activeAlbumTrack = activeAlbumPlayback == null
-        ? null
-        : _currentTrackForAlbum(activeAlbumPlayback);
+    final albumPlaybackActive =
+        activeAlbumPlayback != null &&
+        _playback.isCurrentQueue(activeAlbumPlayback.tracks);
+    final activeAlbumTrack = albumPlaybackActive
+        ? _currentTrackForAlbum(activeAlbumPlayback)
+        : null;
     final nowPlayingTarget = _nowPlayingTarget;
     return Scaffold(
       body: Stack(
@@ -487,12 +505,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 onPrevious: () =>
                     unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
                 onToggle: () => unawaited(
-                  _playback.togglePlayPause(activeAlbumPlayback.tracks),
+                  albumPlaybackActive
+                      ? _playback.togglePlayPause(activeAlbumPlayback.tracks)
+                      : _playAlbum(
+                          activeAlbumPlayback.album,
+                          activeAlbumPlayback.tracks,
+                        ),
                 ),
                 onNext: () =>
                     unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
                 onPlayTrack: (track) => unawaited(
-                  _playQueueFrom(activeAlbumPlayback.tracks, track),
+                  _playAlbumFrom(
+                    activeAlbumPlayback.album,
+                    activeAlbumPlayback.tracks,
+                    track,
+                  ),
                 ),
               ),
             ),
@@ -511,7 +538,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         tracksByFolder: _tracksByFolder,
         isPlayingAlbum: _isPlayingAlbum,
         onPlay: _playAlbum,
-        onShowPlayback: _showAlbumPlayback,
+        onOpen: _openAlbumPlayback,
       ),
       LibraryView.playlists => _buildPlaylistsContent(),
     };

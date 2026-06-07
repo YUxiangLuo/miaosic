@@ -12,14 +12,14 @@ class AlbumGrid extends StatelessWidget {
     required this.tracksByFolder,
     required this.isPlayingAlbum,
     required this.onPlay,
-    required this.onShowPlayback,
+    required this.onOpen,
   });
 
   final List<AlbumSummary> albums;
   final Map<String, List<Track>> tracksByFolder;
   final bool Function(AlbumSummary album, List<Track> tracks) isPlayingAlbum;
   final void Function(AlbumSummary album, List<Track> tracks) onPlay;
-  final void Function(AlbumSummary album, List<Track> tracks) onShowPlayback;
+  final void Function(AlbumSummary album, List<Track> tracks) onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -53,11 +53,11 @@ class AlbumGrid extends StatelessWidget {
             final playingAlbum = isPlayingAlbum(album, tracks);
             return _AlbumTile(
               album: album,
-              onTap: playingAlbum ? () => onShowPlayback(album, tracks) : null,
+              onTap: tracks.isEmpty ? null : () => onOpen(album, tracks),
               onDoubleTap: tracks.isEmpty
                   ? null
                   : playingAlbum
-                  ? null
+                  ? () => onOpen(album, tracks)
                   : () => onPlay(album, tracks),
             );
           },
