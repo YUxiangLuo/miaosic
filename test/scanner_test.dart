@@ -43,6 +43,46 @@ void main() {
     _expectFixtureShape(result);
   });
 
+  test('Rust scanner moves root tracks into OtherTracks playlist', () async {
+    if (RustMusicScanner.tryLoad() == null) {
+      markTestSkipped('Rust dynamic library is not available');
+      return;
+    }
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_root_track_fixture_',
+    );
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    final looseTrack = File('${dir.path}/Loose.flac');
+    await _writeFlac(
+      looseTrack,
+      tags: const {
+        'TITLE': 'Loose',
+        'ARTIST': 'Loose Artist',
+        'ALBUM': 'Loose Album',
+      },
+    );
+
+    final result = await MusicScanner().scan(dir.path);
+    final movedTrack = File('${dir.path}/OtherTracks/Loose.flac');
+
+    expect(await looseTrack.exists(), isFalse);
+    expect(await movedTrack.exists(), isTrue);
+    expect(
+      result.tracks.singleWhere((track) => track.path == movedTrack.path).title,
+      'Loose',
+    );
+    final folder = result.folders.singleWhere(
+      (folder) => folder.name == 'OtherTracks',
+    );
+    expect(folder.kind, FolderKind.playlist);
+    expect(result.albums, isEmpty);
+  });
+
   test('incremental Rust scan reuses unchanged track metadata', () async {
     final rustScanner = RustMusicScanner.tryLoad();
     if (rustScanner == null) {

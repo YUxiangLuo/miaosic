@@ -11,6 +11,7 @@ use walkdir::WalkDir;
 
 const MAX_COVER_BYTES: usize = 5 * 1024 * 1024;
 const PROGRESS_INTERVAL: u64 = 25;
+const OTHER_TRACKS_FOLDER: &str = "OtherTracks";
 
 type ProgressCallback =
     extern "C" fn(files_seen: u64, tracks_parsed: u64, current_path: *const c_char);
@@ -421,6 +422,7 @@ fn scan_library(
             format!("music root does not exist: {root_path}"),
         ));
     }
+    move_root_audio_files_to_other_tracks(root)?;
 
     let mut tracks = Vec::new();
     let mut cover_cache = CoverCache::new(cover_cache_dir.map(PathBuf::from));
@@ -473,6 +475,7 @@ fn scan_library_incremental(
             format!("music root does not exist: {root_path}"),
         ));
     }
+    move_root_audio_files_to_other_tracks(root)?;
 
     let previous_by_path = previous_tracks
         .into_iter()
@@ -547,6 +550,58 @@ fn extract_track_covers(
             }
         })
         .collect()
+}
+
+fn move_root_audio_files_to_other_tracks(root: &Path) -> io::Result<()> {
+    let mut root_audio_files = Vec::new();
+    for entry in fs::read_dir(root)? {
+        let entry = entry?;
+        let path = entry.path();
+        if entry.file_type()?.is_file() && is_audio_path(&path) {
+            root_audio_files.push(path);
+        }
+    }
+
+    if root_audio_files.is_empty() {
+        return Ok(());
+    }
+
+    let other_tracks = root.join(OTHER_TRACKS_FOLDER);
+    fs::create_dir_all(&other_tracks)?;
+    for source in root_audio_files {
+        let Some(file_name) = source.file_name() else {
+            continue;
+        };
+        let target = available_move_target(&other_tracks.join(file_name));
+        fs::rename(source, target)?;
+    }
+    Ok(())
+}
+
+fn available_move_target(target: &Path) -> PathBuf {
+    if !target.exists() {
+        return target.to_path_buf();
+    }
+
+    let parent = target.parent().unwrap_or_else(|| Path::new(""));
+    let stem = target
+        .file_stem()
+        .map(|value| value.to_string_lossy())
+        .unwrap_or_default();
+    let extension = target.extension().map(|value| value.to_string_lossy());
+    for index in 1.. {
+        let file_name = match extension.as_ref() {
+            Some(extension) if !extension.is_empty() => {
+                format!("{stem} ({index}).{extension}")
+            }
+            _ => format!("{stem} ({index})"),
+        };
+        let candidate = parent.join(file_name);
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    unreachable!("unbounded unique file name search should always return")
 }
 
 fn parse_track(path: &Path) -> io::Result<Track> {
@@ -910,6 +965,9 @@ fn detect_folder_kind(
     let mut album_score = 0_i32;
     let mut playlist_score = 0_i32;
     let folder_name = basename(path).to_lowercase();
+    if folder_name == OTHER_TRACKS_FOLDER.to_lowercase() {
+        return ("playlist".to_string(), 0.99);
+    }
 
     let dominant_album_ratio = dominant_ratio(tracks.iter().map(|track| track.album.as_str()));
     let dominant_album_artist_ratio =
@@ -1251,6 +1309,7 @@ fn first_cover_path_refs(tracks: &[&Track]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     #[test]
     fn extracts_flac_picture_payload() {
@@ -1320,6 +1379,55 @@ mod tests {
         assert!(results[1].cover_art_path.is_none());
     }
 
+    #[test]
+    fn scan_moves_root_tracks_to_other_tracks_playlist() {
+        let root = temp_root("root_tracks");
+        let loose_track = root.join("Loose.flac");
+        fs::write(&loose_track, b"not a real flac").expect("write loose track");
+
+        let result = scan_library(root.to_str().expect("root utf8"), None, None).expect("scan");
+        let moved_track = root.join(OTHER_TRACKS_FOLDER).join("Loose.flac");
+
+        assert!(!loose_track.exists());
+        assert!(moved_track.exists());
+        assert!(result
+            .tracks
+            .iter()
+            .any(|track| track.path == moved_track.to_string_lossy()));
+        let folder = result
+            .folders
+            .iter()
+            .find(|folder| folder.name == OTHER_TRACKS_FOLDER)
+            .expect("OtherTracks folder");
+        assert_eq!(folder.kind, "playlist");
+        assert!(result.albums.is_empty());
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn moving_root_tracks_does_not_overwrite_existing_other_tracks_files() {
+        let root = temp_root("root_track_conflict");
+        let other_tracks = root.join(OTHER_TRACKS_FOLDER);
+        fs::create_dir_all(&other_tracks).expect("create OtherTracks");
+        let existing_track = other_tracks.join("Loose.flac");
+        fs::write(&existing_track, b"existing").expect("write existing track");
+        fs::write(root.join("Loose.flac"), b"new").expect("write loose track");
+
+        move_root_audio_files_to_other_tracks(&root).expect("move root tracks");
+
+        assert_eq!(
+            fs::read(&existing_track).expect("read existing track"),
+            b"existing"
+        );
+        assert_eq!(
+            fs::read(other_tracks.join("Loose (1).flac")).expect("read moved track"),
+            b"new"
+        );
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
     fn vorbis_comment_block(comments: &[&[u8]]) -> Vec<u8> {
         let mut block = Vec::new();
         block.extend_from_slice(&7_u32.to_le_bytes());
@@ -1349,5 +1457,15 @@ mod tests {
         block.extend_from_slice(&data_len.to_be_bytes());
         block.extend_from_slice(data);
         block
+    }
+
+    fn temp_root(label: &str) -> PathBuf {
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!("miaosic_{label}_{unique}"));
+        fs::create_dir_all(&root).expect("create temp root");
+        root
     }
 }
