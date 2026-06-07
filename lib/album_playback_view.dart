@@ -12,7 +12,7 @@ const _fallbackAlbumColor = Color(0xff246b5b);
 const _albumTrackRowHeight = 56.0;
 const _albumTrackSeparatorHeight = 1.0;
 const _albumTrackListVerticalPadding = 8.0;
-const _wideAlbumColumnsGap = 36.0;
+const _wideAlbumColumnsGap = 24.0;
 const _wideAlbumDetailsGap = 28.0;
 const _wideAlbumDetailsHeight = 220.0;
 
@@ -192,7 +192,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
       availableWidth * 0.42,
       availableWidth - _wideAlbumColumnsGap - trackListWidth,
       availableHeight - _wideAlbumDetailsGap - _wideAlbumDetailsHeight,
-    ].reduce(math.min).clamp(180.0, double.infinity).toDouble();
+    ].reduce(math.min).clamp(260.0, 820.0).toDouble();
     final columnHeight =
         coverSize + _wideAlbumDetailsGap + _wideAlbumDetailsHeight;
     final trackListContentHeight =
@@ -214,6 +214,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
                 _LargeAlbumArtwork(album: album, size: coverSize),
                 const SizedBox(height: _wideAlbumDetailsGap),
                 SizedBox(
+                  width: coverSize,
                   height: _wideAlbumDetailsHeight,
                   child: _AlbumPlaybackDetails(
                     album: album,
@@ -281,16 +282,19 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
         children: [
           _LargeAlbumArtwork(album: album, size: coverSize),
           const SizedBox(height: 28),
-          _AlbumPlaybackDetails(
-            album: album,
-            tracks: tracks,
-            playing: playing,
-            canPrevious: canPrevious,
-            canNext: canNext,
-            onPrevious: onPrevious,
-            onToggle: onToggle,
-            onNext: onNext,
-            centered: true,
+          SizedBox(
+            width: coverSize,
+            child: _AlbumPlaybackDetails(
+              album: album,
+              tracks: tracks,
+              playing: playing,
+              canPrevious: canPrevious,
+              canNext: canNext,
+              onPrevious: onPrevious,
+              onToggle: onToggle,
+              onNext: onNext,
+              centered: true,
+            ),
           ),
           const SizedBox(height: 28),
           _AlbumTrackList(
@@ -339,26 +343,19 @@ class _AlbumPlaybackDetails extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: crossAxisAlignment,
       children: [
-        Text(
-          album.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: textAlign,
-          style: Theme.of(context).textTheme.displaySmall?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            height: 1.04,
-          ),
-        ),
+        _AlbumTitleText(title: album.title, textAlign: textAlign),
         const SizedBox(height: 12),
-        Text(
-          _albumSubtitle(album, tracks),
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: textAlign,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: Colors.white.withValues(alpha: 0.74),
-            fontWeight: FontWeight.w700,
+        SizedBox(
+          width: double.infinity,
+          child: Text(
+            _albumSubtitle(album, tracks),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: textAlign,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Colors.white.withValues(alpha: 0.74),
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         const SizedBox(height: 30),
@@ -375,6 +372,71 @@ class _AlbumPlaybackDetails extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _AlbumTitleText extends StatelessWidget {
+  const _AlbumTitleText({required this.title, required this.textAlign});
+
+  final String title;
+  final TextAlign textAlign;
+
+  @override
+  Widget build(BuildContext context) {
+    final baseStyle = Theme.of(context).textTheme.displaySmall?.copyWith(
+      color: Colors.white,
+      fontWeight: FontWeight.w900,
+      height: 1.04,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final style = baseStyle ?? const TextStyle();
+        final maxWidth = constraints.hasBoundedWidth
+            ? constraints.maxWidth
+            : 360.0;
+        final fontSize = _fittingFontSize(
+          context: context,
+          style: style,
+          maxWidth: maxWidth,
+        );
+        return SizedBox(
+          width: double.infinity,
+          child: Text(
+            title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            textAlign: textAlign,
+            style: style.copyWith(fontSize: fontSize),
+          ),
+        );
+      },
+    );
+  }
+
+  double _fittingFontSize({
+    required BuildContext context,
+    required TextStyle style,
+    required double maxWidth,
+  }) {
+    final baseSize = style.fontSize ?? 36;
+    const minSize = 24.0;
+    for (var size = baseSize; size >= minSize; size -= 1) {
+      final painter = TextPainter(
+        text: TextSpan(
+          text: title,
+          style: style.copyWith(fontSize: size),
+        ),
+        maxLines: 2,
+        ellipsis: '...',
+        textAlign: textAlign,
+        textDirection: Directionality.of(context),
+        textScaler: MediaQuery.textScalerOf(context),
+      )..layout(maxWidth: maxWidth);
+      if (!painter.didExceedMaxLines) {
+        return size;
+      }
+    }
+    return minSize;
   }
 }
 
