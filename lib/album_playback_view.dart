@@ -12,7 +12,7 @@ const _fallbackAlbumColor = Color(0xff246b5b);
 const _albumTrackRowHeight = 56.0;
 const _albumTrackSeparatorHeight = 1.0;
 const _albumTrackListVerticalPadding = 8.0;
-const _wideAlbumColumnsGap = 54.0;
+const _wideAlbumColumnsGap = 36.0;
 const _wideAlbumDetailsGap = 28.0;
 const _wideAlbumDetailsHeight = 220.0;
 
@@ -195,6 +195,11 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     ].reduce(math.min).clamp(180.0, double.infinity).toDouble();
     final columnHeight =
         coverSize + _wideAlbumDetailsGap + _wideAlbumDetailsHeight;
+    final trackListContentHeight =
+        (_albumTrackListVerticalPadding * 2) +
+        (tracks.length * _albumTrackRowHeight) +
+        (math.max(0, tracks.length - 1) * _albumTrackSeparatorHeight);
+    final trackListHeight = math.min(columnHeight, trackListContentHeight);
     return Center(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -227,12 +232,11 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
           const SizedBox(width: _wideAlbumColumnsGap),
           SizedBox(
             width: trackListWidth,
-            height: columnHeight,
             child: _AlbumTrackList(
               tracks: tracks,
               currentTrack: currentTrack,
               playing: playing,
-              height: null,
+              height: trackListHeight,
               onPlayTrack: onPlayTrack,
             ),
           ),
@@ -472,35 +476,29 @@ class _AlbumTrackListState extends State<_AlbumTrackList> {
 
   @override
   Widget build(BuildContext context) {
-    final list = DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.black.withValues(alpha: 0.18),
-        borderRadius: BorderRadius.circular(12),
+    final list = ListView.separated(
+      controller: _scrollController,
+      padding: const EdgeInsets.symmetric(
+        vertical: _albumTrackListVerticalPadding,
       ),
-      child: ListView.separated(
-        controller: _scrollController,
-        padding: const EdgeInsets.symmetric(
-          vertical: _albumTrackListVerticalPadding,
-        ),
-        itemCount: widget.tracks.length,
-        separatorBuilder: (_, _) => Divider(
-          height: _albumTrackSeparatorHeight,
-          indent: 58,
-          endIndent: 12,
-          color: Colors.white.withValues(alpha: 0.08),
-        ),
-        itemBuilder: (context, index) {
-          final track = widget.tracks[index];
-          final selected = widget.currentTrack?.path == track.path;
-          return _AlbumTrackRow(
-            index: index,
-            track: track,
-            selected: selected,
-            playing: selected && widget.playing,
-            onTap: () => widget.onPlayTrack(track),
-          );
-        },
+      itemCount: widget.tracks.length,
+      separatorBuilder: (_, _) => Divider(
+        height: _albumTrackSeparatorHeight,
+        indent: 58,
+        endIndent: 12,
+        color: Colors.white.withValues(alpha: 0.08),
       ),
+      itemBuilder: (context, index) {
+        final track = widget.tracks[index];
+        final selected = widget.currentTrack?.path == track.path;
+        return _AlbumTrackRow(
+          index: index,
+          track: track,
+          selected: selected,
+          playing: selected && widget.playing,
+          onTap: () => widget.onPlayTrack(track),
+        );
+      },
     );
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 560),
