@@ -181,6 +181,47 @@ void main() {
     await database.close();
     await dir.delete(recursive: true);
   });
+
+  test('loads referenced cover art paths from current library state', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_cover_refs_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+    final valid = _track(
+      '/music/a.flac',
+      size: 10,
+      modified: 1,
+      cover: '/cache/folder.jpg',
+    );
+    final changed = _track('/music/b.flac', size: 12, modified: 1);
+    await database.replaceLibrary(_scanResult([valid, changed]));
+    await database.saveTrackCoverCache([
+      TrackCoverCacheEntry(
+        path: valid.path,
+        sizeBytes: valid.sizeBytes,
+        modifiedMs: valid.modifiedMs,
+        coverArtPath: '/cache/track.jpg',
+      ),
+      TrackCoverCacheEntry(
+        path: changed.path,
+        sizeBytes: changed.sizeBytes,
+        modifiedMs: changed.modifiedMs + 1,
+        coverArtPath: '/cache/stale.jpg',
+      ),
+    ]);
+
+    final referenced = await database.loadReferencedCoverArtPaths();
+
+    expect(referenced, containsAll(['/cache/folder.jpg', '/cache/track.jpg']));
+    expect(referenced, isNot(contains('/cache/stale.jpg')));
+
+    await database.close();
+    await dir.delete(recursive: true);
+  });
 }
 
 Future<void> _createV1Schema(Database db) async {
@@ -259,7 +300,12 @@ ScanResult _scanResult(List<Track> tracks, {Duration elapsed = Duration.zero}) {
   );
 }
 
-Track _track(String path, {required int size, required int modified}) {
+Track _track(
+  String path, {
+  required int size,
+  required int modified,
+  String? cover,
+}) {
   return Track(
     path: path,
     folderPath: '/music',
@@ -273,6 +319,6 @@ Track _track(String path, {required int size, required int modified}) {
     durationMs: null,
     sizeBytes: size,
     modifiedMs: modified,
-    coverArtPath: null,
+    coverArtPath: cover,
   );
 }

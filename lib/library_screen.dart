@@ -5,6 +5,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'album_views.dart';
+import 'artwork_resolver.dart';
+import 'cover_cache.dart';
 import 'library_database.dart';
 import 'library_diff.dart';
 import 'library_formatters.dart';
@@ -33,6 +35,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final _playlistListScrollController = ScrollController();
   final _rescanState = ValueNotifier<RescanUiState>(
     const RescanUiState(phase: RescanPhase.idle),
+  );
+  final _trackCoverCacheListenable = ValueNotifier<Map<String, String?>>(
+    const {},
   );
 
   LibraryDatabase? _database;
@@ -63,6 +68,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void dispose() {
     _playlistListScrollController.dispose();
     _rescanState.dispose();
+    _trackCoverCacheListenable.dispose();
     _coverIndexer.dispose();
     _playback
       ..removeListener(_handlePlaybackChanged)
@@ -113,7 +119,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _tracks = tracks;
         _folders = folders;
         _albums = albums;
-        _trackCoverCache = trackCoverCache;
+        _setTrackCoverCache(trackCoverCache, tracks: tracks);
         _scanState = scanState;
         if (_selectedPlaylistPath != null &&
             !folders.any((folder) => folder.path == _selectedPlaylistPath)) {
@@ -188,6 +194,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
 
+    List<Track>? rescanResultTracks;
     _coverIndexer.cancel();
     setState(() {
       _scanning = true;
@@ -225,6 +232,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           setState(() {});
         },
       );
+      rescanResultTracks = result.tracks;
       if (!mounted) {
         return;
       }
@@ -267,7 +275,15 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _scanning = false;
           _scanProgress = null;
         });
-        _startBackgroundCoverIndexing(_tracks, knownCache: _trackCoverCache);
+        final tracksForIndexing = rescanResultTracks;
+        if (tracksForIndexing == null) {
+          _startBackgroundCoverIndexing(_tracks, knownCache: _trackCoverCache);
+        } else {
+          _startBackgroundCoverIndexing(
+            tracksForIndexing,
+            pruneWhenComplete: false,
+          );
+        }
       }
     }
   }
@@ -283,6 +299,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       builder: (context) {
         return RescanDialog(
           stateListenable: _rescanState,
+          trackCoverCacheListenable: _trackCoverCacheListenable,
           onApply: _applyPendingDiff,
           onRescan: () => _startRescanDiff(),
           onFullRescan: () => _startRescanDiff(full: true),
@@ -624,21 +641,30 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _startBackgroundCoverIndexing(
     List<Track> tracks, {
     Map<String, String?>? knownCache,
+    bool pruneWhenComplete = true,
   }) {
     final database = _database;
     if (database == null || tracks.isEmpty) {
       return;
     }
-    unawaited(_runBackgroundCoverIndexing(database, tracks, knownCache));
+    unawaited(
+      _runBackgroundCoverIndexing(
+        database,
+        tracks,
+        knownCache,
+        pruneWhenComplete,
+      ),
+    );
   }
 
   Future<void> _runBackgroundCoverIndexing(
     LibraryDatabase database,
     List<Track> tracks,
     Map<String, String?>? knownCache,
+    bool pruneWhenComplete,
   ) async {
     try {
-      await _coverIndexer.indexTracks(
+      final completed = await _coverIndexer.indexTracks(
         tracks: tracks,
         database: database,
         knownCache: knownCache,
@@ -648,16 +674,40 @@ class _LibraryScreenState extends State<LibraryScreen> {
             return;
           }
           setState(() {
-            _trackCoverCache = {..._trackCoverCache, ...updates};
+            _setTrackCoverCache({..._trackCoverCache, ...updates});
           });
         },
       );
+      if (completed && pruneWhenComplete && mounted && !_scanning) {
+        await _pruneUnusedCoverCache(database);
+      }
     } catch (_) {
       // Background cover indexing is best-effort and must stay invisible.
     }
   }
 
+  Future<void> _pruneUnusedCoverCache(LibraryDatabase database) async {
+    try {
+      final referencedPaths = await database.loadReferencedCoverArtPaths();
+      await pruneCoverCacheFiles(referencedPaths);
+    } catch (_) {
+      // Cover pruning is opportunistic and should never affect library use.
+    }
+  }
+
   String? _trackArtworkPath(Track track) {
-    return _trackCoverCache[track.path] ?? track.coverArtPath;
+    return resolveTrackArtwork(track, _trackCoverCache);
+  }
+
+  void _setTrackCoverCache(Map<String, String?> cache, {List<Track>? tracks}) {
+    final trackList = tracks;
+    final nextCache = trackList == null
+        ? cache
+        : {
+            for (final track in trackList)
+              if (cache.containsKey(track.path)) track.path: cache[track.path],
+          };
+    _trackCoverCache = nextCache;
+    _trackCoverCacheListenable.value = nextCache;
   }
 }

@@ -15,3 +15,40 @@ Future<String> coverCacheDir() async {
   }
   return dir.path;
 }
+
+Future<int> pruneCoverCacheFiles(
+  Set<String> referencedPaths, {
+  String? cacheDirPath,
+}) async {
+  final dirPath = cacheDirPath ?? await coverCacheDir();
+  final dir = Directory(dirPath);
+  if (!await dir.exists()) {
+    return 0;
+  }
+
+  final referenced = referencedPaths.map(_normalizedAbsolutePath).toSet();
+  var deleted = 0;
+  await for (final entity in dir.list(followLinks: false)) {
+    if (entity is! File || !_isPrunableCoverFile(entity.path)) {
+      continue;
+    }
+    final path = _normalizedAbsolutePath(entity.path);
+    if (referenced.contains(path)) {
+      continue;
+    }
+    await entity.delete();
+    deleted++;
+  }
+  return deleted;
+}
+
+String _normalizedAbsolutePath(String path) {
+  return p.normalize(File(path).absolute.path);
+}
+
+bool _isPrunableCoverFile(String path) {
+  return switch (p.extension(path).toLowerCase()) {
+    '.jpg' || '.jpeg' || '.png' => true,
+    _ => false,
+  };
+}

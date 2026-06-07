@@ -173,7 +173,7 @@ impl CoverCache {
         }
     }
 
-    fn cover_for_folder(&mut self, folder: &Path, sample_track: &Path) -> Option<String> {
+    fn cover_for_folder(&mut self, folder: &Path, tracks: &[String]) -> Option<String> {
         if let Some(cached) = self.folder_cache.get(folder) {
             return cached.clone();
         }
@@ -186,10 +186,12 @@ impl CoverCache {
             })
             .and_then(|image| self.cache_image(&image))
             .or_else(|| {
-                read_flac_picture(sample_track)
-                    .ok()
-                    .flatten()
-                    .and_then(|image| self.cache_image(&image))
+                tracks.iter().find_map(|track| {
+                    read_flac_picture(Path::new(track))
+                        .ok()
+                        .flatten()
+                        .and_then(|image| self.cache_image(&image))
+                })
             });
         self.folder_cache
             .insert(folder.to_path_buf(), cover.clone());
@@ -831,16 +833,17 @@ fn read_picture_data(block: &[u8]) -> Option<CoverImage> {
 }
 
 fn apply_folder_covers(tracks: &mut [Track], cover_cache: &mut CoverCache) {
-    let mut samples: HashMap<String, String> = HashMap::new();
+    let mut tracks_by_folder: HashMap<String, Vec<String>> = HashMap::new();
     for track in tracks.iter() {
-        samples
+        tracks_by_folder
             .entry(track.folder_path.clone())
-            .or_insert_with(|| track.path.clone());
+            .or_default()
+            .push(track.path.clone());
     }
 
     let mut covers = HashMap::new();
-    for (folder, sample_track) in samples {
-        let cover = cover_cache.cover_for_folder(Path::new(&folder), Path::new(&sample_track));
+    for (folder, folder_tracks) in tracks_by_folder {
+        let cover = cover_cache.cover_for_folder(Path::new(&folder), &folder_tracks);
         covers.insert(folder, cover);
     }
 
@@ -1048,7 +1051,7 @@ fn logical_folder_for(path: &Path) -> PathBuf {
 }
 
 fn find_external_cover(folder: &Path) -> Option<PathBuf> {
-    let names = [
+    const NAMES: &[&str] = &[
         "cover.jpg",
         "cover.jpeg",
         "cover.png",
@@ -1059,10 +1062,25 @@ fn find_external_cover(folder: &Path) -> Option<PathBuf> {
         "front.jpeg",
         "front.png",
     ];
-    for name in names {
-        let candidate = folder.join(name);
-        if candidate.is_file() {
-            return Some(candidate);
+
+    let entries = fs::read_dir(folder).ok()?;
+    let mut by_name = HashMap::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(file_name) = path.file_name() else {
+            continue;
+        };
+        by_name
+            .entry(file_name.to_string_lossy().to_lowercase())
+            .or_insert(path);
+    }
+
+    for name in NAMES {
+        if let Some(path) = by_name.remove(*name) {
+            return Some(path);
         }
     }
     None
@@ -1428,6 +1446,50 @@ mod tests {
         fs::remove_dir_all(root).expect("cleanup temp root");
     }
 
+    #[test]
+    fn external_cover_lookup_is_case_insensitive() {
+        let root = temp_root("case_cover");
+        let cover_path = root.join("Cover.JPG");
+        fs::write(&cover_path, b"jpg").expect("write cover");
+
+        assert_eq!(find_external_cover(&root), Some(cover_path));
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn folder_cover_uses_later_embedded_picture_when_first_track_has_none() {
+        let root = temp_root("embedded_folder_cover");
+        let cache = temp_root("embedded_folder_cover_cache");
+        let album = root.join("Album");
+        fs::create_dir_all(&album).expect("create album");
+        let first = album.join("01. No Picture.flac");
+        let second = album.join("02. Has Picture.flac");
+        fs::write(&first, minimal_flac(None)).expect("write first track");
+        fs::write(&second, minimal_flac(Some(b"cover-bytes"))).expect("write second track");
+
+        let result = scan_library(
+            root.to_str().expect("root utf8"),
+            Some(cache.to_str().expect("cache utf8")),
+            None,
+        )
+        .expect("scan");
+
+        let folder = result
+            .folders
+            .iter()
+            .find(|folder| folder.name == "Album")
+            .expect("album folder");
+        assert!(folder.cover_art_path.is_some());
+        assert!(result
+            .tracks
+            .iter()
+            .all(|track| track.cover_art_path == folder.cover_art_path));
+
+        fs::remove_dir_all(root).expect("cleanup temp root");
+        fs::remove_dir_all(cache).expect("cleanup cache root");
+    }
+
     fn vorbis_comment_block(comments: &[&[u8]]) -> Vec<u8> {
         let mut block = Vec::new();
         block.extend_from_slice(&7_u32.to_le_bytes());
@@ -1442,6 +1504,32 @@ mod tests {
 
     fn picture_block(mime: &[u8], data: &[u8]) -> Vec<u8> {
         picture_block_with_len(mime, data.len() as u32, data)
+    }
+
+    fn minimal_flac(picture: Option<&[u8]>) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"fLaC");
+        bytes.extend_from_slice(&metadata_block_header(0, 34, picture.is_none()));
+        bytes.extend_from_slice(&[0; 34]);
+        if let Some(picture) = picture {
+            let block = picture_block(b"image/jpeg", picture);
+            bytes.extend_from_slice(&metadata_block_header(6, block.len(), true));
+            bytes.extend_from_slice(&block);
+        }
+        bytes
+    }
+
+    fn metadata_block_header(block_type: u8, length: usize, is_last: bool) -> [u8; 4] {
+        [
+            if is_last {
+                0x80 | block_type
+            } else {
+                block_type
+            },
+            ((length >> 16) & 0xff) as u8,
+            ((length >> 8) & 0xff) as u8,
+            (length & 0xff) as u8,
+        ]
     }
 
     fn picture_block_with_len(mime: &[u8], data_len: u32, data: &[u8]) -> Vec<u8> {

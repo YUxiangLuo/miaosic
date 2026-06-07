@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'artwork_resolver.dart';
 import 'library_formatters.dart';
 import 'library_widgets.dart';
 import 'models.dart';
@@ -43,7 +44,7 @@ class PlaylistTrackList extends StatelessWidget {
           selected: selected,
           showArtwork: showArtwork,
           artworkPath: showArtwork
-              ? trackCoverPath ?? track.coverArtPath
+              ? resolveTrackArtwork(track, trackCoverCache)
               : trackCoverPath,
           onTap: () => onPlay(track),
         );
@@ -101,7 +102,7 @@ class LibraryTrackList extends StatelessWidget {
             final track = tracks[index];
             return _LibraryTrackTile(
               track: track,
-              artworkPath: trackCoverCache[track.path] ?? track.coverArtPath,
+              artworkPath: resolveTrackArtwork(track, trackCoverCache),
               selected: track.path == currentPath,
               onTap: () => onPlay(track),
             );

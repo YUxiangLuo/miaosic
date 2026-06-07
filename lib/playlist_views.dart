@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import 'artwork_resolver.dart';
 import 'library_widgets.dart';
 import 'models.dart';
 import 'track_views.dart';
@@ -289,7 +290,7 @@ class _PlaylistRow extends StatelessWidget {
   List<String> _playlistCoverPaths() {
     final paths = <String>[];
     for (final track in tracks) {
-      final path = trackCoverCache[track.path] ?? track.coverArtPath;
+      final path = resolveTrackArtwork(track, trackCoverCache);
       if (path != null && path.isNotEmpty && !paths.contains(path)) {
         paths.add(path);
       }

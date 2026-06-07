@@ -122,6 +122,29 @@ class LibraryDatabase {
     await batch.commit(noResult: true);
   }
 
+  Future<Set<String>> loadReferencedCoverArtPaths() async {
+    final rows = await _db.rawQuery('''
+      SELECT cover_art_path FROM tracks
+        WHERE cover_art_path IS NOT NULL AND cover_art_path != ''
+      UNION
+      SELECT cover_art_path FROM folders
+        WHERE cover_art_path IS NOT NULL AND cover_art_path != ''
+      UNION
+      SELECT cover_art_path FROM albums
+        WHERE cover_art_path IS NOT NULL AND cover_art_path != ''
+      UNION
+      SELECT track_cover_cache.cover_art_path
+      FROM track_cover_cache
+      INNER JOIN tracks
+        ON tracks.path = track_cover_cache.path
+       AND tracks.size_bytes = track_cover_cache.size_bytes
+       AND tracks.modified_ms = track_cover_cache.modified_ms
+      WHERE track_cover_cache.cover_art_path IS NOT NULL
+        AND track_cover_cache.cover_art_path != ''
+    ''');
+    return rows.map((row) => row['cover_art_path']).whereType<String>().toSet();
+  }
+
   Future<void> replaceLibrary(ScanResult result) async {
     await _db.transaction((txn) async {
       await txn.delete('tracks');

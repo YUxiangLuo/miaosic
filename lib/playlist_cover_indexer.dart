@@ -56,7 +56,7 @@ class TrackCoverIndexer {
     _generation++;
   }
 
-  Future<void> indexTracks({
+  Future<bool> indexTracks({
     required List<Track> tracks,
     required LibraryDatabase database,
     Map<String, String?>? knownCache,
@@ -65,12 +65,12 @@ class TrackCoverIndexer {
   }) async {
     final generation = ++_generation;
     if (tracks.isEmpty) {
-      return;
+      return true;
     }
 
     final cached = knownCache ?? await database.loadTrackCoverCache(tracks);
     if (!_isCurrent(generation)) {
-      return;
+      return false;
     }
     if (knownCache == null && cached.isNotEmpty) {
       onCacheUpdated(cached);
@@ -80,7 +80,7 @@ class TrackCoverIndexer {
         .where((track) => !cached.containsKey(track.path))
         .toList(growable: false);
     if (pending.isEmpty) {
-      return;
+      return true;
     }
 
     final cacheDir = await coverCacheDir();
@@ -91,7 +91,7 @@ class TrackCoverIndexer {
           await Future<void>.delayed(_pauseDelay);
         }
         if (!_isCurrent(generation)) {
-          return;
+          return false;
         }
 
         final batch = pending
@@ -102,7 +102,7 @@ class TrackCoverIndexer {
           batch.map((track) => track.path).toList(growable: false),
         );
         if (!_isCurrent(generation) || extracted.isEmpty) {
-          return;
+          return false;
         }
 
         final byPath = {for (final track in batch) track.path: track};
@@ -129,11 +129,12 @@ class TrackCoverIndexer {
 
         await database.saveTrackCoverCache(entries);
         if (!_isCurrent(generation)) {
-          return;
+          return false;
         }
         onCacheUpdated(updates);
         await Future<void>.delayed(_batchDelay);
       }
+      return true;
     } finally {
       worker.close();
     }
