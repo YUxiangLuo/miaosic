@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import 'library_formatters.dart';
 import 'library_widgets.dart';
 import 'models.dart';
 
@@ -16,20 +17,28 @@ class AlbumPlaybackView extends StatefulWidget {
     required this.tracks,
     required this.currentTrack,
     required this.playing,
+    required this.position,
+    required this.duration,
     required this.onClose,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
+    required this.onSeek,
+    required this.onPlayTrack,
   });
 
   final AlbumSummary album;
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
+  final Duration position;
+  final Duration duration;
   final VoidCallback onClose;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
+  final ValueChanged<Duration> onSeek;
+  final ValueChanged<Track> onPlayTrack;
 
   @override
   State<AlbumPlaybackView> createState() => _AlbumPlaybackViewState();
@@ -109,11 +118,15 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                               constraints.maxHeight * 0.52,
                             ),
                             playing: widget.playing,
+                            position: widget.position,
+                            duration: widget.duration,
                             canPrevious: canPrevious,
                             canNext: canNext,
                             onPrevious: widget.onPrevious,
                             onToggle: widget.onToggle,
                             onNext: widget.onNext,
+                            onSeek: widget.onSeek,
+                            onPlayTrack: widget.onPlayTrack,
                           );
                         }
                         return _AlbumPlaybackWideLayout(
@@ -125,11 +138,15 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                             constraints.maxHeight * 0.82,
                           ),
                           playing: widget.playing,
+                          position: widget.position,
+                          duration: widget.duration,
                           canPrevious: canPrevious,
                           canNext: canNext,
                           onPrevious: widget.onPrevious,
                           onToggle: widget.onToggle,
                           onNext: widget.onNext,
+                          onSeek: widget.onSeek,
+                          onPlayTrack: widget.onPlayTrack,
                         );
                       },
                     ),
@@ -151,11 +168,15 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     required this.currentTrack,
     required this.coverSize,
     required this.playing,
+    required this.position,
+    required this.duration,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
+    required this.onSeek,
+    required this.onPlayTrack,
   });
 
   final AlbumSummary album;
@@ -163,11 +184,15 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
   final Track? currentTrack;
   final double coverSize;
   final bool playing;
+  final Duration position;
+  final Duration duration;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
+  final ValueChanged<Duration> onSeek;
+  final ValueChanged<Track> onPlayTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -184,11 +209,16 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
               tracks: tracks,
               currentTrack: currentTrack,
               playing: playing,
+              position: position,
+              duration: duration,
+              trackListHeight: math.min(340, math.max(240, coverSize * 0.48)),
               canPrevious: canPrevious,
               canNext: canNext,
               onPrevious: onPrevious,
               onToggle: onToggle,
               onNext: onNext,
+              onSeek: onSeek,
+              onPlayTrack: onPlayTrack,
             ),
           ),
         ],
@@ -204,11 +234,15 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
     required this.currentTrack,
     required this.coverSize,
     required this.playing,
+    required this.position,
+    required this.duration,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
+    required this.onSeek,
+    required this.onPlayTrack,
   });
 
   final AlbumSummary album;
@@ -216,11 +250,15 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   final Track? currentTrack;
   final double coverSize;
   final bool playing;
+  final Duration position;
+  final Duration duration;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
+  final ValueChanged<Duration> onSeek;
+  final ValueChanged<Track> onPlayTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -235,11 +273,16 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
             tracks: tracks,
             currentTrack: currentTrack,
             playing: playing,
+            position: position,
+            duration: duration,
+            trackListHeight: 360,
             canPrevious: canPrevious,
             canNext: canNext,
             onPrevious: onPrevious,
             onToggle: onToggle,
             onNext: onNext,
+            onSeek: onSeek,
+            onPlayTrack: onPlayTrack,
             centered: true,
           ),
         ],
@@ -254,11 +297,16 @@ class _AlbumPlaybackInfo extends StatelessWidget {
     required this.tracks,
     required this.currentTrack,
     required this.playing,
+    required this.position,
+    required this.duration,
+    required this.trackListHeight,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
+    required this.onSeek,
+    required this.onPlayTrack,
     this.centered = false,
   });
 
@@ -266,11 +314,16 @@ class _AlbumPlaybackInfo extends StatelessWidget {
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
+  final Duration position;
+  final Duration duration;
+  final double trackListHeight;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
+  final ValueChanged<Duration> onSeek;
+  final ValueChanged<Track> onPlayTrack;
   final bool centered;
 
   @override
@@ -280,22 +333,25 @@ class _AlbumPlaybackInfo extends StatelessWidget {
         ? CrossAxisAlignment.center
         : CrossAxisAlignment.start;
     final current = currentTrack;
+    final effectiveDuration = duration > Duration.zero
+        ? duration
+        : Duration(milliseconds: current?.durationMs ?? 0);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: crossAxisAlignment,
       children: [
         Text(
           album.title,
-          maxLines: 3,
+          maxLines: 2,
           overflow: TextOverflow.ellipsis,
           textAlign: textAlign,
           style: Theme.of(context).textTheme.displaySmall?.copyWith(
             color: Colors.white,
             fontWeight: FontWeight.w900,
-            height: 1.02,
+            height: 1.04,
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 12),
         Text(
           _albumSubtitle(album, tracks),
           maxLines: 2,
@@ -306,39 +362,300 @@ class _AlbumPlaybackInfo extends StatelessWidget {
             fontWeight: FontWeight.w700,
           ),
         ),
-        const SizedBox(height: 34),
+        const SizedBox(height: 30),
         if (current != null) ...[
-          Text(
-            current.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          _CurrentTrackInfo(
+            track: current,
             textAlign: textAlign,
-            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w800,
-            ),
+            crossAxisAlignment: crossAxisAlignment,
           ),
-          const SizedBox(height: 8),
-          Text(
-            current.artist,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            textAlign: textAlign,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.72),
-            ),
+          const SizedBox(height: 18),
+          _PlaybackScrubber(
+            position: position,
+            duration: effectiveDuration,
+            onSeek: onSeek,
           ),
-          const SizedBox(height: 34),
+          const SizedBox(height: 20),
         ],
-        _AlbumPlaybackControls(
+        Align(
+          alignment: centered ? Alignment.center : Alignment.centerLeft,
+          child: _AlbumPlaybackControls(
+            playing: playing,
+            canPrevious: canPrevious,
+            canNext: canNext,
+            onPrevious: onPrevious,
+            onToggle: onToggle,
+            onNext: onNext,
+          ),
+        ),
+        const SizedBox(height: 28),
+        _AlbumTrackList(
+          tracks: tracks,
+          currentTrack: current,
           playing: playing,
-          canPrevious: canPrevious,
-          canNext: canNext,
-          onPrevious: onPrevious,
-          onToggle: onToggle,
-          onNext: onNext,
+          height: trackListHeight,
+          onPlayTrack: onPlayTrack,
         ),
       ],
+    );
+  }
+}
+
+class _CurrentTrackInfo extends StatelessWidget {
+  const _CurrentTrackInfo({
+    required this.track,
+    required this.textAlign,
+    required this.crossAxisAlignment,
+  });
+
+  final Track track;
+  final TextAlign textAlign;
+  final CrossAxisAlignment crossAxisAlignment;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: crossAxisAlignment,
+      children: [
+        Text(
+          track.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          textAlign: textAlign,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+            height: 1.08,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Text(
+          track.artist,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: textAlign,
+          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.72),
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PlaybackScrubber extends StatelessWidget {
+  const _PlaybackScrubber({
+    required this.position,
+    required this.duration,
+    required this.onSeek,
+  });
+
+  final Duration position;
+  final Duration duration;
+  final ValueChanged<Duration> onSeek;
+
+  @override
+  Widget build(BuildContext context) {
+    final durationMs = duration.inMilliseconds;
+    final max = durationMs <= 0 ? 1.0 : durationMs.toDouble();
+    final value = position.inMilliseconds.clamp(0, max.toInt()).toDouble();
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: Column(
+        children: [
+          SliderTheme(
+            data: SliderTheme.of(context).copyWith(
+              trackHeight: 4,
+              activeTrackColor: Colors.white.withValues(alpha: 0.94),
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.22),
+              thumbColor: Colors.white,
+              overlayColor: Colors.white.withValues(alpha: 0.14),
+              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
+              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
+            ),
+            child: Slider(
+              min: 0,
+              max: max,
+              value: value,
+              onChanged: durationMs <= 0
+                  ? null
+                  : (nextValue) =>
+                        onSeek(Duration(milliseconds: nextValue.round())),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 2),
+            child: Row(
+              children: [
+                Text(formatDuration(position), style: _timeStyle(context)),
+                const Spacer(),
+                Text(
+                  durationMs <= 0 ? '-' : formatDuration(duration),
+                  style: _timeStyle(context),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  TextStyle? _timeStyle(BuildContext context) {
+    return Theme.of(context).textTheme.labelMedium?.copyWith(
+      color: Colors.white.withValues(alpha: 0.68),
+      fontWeight: FontWeight.w700,
+    );
+  }
+}
+
+class _AlbumTrackList extends StatelessWidget {
+  const _AlbumTrackList({
+    required this.tracks,
+    required this.currentTrack,
+    required this.playing,
+    required this.height,
+    required this.onPlayTrack,
+  });
+
+  final List<Track> tracks;
+  final Track? currentTrack;
+  final bool playing;
+  final double height;
+  final ValueChanged<Track> onPlayTrack;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 560),
+      child: SizedBox(
+        height: height,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: Colors.white.withValues(alpha: 0.13)),
+          ),
+          child: ListView.separated(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            itemCount: tracks.length,
+            separatorBuilder: (_, _) => Divider(
+              height: 1,
+              indent: 58,
+              endIndent: 12,
+              color: Colors.white.withValues(alpha: 0.08),
+            ),
+            itemBuilder: (context, index) {
+              final track = tracks[index];
+              final selected = currentTrack?.path == track.path;
+              return _AlbumTrackRow(
+                index: index,
+                track: track,
+                selected: selected,
+                playing: selected && playing,
+                onTap: () => onPlayTrack(track),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumTrackRow extends StatelessWidget {
+  const _AlbumTrackRow({
+    required this.index,
+    required this.track,
+    required this.selected,
+    required this.playing,
+    required this.onTap,
+  });
+
+  final int index;
+  final Track track;
+  final bool selected;
+  final bool playing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Colors.white.withValues(alpha: selected ? 1 : 0.86);
+    final secondary = Colors.white.withValues(alpha: selected ? 0.78 : 0.52);
+    return InkWell(
+      onTap: onTap,
+      child: Container(
+        height: 56,
+        padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
+        decoration: BoxDecoration(
+          color: selected
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.transparent,
+        ),
+        child: Row(
+          children: [
+            SizedBox(
+              width: 34,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                child: playing
+                    ? Icon(
+                        Icons.graphic_eq,
+                        key: const ValueKey('playing'),
+                        color: primary,
+                        size: 20,
+                      )
+                    : Text(
+                        _trackIndexLabel(index, track),
+                        key: ValueKey('index-$index'),
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                          color: secondary,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    track.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                      color: primary,
+                      fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    track.artist,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: secondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              formatDurationMs(track.durationMs),
+              style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: secondary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -578,4 +895,12 @@ String _albumSubtitle(AlbumSummary album, List<Track> tracks) {
   final year = album.year;
   final yearText = year == null ? '' : ' · $year';
   return '${album.albumArtist}$yearText · ${tracks.length} tracks';
+}
+
+String _trackIndexLabel(int index, Track track) {
+  final number = track.trackNumber;
+  if (number != null && number > 0) {
+    return number.toString().padLeft(2, '0');
+  }
+  return (index + 1).toString().padLeft(2, '0');
 }

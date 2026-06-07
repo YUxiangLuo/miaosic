@@ -326,9 +326,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final activeAlbumPlayback = _activeAlbumPlayback;
-    final activeAlbumTrack = activeAlbumPlayback == null
-        ? null
-        : _currentTrackForAlbum(activeAlbumPlayback);
     return Scaffold(
       body: Stack(
         children: [
@@ -358,19 +355,35 @@ class _LibraryScreenState extends State<LibraryScreen> {
           ),
           if (activeAlbumPlayback != null)
             Positioned.fill(
-              child: AlbumPlaybackView(
-                album: activeAlbumPlayback.album,
-                tracks: activeAlbumPlayback.tracks,
-                currentTrack: activeAlbumTrack,
-                playing: activeAlbumTrack != null && _playback.playing,
-                onClose: _closeAlbumPlayback,
-                onPrevious: () =>
-                    unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
-                onToggle: () => unawaited(
-                  _playback.togglePlayPause(activeAlbumPlayback.tracks),
-                ),
-                onNext: () =>
-                    unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
+              child: AnimatedBuilder(
+                animation: _playback,
+                builder: (context, _) {
+                  final activeAlbumTrack = _currentTrackForAlbum(
+                    activeAlbumPlayback,
+                  );
+                  return AlbumPlaybackView(
+                    album: activeAlbumPlayback.album,
+                    tracks: activeAlbumPlayback.tracks,
+                    currentTrack: activeAlbumTrack,
+                    playing: activeAlbumTrack != null && _playback.playing,
+                    position: _playback.position,
+                    duration: _playback.duration,
+                    onClose: _closeAlbumPlayback,
+                    onPrevious: () => unawaited(
+                      _playback.skip(-1, activeAlbumPlayback.tracks),
+                    ),
+                    onToggle: () => unawaited(
+                      _playback.togglePlayPause(activeAlbumPlayback.tracks),
+                    ),
+                    onNext: () => unawaited(
+                      _playback.skip(1, activeAlbumPlayback.tracks),
+                    ),
+                    onSeek: (position) => unawaited(_playback.seek(position)),
+                    onPlayTrack: (track) => unawaited(
+                      _playQueueFrom(activeAlbumPlayback.tracks, track),
+                    ),
+                  );
+                },
               ),
             ),
         ],
