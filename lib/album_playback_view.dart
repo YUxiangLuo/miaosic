@@ -9,6 +9,9 @@ import 'library_widgets.dart';
 import 'models.dart';
 
 const _fallbackAlbumColor = Color(0xff246b5b);
+const _albumTrackRowHeight = 56.0;
+const _albumTrackSeparatorHeight = 1.0;
+const _albumTrackListVerticalPadding = 8.0;
 
 class AlbumPlaybackView extends StatefulWidget {
   const AlbumPlaybackView({
@@ -400,7 +403,7 @@ class _CurrentTrackInfo extends StatelessWidget {
   }
 }
 
-class _AlbumTrackList extends StatelessWidget {
+class _AlbumTrackList extends StatefulWidget {
   const _AlbumTrackList({
     required this.tracks,
     required this.currentTrack,
@@ -416,11 +419,92 @@ class _AlbumTrackList extends StatelessWidget {
   final ValueChanged<Track> onPlayTrack;
 
   @override
+  State<_AlbumTrackList> createState() => _AlbumTrackListState();
+}
+
+class _AlbumTrackListState extends State<_AlbumTrackList> {
+  final _scrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _scheduleEnsureCurrentVisible();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AlbumTrackList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentTrack?.path != widget.currentTrack?.path ||
+        oldWidget.tracks.length != widget.tracks.length ||
+        oldWidget.height != widget.height) {
+      _scheduleEnsureCurrentVisible();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _scheduleEnsureCurrentVisible() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _ensureCurrentVisible();
+      }
+    });
+  }
+
+  void _ensureCurrentVisible() {
+    final currentPath = widget.currentTrack?.path;
+    if (currentPath == null || !_scrollController.hasClients) {
+      return;
+    }
+
+    final index = widget.tracks.indexWhere(
+      (track) => track.path == currentPath,
+    );
+    if (index < 0) {
+      return;
+    }
+
+    final position = _scrollController.position;
+    final rowTop =
+        _albumTrackListVerticalPadding +
+        index * (_albumTrackRowHeight + _albumTrackSeparatorHeight);
+    final rowBottom = rowTop + _albumTrackRowHeight;
+    final viewportTop = _scrollController.offset;
+    final viewportBottom = viewportTop + position.viewportDimension;
+
+    double? target;
+    if (rowTop < viewportTop) {
+      target = rowTop;
+    } else if (rowBottom > viewportBottom) {
+      target = rowBottom - position.viewportDimension;
+    }
+    if (target == null) {
+      return;
+    }
+
+    final clamped = target
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if ((clamped - _scrollController.offset).abs() < 1) {
+      return;
+    }
+    _scrollController.animateTo(
+      clamped,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 560),
       child: SizedBox(
-        height: height,
+        height: widget.height,
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: Colors.black.withValues(alpha: 0.18),
@@ -428,23 +512,26 @@ class _AlbumTrackList extends StatelessWidget {
             border: Border.all(color: Colors.white.withValues(alpha: 0.13)),
           ),
           child: ListView.separated(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            itemCount: tracks.length,
+            controller: _scrollController,
+            padding: const EdgeInsets.symmetric(
+              vertical: _albumTrackListVerticalPadding,
+            ),
+            itemCount: widget.tracks.length,
             separatorBuilder: (_, _) => Divider(
-              height: 1,
+              height: _albumTrackSeparatorHeight,
               indent: 58,
               endIndent: 12,
               color: Colors.white.withValues(alpha: 0.08),
             ),
             itemBuilder: (context, index) {
-              final track = tracks[index];
-              final selected = currentTrack?.path == track.path;
+              final track = widget.tracks[index];
+              final selected = widget.currentTrack?.path == track.path;
               return _AlbumTrackRow(
                 index: index,
                 track: track,
                 selected: selected,
-                playing: selected && playing,
-                onTap: () => onPlayTrack(track),
+                playing: selected && widget.playing,
+                onTap: () => widget.onPlayTrack(track),
               );
             },
           ),
@@ -476,7 +563,7 @@ class _AlbumTrackRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Container(
-        height: 56,
+        height: _albumTrackRowHeight,
         padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
         decoration: BoxDecoration(
           color: selected
@@ -490,11 +577,9 @@ class _AlbumTrackRow extends StatelessWidget {
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 160),
                 child: playing
-                    ? Icon(
-                        Icons.graphic_eq,
+                    ? _PlayingBarsIcon(
                         key: const ValueKey('playing'),
                         color: primary,
-                        size: 20,
                       )
                     : Text(
                         _trackIndexLabel(index, track),
@@ -544,6 +629,88 @@ class _AlbumTrackRow extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayingBarsIcon extends StatefulWidget {
+  const _PlayingBarsIcon({super.key, required this.color});
+
+  final Color color;
+
+  @override
+  State<_PlayingBarsIcon> createState() => _PlayingBarsIconState();
+}
+
+class _PlayingBarsIconState extends State<_PlayingBarsIcon>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 900),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _controller,
+      builder: (context, _) {
+        final phase = _controller.value * math.pi * 2;
+        return SizedBox(
+          width: 22,
+          height: 22,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (var index = 0; index < 4; index += 1) ...[
+                _PlayingBar(
+                  color: widget.color,
+                  height: _barHeight(phase, index),
+                ),
+                if (index != 3) const SizedBox(width: 2),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  double _barHeight(double phase, int index) {
+    final wave = math.sin(phase + index * 1.35);
+    return 6 + ((wave + 1) / 2) * 13;
+  }
+}
+
+class _PlayingBar extends StatelessWidget {
+  const _PlayingBar({required this.color, required this.height});
+
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 3,
+      height: height,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(999),
         ),
       ),
     );
