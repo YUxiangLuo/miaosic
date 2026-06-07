@@ -12,6 +12,9 @@ const _fallbackAlbumColor = Color(0xff246b5b);
 const _albumTrackRowHeight = 56.0;
 const _albumTrackSeparatorHeight = 1.0;
 const _albumTrackListVerticalPadding = 8.0;
+const _wideAlbumColumnsGap = 54.0;
+const _wideAlbumDetailsGap = 28.0;
+const _wideAlbumDetailsHeight = 220.0;
 
 class AlbumPlaybackView extends StatefulWidget {
   const AlbumPlaybackView({
@@ -127,10 +130,8 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                           album: widget.album,
                           tracks: widget.tracks,
                           currentTrack: currentTrack,
-                          coverSize: math.min(
-                            constraints.maxWidth * 0.46,
-                            constraints.maxHeight * 0.82,
-                          ),
+                          availableWidth: constraints.maxWidth,
+                          availableHeight: constraints.maxHeight,
                           playing: widget.playing,
                           canPrevious: canPrevious,
                           canNext: canNext,
@@ -157,7 +158,8 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     required this.album,
     required this.tracks,
     required this.currentTrack,
-    required this.coverSize,
+    required this.availableWidth,
+    required this.availableHeight,
     required this.playing,
     required this.canPrevious,
     required this.canNext,
@@ -170,7 +172,8 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
   final AlbumSummary album;
   final List<Track> tracks;
   final Track? currentTrack;
-  final double coverSize;
+  final double availableWidth;
+  final double availableHeight;
   final bool playing;
   final bool canPrevious;
   final bool canNext;
@@ -181,31 +184,56 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final trackListWidth = math.min(
+      560.0,
+      math.max(320.0, availableWidth * 0.38),
+    );
+    final coverSize = [
+      availableWidth * 0.42,
+      availableWidth - _wideAlbumColumnsGap - trackListWidth,
+      availableHeight - _wideAlbumDetailsGap - _wideAlbumDetailsHeight,
+    ].reduce(math.min).clamp(180.0, double.infinity).toDouble();
+    final columnHeight =
+        coverSize + _wideAlbumDetailsGap + _wideAlbumDetailsHeight;
     return Center(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _LargeAlbumArtwork(album: album, size: coverSize),
-          const SizedBox(width: 54),
           SizedBox(
-            width: 520,
-            height: coverSize,
-            child: Align(
-              alignment: Alignment.topLeft,
-              child: _AlbumPlaybackInfo(
-                album: album,
-                tracks: tracks,
-                currentTrack: currentTrack,
-                playing: playing,
-                trackListHeight: null,
-                canPrevious: canPrevious,
-                canNext: canNext,
-                onPrevious: onPrevious,
-                onToggle: onToggle,
-                onNext: onNext,
-                onPlayTrack: onPlayTrack,
-              ),
+            width: coverSize,
+            height: columnHeight,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _LargeAlbumArtwork(album: album, size: coverSize),
+                const SizedBox(height: _wideAlbumDetailsGap),
+                SizedBox(
+                  height: _wideAlbumDetailsHeight,
+                  child: _AlbumPlaybackDetails(
+                    album: album,
+                    tracks: tracks,
+                    playing: playing,
+                    canPrevious: canPrevious,
+                    canNext: canNext,
+                    onPrevious: onPrevious,
+                    onToggle: onToggle,
+                    onNext: onNext,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: _wideAlbumColumnsGap),
+          SizedBox(
+            width: trackListWidth,
+            height: columnHeight,
+            child: _AlbumTrackList(
+              tracks: tracks,
+              currentTrack: currentTrack,
+              playing: playing,
+              height: null,
+              onPlayTrack: onPlayTrack,
             ),
           ),
         ],
@@ -249,19 +277,24 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
         children: [
           _LargeAlbumArtwork(album: album, size: coverSize),
           const SizedBox(height: 28),
-          _AlbumPlaybackInfo(
+          _AlbumPlaybackDetails(
             album: album,
             tracks: tracks,
-            currentTrack: currentTrack,
             playing: playing,
-            trackListHeight: 360,
             canPrevious: canPrevious,
             canNext: canNext,
             onPrevious: onPrevious,
             onToggle: onToggle,
             onNext: onNext,
-            onPlayTrack: onPlayTrack,
             centered: true,
+          ),
+          const SizedBox(height: 28),
+          _AlbumTrackList(
+            tracks: tracks,
+            currentTrack: currentTrack,
+            playing: playing,
+            height: 360,
+            onPlayTrack: onPlayTrack,
           ),
         ],
       ),
@@ -269,33 +302,27 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   }
 }
 
-class _AlbumPlaybackInfo extends StatelessWidget {
-  const _AlbumPlaybackInfo({
+class _AlbumPlaybackDetails extends StatelessWidget {
+  const _AlbumPlaybackDetails({
     required this.album,
     required this.tracks,
-    required this.currentTrack,
     required this.playing,
-    required this.trackListHeight,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    required this.onPlayTrack,
     this.centered = false,
   });
 
   final AlbumSummary album;
   final List<Track> tracks;
-  final Track? currentTrack;
   final bool playing;
-  final double? trackListHeight;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final ValueChanged<Track> onPlayTrack;
   final bool centered;
 
   @override
@@ -304,18 +331,8 @@ class _AlbumPlaybackInfo extends StatelessWidget {
     final crossAxisAlignment = centered
         ? CrossAxisAlignment.center
         : CrossAxisAlignment.start;
-    final current = currentTrack;
-    final trackList = _AlbumTrackList(
-      tracks: tracks,
-      currentTrack: current,
-      playing: playing,
-      height: trackListHeight,
-      onPlayTrack: onPlayTrack,
-    );
     return Column(
-      mainAxisSize: trackListHeight == null
-          ? MainAxisSize.max
-          : MainAxisSize.min,
+      mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: crossAxisAlignment,
       children: [
         Text(
@@ -341,14 +358,6 @@ class _AlbumPlaybackInfo extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 30),
-        if (current != null) ...[
-          _CurrentTrackInfo(
-            track: current,
-            textAlign: textAlign,
-            crossAxisAlignment: crossAxisAlignment,
-          ),
-          const SizedBox(height: 26),
-        ],
         Align(
           alignment: centered ? Alignment.center : Alignment.centerLeft,
           child: _AlbumPlaybackControls(
@@ -358,51 +367,6 @@ class _AlbumPlaybackInfo extends StatelessWidget {
             onPrevious: onPrevious,
             onToggle: onToggle,
             onNext: onNext,
-          ),
-        ),
-        const SizedBox(height: 28),
-        if (trackListHeight == null) Expanded(child: trackList) else trackList,
-      ],
-    );
-  }
-}
-
-class _CurrentTrackInfo extends StatelessWidget {
-  const _CurrentTrackInfo({
-    required this.track,
-    required this.textAlign,
-    required this.crossAxisAlignment,
-  });
-
-  final Track track;
-  final TextAlign textAlign;
-  final CrossAxisAlignment crossAxisAlignment;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: crossAxisAlignment,
-      children: [
-        Text(
-          track.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          textAlign: textAlign,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-            height: 1.08,
-          ),
-        ),
-        const SizedBox(height: 7),
-        Text(
-          track.artist,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: textAlign,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: Colors.white.withValues(alpha: 0.72),
-            fontWeight: FontWeight.w600,
           ),
         ),
       ],
