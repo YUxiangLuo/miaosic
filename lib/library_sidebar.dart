@@ -8,7 +8,6 @@ class LibrarySidebar extends StatelessWidget {
   const LibrarySidebar({
     super.key,
     required this.selected,
-    required this.tracks,
     required this.albums,
     required this.playlists,
     required this.scanState,
@@ -22,7 +21,6 @@ class LibrarySidebar extends StatelessWidget {
   });
 
   final LibraryView selected;
-  final int tracks;
   final int albums;
   final int playlists;
   final Map<String, Object?>? scanState;
@@ -71,7 +69,6 @@ class LibrarySidebar extends StatelessWidget {
                 view: view,
                 selected: selected == view,
                 count: switch (view) {
-                  LibraryView.tracks => tracks,
                   LibraryView.albums => albums,
                   LibraryView.playlists => playlists,
                 },

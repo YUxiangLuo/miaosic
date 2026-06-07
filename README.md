@@ -13,7 +13,7 @@ folder, stores the library in SQLite, caches artwork, and plays tracks with
 ## Features
 
 - FLAC library scanning through a Rust FFI scanner.
-- Album, track, and playlist-folder browsing.
+- Album and playlist-folder browsing.
 - SQLite-backed local library state.
 - Incremental rescan for fast refreshes after the first scan.
 - Full rescan when metadata needs to be force-refreshed.

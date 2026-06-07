@@ -1,8 +1,5 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
-import 'artwork_resolver.dart';
 import 'library_formatters.dart';
 import 'library_widgets.dart';
 import 'models.dart';
@@ -13,15 +10,13 @@ class PlaylistTrackList extends StatelessWidget {
     required this.tracks,
     required this.currentPath,
     required this.onPlay,
-    this.trackCoverCache = const {},
-    this.showArtwork = true,
+    required this.trackCoverCache,
   });
 
   final List<Track> tracks;
   final String? currentPath;
   final ValueChanged<Track> onPlay;
   final Map<String, String?> trackCoverCache;
-  final bool showArtwork;
 
   @override
   Widget build(BuildContext context) {
@@ -29,9 +24,8 @@ class PlaylistTrackList extends StatelessWidget {
       return const EmptyState(message: 'No tracks found');
     }
 
-    final leftPadding = showArtwork ? 18.0 : 60.0;
     return ListView.separated(
-      padding: EdgeInsets.fromLTRB(leftPadding, 14, 18, 18),
+      padding: const EdgeInsets.fromLTRB(60, 14, 18, 18),
       itemCount: tracks.length,
       separatorBuilder: (_, _) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
@@ -42,158 +36,10 @@ class PlaylistTrackList extends StatelessWidget {
           index: index,
           track: track,
           selected: selected,
-          showArtwork: showArtwork,
-          artworkPath: showArtwork
-              ? resolveTrackArtwork(track, trackCoverCache)
-              : trackCoverPath,
+          artworkPath: trackCoverPath,
           onTap: () => onPlay(track),
         );
       },
-    );
-  }
-}
-
-class LibraryTrackList extends StatelessWidget {
-  const LibraryTrackList({
-    super.key,
-    required this.tracks,
-    required this.currentPath,
-    required this.trackCoverCache,
-    required this.onPlay,
-  });
-
-  final List<Track> tracks;
-  final String? currentPath;
-  final Map<String, String?> trackCoverCache;
-  final ValueChanged<Track> onPlay;
-
-  @override
-  Widget build(BuildContext context) {
-    if (tracks.isEmpty) {
-      return const EmptyState(message: 'No tracks found');
-    }
-
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const horizontalPadding = 18.0;
-        const spacing = 10.0;
-        const cardHeight = 76.0;
-        final availableWidth = math.max(
-          1.0,
-          constraints.maxWidth - horizontalPadding * 2,
-        );
-        final columns = math.max(1, (availableWidth / 320).floor());
-        final cardWidth = (availableWidth - spacing * (columns - 1)) / columns;
-        return GridView.builder(
-          padding: const EdgeInsets.fromLTRB(
-            horizontalPadding,
-            12,
-            horizontalPadding,
-            18,
-          ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: spacing,
-            mainAxisSpacing: spacing,
-            childAspectRatio: cardWidth / cardHeight,
-          ),
-          itemCount: tracks.length,
-          itemBuilder: (context, index) {
-            final track = tracks[index];
-            return _LibraryTrackTile(
-              track: track,
-              artworkPath: resolveTrackArtwork(track, trackCoverCache),
-              selected: track.path == currentPath,
-              onTap: () => onPlay(track),
-            );
-          },
-        );
-      },
-    );
-  }
-}
-
-class _LibraryTrackTile extends StatelessWidget {
-  const _LibraryTrackTile({
-    required this.track,
-    required this.artworkPath,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final Track track;
-  final String? artworkPath;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: selected
-              ? scheme.primaryContainer.withValues(alpha: 0.65)
-              : scheme.surface,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Row(
-          children: [
-            Artwork(path: artworkPath, size: 56, icon: Icons.music_note),
-            const SizedBox(width: 10),
-            Expanded(
-              child: _LibraryTrackText(
-                title: track.title,
-                artist: track.artist,
-                selected: selected,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _LibraryTrackText extends StatelessWidget {
-  const _LibraryTrackText({
-    required this.title,
-    required this.artist,
-    required this.selected,
-  });
-
-  final String title;
-  final String artist;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-            fontWeight: selected ? FontWeight.w900 : FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          artist,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-        ),
-      ],
     );
   }
 }
@@ -203,7 +49,6 @@ class _PlaylistTrackRow extends StatelessWidget {
     required this.index,
     required this.track,
     required this.selected,
-    required this.showArtwork,
     required this.artworkPath,
     required this.onTap,
   });
@@ -211,7 +56,6 @@ class _PlaylistTrackRow extends StatelessWidget {
   final int index;
   final Track track;
   final bool selected;
-  final bool showArtwork;
   final String? artworkPath;
   final VoidCallback onTap;
 
@@ -232,7 +76,7 @@ class _PlaylistTrackRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            if (showArtwork || artworkPath != null) ...[
+            if (artworkPath != null) ...[
               Artwork(path: artworkPath, size: 50, icon: Icons.music_note),
               const SizedBox(width: 14),
             ] else ...[

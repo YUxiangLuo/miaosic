@@ -19,7 +19,6 @@ import 'playback_controller.dart';
 import 'playlist_cover_indexer.dart';
 import 'playlist_views.dart';
 import 'rescan_dialog.dart';
-import 'track_views.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -48,7 +47,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Map<String, Object?>? _scanState;
   String _musicRoot = defaultMusicRoot;
   ScanProgress? _scanProgress;
-  LibraryView _view = LibraryView.tracks;
+  LibraryView _view = LibraryView.albums;
   String? _selectedPlaylistPath;
   double _playlistListScrollOffset = 0;
   bool _loading = true;
@@ -510,7 +509,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         children: [
           LibrarySidebar(
             selected: _view,
-            tracks: _tracks.length,
             albums: _albums.length,
             playlists: _playlistCount,
             scanState: _scanState,
@@ -558,12 +556,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     return switch (_view) {
-      LibraryView.tracks => LibraryTrackList(
-        tracks: _tracks,
-        currentPath: _playback.currentTrack?.path,
-        trackCoverCache: _trackCoverCache,
-        onPlay: (track) => _playQueueFrom(_tracks, track),
-      ),
       LibraryView.albums => AlbumGrid(
         albums: _albums,
         tracksByFolder: _tracksByFolder,

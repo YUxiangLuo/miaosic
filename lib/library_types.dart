@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 enum LibraryView {
-  tracks('Tracks', Icons.music_note),
   albums('Albums', Icons.album),
   playlists('Playlists', Icons.queue_music);
 

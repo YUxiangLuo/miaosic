@@ -191,7 +191,6 @@ class PlaylistDetail extends StatelessWidget {
             tracks: tracks,
             currentPath: currentPath,
             trackCoverCache: trackCoverCache,
-            showArtwork: false,
             onPlay: onPlayTrack,
           ),
         ),
