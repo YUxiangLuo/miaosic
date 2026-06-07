@@ -516,6 +516,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _playQueueFrom(tracks, tracks.first);
   }
 
+  void _showAlbumPlayback(AlbumSummary album, List<Track> tracks) {
+    if (tracks.isEmpty || !_isPlayingAlbum(album, tracks)) {
+      return;
+    }
+    setState(() {
+      _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
+      _activePlaylistPlayback = null;
+      _lastPlaybackPath = _playback.currentTrack?.path;
+      _lastPlaybackPlaying = _playback.playing;
+    });
+  }
+
   Future<void> _playPlaylist(
     FolderSummary folder,
     List<Track> tracks, {
@@ -639,7 +651,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       LibraryView.albums => AlbumGrid(
         albums: _albums,
         tracksByFolder: _tracksByFolder,
+        isPlayingAlbum: _isPlayingAlbum,
         onPlay: _playAlbum,
+        onShowPlayback: _showAlbumPlayback,
       ),
       LibraryView.playlists => _buildPlaylistsContent(),
     };
@@ -732,6 +746,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
         )
         ? currentTrack
         : null;
+  }
+
+  bool _isPlayingAlbum(AlbumSummary album, List<Track> tracks) {
+    final currentTrack = _playback.currentTrack;
+    if (currentTrack == null ||
+        tracks.isEmpty ||
+        _activePlaylistPlayback != null ||
+        currentTrack.folderPath != album.folderPath) {
+      return false;
+    }
+    return _playback.isCurrentQueue(tracks);
   }
 
   void _savePlaylistListScrollOffset() {

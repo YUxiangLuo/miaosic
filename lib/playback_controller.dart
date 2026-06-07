@@ -45,6 +45,23 @@ class PlaybackController extends ChangeNotifier {
   Duration get position => _position;
   Duration get duration => _duration;
 
+  bool isCurrentQueue(List<Track> queue) {
+    final current = _currentTrack;
+    if (current == null ||
+        _queueIndex < 0 ||
+        _queueIndex >= _queue.length ||
+        _queue.length != queue.length ||
+        _queue[_queueIndex].path != current.path) {
+      return false;
+    }
+    for (var i = 0; i < queue.length; i += 1) {
+      if (_queue[i].path != queue[i].path) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> playQueueFrom(List<Track> queue, Track track) async {
     if (queue.isEmpty) {
       return;
