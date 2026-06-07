@@ -247,25 +247,19 @@ class _NowPlayingEntryState extends State<_NowPlayingEntry>
         final pulse = widget.nowPlaying.playing
             ? (0.5 + 0.5 * Curves.easeInOut.transform(_controller.value))
             : 0.0;
-        return Transform.scale(
-          scale: 1 + pulse * 0.012,
-          alignment: Alignment.centerLeft,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(10),
-              boxShadow: [
-                if (widget.nowPlaying.playing)
-                  BoxShadow(
-                    color: scheme.primary.withValues(
-                      alpha: 0.10 + pulse * 0.08,
-                    ),
-                    blurRadius: 14 + pulse * 6,
-                    spreadRadius: 1,
-                  ),
-              ],
-            ),
-            child: child,
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(10),
+            boxShadow: [
+              if (widget.nowPlaying.playing)
+                BoxShadow(
+                  color: scheme.primary.withValues(alpha: 0.10 + pulse * 0.08),
+                  blurRadius: 14 + pulse * 6,
+                  spreadRadius: 1,
+                ),
+            ],
           ),
+          child: child,
         );
       },
       child: Material(
@@ -274,8 +268,8 @@ class _NowPlayingEntryState extends State<_NowPlayingEntry>
           borderRadius: BorderRadius.circular(10),
           onTap: widget.onTap,
           child: Container(
-            width: 74,
-            height: 74,
+            width: double.infinity,
+            height: 82,
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               color: scheme.surface,
@@ -286,21 +280,29 @@ class _NowPlayingEntryState extends State<_NowPlayingEntry>
                     : scheme.outlineVariant,
               ),
             ),
-            child: Stack(
+            child: Row(
               children: [
-                Positioned.fill(
+                SizedBox.square(
+                  dimension: 72,
                   child: _NowPlayingArtwork(nowPlaying: widget.nowPlaying),
                 ),
-                if (widget.nowPlaying.playing)
-                  Positioned(
-                    right: 5,
-                    bottom: 5,
-                    child: _MiniPlayingBars(
-                      controller: _controller,
-                      color: scheme.onPrimary,
-                      backgroundColor: scheme.primary,
-                    ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _NowPlayingMotion(
+                    controller: _controller,
+                    playing: widget.nowPlaying.playing,
+                    color: scheme.primary,
+                    quietColor: scheme.outlineVariant,
                   ),
+                ),
+                if (widget.nowPlaying.playing) ...[
+                  const SizedBox(width: 8),
+                  _MiniPlayingBars(
+                    controller: _controller,
+                    color: scheme.onPrimary,
+                    backgroundColor: scheme.primary,
+                  ),
+                ],
               ],
             ),
           ),
@@ -380,6 +382,77 @@ class _PlaylistCollageTile extends StatelessWidget {
       size: double.infinity,
       icon: Icons.queue_music,
       radius: 0,
+    );
+  }
+}
+
+class _NowPlayingMotion extends StatelessWidget {
+  const _NowPlayingMotion({
+    required this.controller,
+    required this.playing,
+    required this.color,
+    required this.quietColor,
+  });
+
+  final Animation<double> controller;
+  final bool playing;
+  final Color color;
+  final Color quietColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            for (var index = 0; index < 5; index += 1)
+              _NowPlayingMotionBar(
+                width: _barWidth(controller.value, index),
+                color: playing
+                    ? color.withValues(alpha: 0.22 + index * 0.035)
+                    : quietColor.withValues(alpha: 0.55),
+              ),
+          ],
+        );
+      },
+    );
+  }
+
+  double _barWidth(double value, int index) {
+    if (!playing) {
+      return switch (index) {
+        0 => 10,
+        1 => 18,
+        2 => 28,
+        3 => 18,
+        _ => 10,
+      };
+    }
+    final phase = value * 6.283185307179586 + index * 0.9;
+    return 10 + ((1 + math.sin(phase)) / 2) * 18;
+  }
+}
+
+class _NowPlayingMotionBar extends StatelessWidget {
+  const _NowPlayingMotionBar({required this.width, required this.color});
+
+  final double width;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      width: width,
+      height: 4,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(99),
+      ),
     );
   }
 }
