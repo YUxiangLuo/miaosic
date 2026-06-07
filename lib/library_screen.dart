@@ -5,14 +5,12 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'album_views.dart';
-import 'artwork_resolver.dart';
 import 'cover_cache.dart';
 import 'library_database.dart';
 import 'library_diff.dart';
 import 'library_formatters.dart';
 import 'library_sidebar.dart';
 import 'library_types.dart';
-import 'library_widgets.dart';
 import 'models.dart';
 import 'music_scanner.dart';
 import 'playback_controller.dart';
@@ -59,7 +57,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
-    _playback.addListener(_handlePlaybackChanged);
     unawaited(_openLibrary());
   }
 
@@ -69,17 +66,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _rescanState.dispose();
     _trackCoverCacheListenable.dispose();
     _coverIndexer.dispose();
-    _playback
-      ..removeListener(_handlePlaybackChanged)
-      ..dispose();
+    _playback.dispose();
     unawaited(_database?.close());
     super.dispose();
-  }
-
-  void _handlePlaybackChanged() {
-    if (mounted) {
-      setState(() {});
-    }
   }
 
   Future<void> _openLibrary() async {
@@ -471,16 +460,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return _playQueueFrom(shuffled, shuffled.first);
   }
 
-  Future<void> _togglePlayPause() {
-    return _playback.togglePlayPause(_tracks);
-  }
-
-  Future<void> _skip(int delta) {
-    return _playback.skip(delta, _tracks);
-  }
-
-  Future<void> _seek(Duration position) => _playback.seek(position);
-
   List<FolderSummary> get _playlistFolders =>
       _folders.where((folder) => folder.kind == FolderKind.playlist).toList();
 
@@ -503,7 +482,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentTrack = _playback.currentTrack;
     return Scaffold(
       body: Row(
         children: [
@@ -526,26 +504,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             },
           ),
           const VerticalDivider(width: 1),
-          Expanded(
-            child: Column(
-              children: [
-                Expanded(child: _buildContent()),
-                PlayerBar(
-                  track: currentTrack,
-                  coverArtPath: currentTrack == null
-                      ? null
-                      : _trackArtworkPath(currentTrack),
-                  playing: _playback.playing,
-                  position: _playback.position,
-                  duration: _playback.duration,
-                  onPrevious: () => _skip(-1),
-                  onToggle: _togglePlayPause,
-                  onNext: () => _skip(1),
-                  onSeek: _seek,
-                ),
-              ],
-            ),
-          ),
+          Expanded(child: _buildContent()),
         ],
       ),
     );
@@ -581,7 +540,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return PlaylistDetail(
         folder: selectedFolder,
         tracks: tracks,
-        currentPath: _playback.currentTrack?.path,
         trackCoverCache: _trackCoverCache,
         onBack: () {
           setState(() => _selectedPlaylistPath = null);
@@ -685,10 +643,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     } catch (_) {
       // Cover pruning is opportunistic and should never affect library use.
     }
-  }
-
-  String? _trackArtworkPath(Track track) {
-    return resolveTrackArtwork(track, _trackCoverCache);
   }
 
   void _setTrackCoverCache(Map<String, String?> cache, {List<Track>? tracks}) {

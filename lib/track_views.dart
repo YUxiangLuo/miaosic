@@ -8,13 +8,11 @@ class PlaylistTrackList extends StatelessWidget {
   const PlaylistTrackList({
     super.key,
     required this.tracks,
-    required this.currentPath,
     required this.onPlay,
     required this.trackCoverCache,
   });
 
   final List<Track> tracks;
-  final String? currentPath;
   final ValueChanged<Track> onPlay;
   final Map<String, String?> trackCoverCache;
 
@@ -30,12 +28,10 @@ class PlaylistTrackList extends StatelessWidget {
       separatorBuilder: (_, _) => const SizedBox(height: 4),
       itemBuilder: (context, index) {
         final track = tracks[index];
-        final selected = track.path == currentPath;
         final trackCoverPath = trackCoverCache[track.path];
         return _PlaylistTrackRow(
           index: index,
           track: track,
-          selected: selected,
           artworkPath: trackCoverPath,
           onTap: () => onPlay(track),
         );
@@ -48,14 +44,12 @@ class _PlaylistTrackRow extends StatelessWidget {
   const _PlaylistTrackRow({
     required this.index,
     required this.track,
-    required this.selected,
     required this.artworkPath,
     required this.onTap,
   });
 
   final int index;
   final Track track;
-  final bool selected;
   final String? artworkPath;
   final VoidCallback onTap;
 
@@ -68,12 +62,6 @@ class _PlaylistTrackRow extends StatelessWidget {
       child: Container(
         height: 68,
         padding: const EdgeInsets.symmetric(horizontal: 10),
-        decoration: BoxDecoration(
-          color: selected
-              ? scheme.primaryContainer.withValues(alpha: 0.65)
-              : Colors.transparent,
-          borderRadius: BorderRadius.circular(8),
-        ),
         child: Row(
           children: [
             if (artworkPath != null) ...[
@@ -97,7 +85,6 @@ class _PlaylistTrackRow extends StatelessWidget {
               child: TwoLineText(
                 title: track.title,
                 subtitle: track.artist,
-                selected: selected,
               ),
             ),
             Expanded(

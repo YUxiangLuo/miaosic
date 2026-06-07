@@ -82,7 +82,6 @@ class PlaylistDetail extends StatelessWidget {
     super.key,
     required this.folder,
     required this.tracks,
-    required this.currentPath,
     required this.trackCoverCache,
     required this.onBack,
     required this.onPlayAll,
@@ -92,7 +91,6 @@ class PlaylistDetail extends StatelessWidget {
 
   final FolderSummary folder;
   final List<Track> tracks;
-  final String? currentPath;
   final Map<String, String?> trackCoverCache;
   final VoidCallback onBack;
   final VoidCallback? onPlayAll;
@@ -189,7 +187,6 @@ class PlaylistDetail extends StatelessWidget {
         Expanded(
           child: PlaylistTrackList(
             tracks: tracks,
-            currentPath: currentPath,
             trackCoverCache: trackCoverCache,
             onPlay: onPlayTrack,
           ),
