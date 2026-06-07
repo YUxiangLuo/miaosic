@@ -183,17 +183,23 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (tracks.isEmpty || !mounted) {
       return;
     }
-    final track = _trackByPathOrFirst(tracks, state.trackPath);
+    final queue = state.shuffled ? _shuffledTracks(tracks) : tracks;
+    final track = _trackByPathOrFirst(queue, state.trackPath);
     setState(() {
       _activeAlbumPlayback = null;
       _activePlaylistPlayback = _ActivePlaylistPlayback(
         folderPath: folder.path,
         tracks: tracks,
+        shuffled: state.shuffled,
       );
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     });
-    await _restoreQueueFrom(tracks, track, play: state.playing);
+    await _restoreQueueFrom(queue, track, play: state.playing);
+  }
+
+  List<Track> _shuffledTracks(List<Track> tracks) {
+    return tracks.toList(growable: false)..shuffle(math.Random());
   }
 
   Track _trackByPathOrFirst(List<Track> tracks, String path) {
@@ -230,6 +236,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         folderPath: activePlaylist.folderPath,
         trackPath: currentTrack.path,
         playing: _playback.playing,
+        shuffled: activePlaylist.shuffled,
       );
     }
 
@@ -242,6 +249,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         folderPath: activeAlbum.album.folderPath,
         trackPath: currentTrack.path,
         playing: _playback.playing,
+        shuffled: false,
       );
     }
 
@@ -258,11 +266,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
       folderPath: album.folderPath,
       trackPath: currentTrack.path,
       playing: _playback.playing,
+      shuffled: false,
     );
   }
 
   String _lastPlaybackStateKey(LastPlaybackState state) {
-    return '${state.kind.dbValue}\n${state.folderPath}\n${state.trackPath}\n${state.playing}';
+    return '${state.kind.dbValue}\n${state.folderPath}\n${state.trackPath}\n${state.playing}\n${state.shuffled}';
   }
 
   void _handleRescanPressed() {
@@ -456,6 +465,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _activePlaylistPlayback = _ActivePlaylistPlayback(
         folderPath: folder.path,
         tracks: tracks,
+        shuffled: false,
       );
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
@@ -470,12 +480,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (tracks.isEmpty) {
       return;
     }
-    final shuffled = tracks.toList(growable: false)..shuffle(math.Random());
+    final shuffled = _shuffledTracks(tracks);
     setState(() {
       _activeAlbumPlayback = null;
       _activePlaylistPlayback = _ActivePlaylistPlayback(
         folderPath: folder.path,
         tracks: tracks,
+        shuffled: true,
       );
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
@@ -817,10 +828,12 @@ class _ActivePlaylistPlayback {
   const _ActivePlaylistPlayback({
     required this.folderPath,
     required this.tracks,
+    required this.shuffled,
   });
 
   final String folderPath;
   final List<Track> tracks;
+  final bool shuffled;
 }
 
 enum _NowPlayingKind { album, playlist }

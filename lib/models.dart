@@ -281,12 +281,14 @@ class LastPlaybackState {
     required this.folderPath,
     required this.trackPath,
     required this.playing,
+    required this.shuffled,
   });
 
   final LastPlaybackKind kind;
   final String folderPath;
   final String trackPath;
   final bool playing;
+  final bool shuffled;
 
   Map<String, Object?> toJson() {
     return {
@@ -294,6 +296,7 @@ class LastPlaybackState {
       'folder_path': folderPath,
       'track_path': trackPath,
       'playing': playing,
+      'shuffled': shuffled,
     };
   }
 
@@ -302,6 +305,7 @@ class LastPlaybackState {
     final folderPath = json['folder_path'];
     final trackPath = json['track_path'];
     final playing = json['playing'];
+    final shuffled = json['shuffled'];
     if (kindValue is! String ||
         folderPath is! String ||
         trackPath is! String ||
@@ -318,6 +322,7 @@ class LastPlaybackState {
       folderPath: folderPath,
       trackPath: trackPath,
       playing: playing is bool ? playing : false,
+      shuffled: shuffled is bool ? shuffled : false,
     );
   }
 }

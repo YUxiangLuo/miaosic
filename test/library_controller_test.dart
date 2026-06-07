@@ -20,6 +20,7 @@ void main() {
       folderPath: '/music/root',
       trackPath: '/music/root/a.flac',
       playing: true,
+      shuffled: false,
     );
     await seedDatabase.saveLastPlayback(lastPlayback);
     await seedDatabase.close();
@@ -56,6 +57,7 @@ void main() {
       expect(controller.lastPlayback?.folderPath, lastPlayback.folderPath);
       expect(controller.lastPlayback?.trackPath, lastPlayback.trackPath);
       expect(controller.lastPlayback?.playing, isTrue);
+      expect(controller.lastPlayback?.shuffled, isFalse);
 
       final reopened = await LibraryDatabase.openAtPath(dbPath);
       addTearDown(reopened.close);

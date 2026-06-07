@@ -79,6 +79,7 @@ void main() {
       folderPath: '/music/playlists/favorites',
       trackPath: '/music/playlists/favorites/02.flac',
       playing: true,
+      shuffled: true,
     );
     await database.saveLastPlayback(state);
 
@@ -87,6 +88,7 @@ void main() {
     expect(loaded?.folderPath, state.folderPath);
     expect(loaded?.trackPath, state.trackPath);
     expect(loaded?.playing, isTrue);
+    expect(loaded?.shuffled, isTrue);
 
     await database.close();
     final reopened = await LibraryDatabase.openAtPath(dbPath);
@@ -95,40 +97,45 @@ void main() {
     expect(reloaded?.folderPath, state.folderPath);
     expect(reloaded?.trackPath, state.trackPath);
     expect(reloaded?.playing, isTrue);
+    expect(reloaded?.shuffled, isTrue);
 
     await reopened.close();
     await dir.delete(recursive: true);
   });
 
-  test('defaults legacy last playback records to not playing', () async {
-    sqfliteFfiInit();
-    databaseFactory = databaseFactoryFfi;
+  test(
+    'defaults legacy last playback records to not playing or shuffled',
+    () async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
 
-    final dir = await Directory.systemTemp.createTemp(
-      'miaosic_legacy_last_playback_test_',
-    );
-    final dbPath = '${dir.path}/miaosic.db';
-    final database = await LibraryDatabase.openAtPath(dbPath);
-    await database.close();
+      final dir = await Directory.systemTemp.createTemp(
+        'miaosic_legacy_last_playback_test_',
+      );
+      final dbPath = '${dir.path}/miaosic.db';
+      final database = await LibraryDatabase.openAtPath(dbPath);
+      await database.close();
 
-    final raw = await databaseFactory.openDatabase(dbPath);
-    await raw.insert('settings', {
-      'key': LibraryDatabase.lastPlaybackSettingKey,
-      'value':
-          '{"kind":"album","folder_path":"/music/album","track_path":"/music/album/01.flac"}',
-    });
-    await raw.close();
+      final raw = await databaseFactory.openDatabase(dbPath);
+      await raw.insert('settings', {
+        'key': LibraryDatabase.lastPlaybackSettingKey,
+        'value':
+            '{"kind":"album","folder_path":"/music/album","track_path":"/music/album/01.flac"}',
+      });
+      await raw.close();
 
-    final reopened = await LibraryDatabase.openAtPath(dbPath);
-    final loaded = await reopened.loadLastPlayback();
-    expect(loaded?.kind, LastPlaybackKind.album);
-    expect(loaded?.folderPath, '/music/album');
-    expect(loaded?.trackPath, '/music/album/01.flac');
-    expect(loaded?.playing, isFalse);
+      final reopened = await LibraryDatabase.openAtPath(dbPath);
+      final loaded = await reopened.loadLastPlayback();
+      expect(loaded?.kind, LastPlaybackKind.album);
+      expect(loaded?.folderPath, '/music/album');
+      expect(loaded?.trackPath, '/music/album/01.flac');
+      expect(loaded?.playing, isFalse);
+      expect(loaded?.shuffled, isFalse);
 
-    await reopened.close();
-    await dir.delete(recursive: true);
-  });
+      await reopened.close();
+      await dir.delete(recursive: true);
+    },
+  );
 
   test('applies diff without rewriting unchanged tracks', () async {
     sqfliteFfiInit();
