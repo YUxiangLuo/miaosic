@@ -199,6 +199,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     return Center(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _LargeAlbumArtwork(album: album, size: coverSize),
           const SizedBox(width: 54),
