@@ -17,13 +17,10 @@ class AlbumPlaybackView extends StatefulWidget {
     required this.tracks,
     required this.currentTrack,
     required this.playing,
-    required this.position,
-    required this.duration,
     required this.onClose,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    required this.onSeek,
     required this.onPlayTrack,
   });
 
@@ -31,13 +28,10 @@ class AlbumPlaybackView extends StatefulWidget {
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
-  final Duration position;
-  final Duration duration;
   final VoidCallback onClose;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final ValueChanged<Duration> onSeek;
   final ValueChanged<Track> onPlayTrack;
 
   @override
@@ -118,14 +112,11 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                               constraints.maxHeight * 0.52,
                             ),
                             playing: widget.playing,
-                            position: widget.position,
-                            duration: widget.duration,
                             canPrevious: canPrevious,
                             canNext: canNext,
                             onPrevious: widget.onPrevious,
                             onToggle: widget.onToggle,
                             onNext: widget.onNext,
-                            onSeek: widget.onSeek,
                             onPlayTrack: widget.onPlayTrack,
                           );
                         }
@@ -138,14 +129,11 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                             constraints.maxHeight * 0.82,
                           ),
                           playing: widget.playing,
-                          position: widget.position,
-                          duration: widget.duration,
                           canPrevious: canPrevious,
                           canNext: canNext,
                           onPrevious: widget.onPrevious,
                           onToggle: widget.onToggle,
                           onNext: widget.onNext,
-                          onSeek: widget.onSeek,
                           onPlayTrack: widget.onPlayTrack,
                         );
                       },
@@ -168,14 +156,11 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     required this.currentTrack,
     required this.coverSize,
     required this.playing,
-    required this.position,
-    required this.duration,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    required this.onSeek,
     required this.onPlayTrack,
   });
 
@@ -184,14 +169,11 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
   final Track? currentTrack;
   final double coverSize;
   final bool playing;
-  final Duration position;
-  final Duration duration;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final ValueChanged<Duration> onSeek;
   final ValueChanged<Track> onPlayTrack;
 
   @override
@@ -210,15 +192,12 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
               tracks: tracks,
               currentTrack: currentTrack,
               playing: playing,
-              position: position,
-              duration: duration,
               trackListHeight: math.min(340, math.max(240, coverSize * 0.48)),
               canPrevious: canPrevious,
               canNext: canNext,
               onPrevious: onPrevious,
               onToggle: onToggle,
               onNext: onNext,
-              onSeek: onSeek,
               onPlayTrack: onPlayTrack,
             ),
           ),
@@ -235,14 +214,11 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
     required this.currentTrack,
     required this.coverSize,
     required this.playing,
-    required this.position,
-    required this.duration,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    required this.onSeek,
     required this.onPlayTrack,
   });
 
@@ -251,14 +227,11 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   final Track? currentTrack;
   final double coverSize;
   final bool playing;
-  final Duration position;
-  final Duration duration;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final ValueChanged<Duration> onSeek;
   final ValueChanged<Track> onPlayTrack;
 
   @override
@@ -274,15 +247,12 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
             tracks: tracks,
             currentTrack: currentTrack,
             playing: playing,
-            position: position,
-            duration: duration,
             trackListHeight: 360,
             canPrevious: canPrevious,
             canNext: canNext,
             onPrevious: onPrevious,
             onToggle: onToggle,
             onNext: onNext,
-            onSeek: onSeek,
             onPlayTrack: onPlayTrack,
             centered: true,
           ),
@@ -298,15 +268,12 @@ class _AlbumPlaybackInfo extends StatelessWidget {
     required this.tracks,
     required this.currentTrack,
     required this.playing,
-    required this.position,
-    required this.duration,
     required this.trackListHeight,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    required this.onSeek,
     required this.onPlayTrack,
     this.centered = false,
   });
@@ -315,15 +282,12 @@ class _AlbumPlaybackInfo extends StatelessWidget {
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
-  final Duration position;
-  final Duration duration;
   final double trackListHeight;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final ValueChanged<Duration> onSeek;
   final ValueChanged<Track> onPlayTrack;
   final bool centered;
 
@@ -334,9 +298,6 @@ class _AlbumPlaybackInfo extends StatelessWidget {
         ? CrossAxisAlignment.center
         : CrossAxisAlignment.start;
     final current = currentTrack;
-    final effectiveDuration = duration > Duration.zero
-        ? duration
-        : Duration(milliseconds: current?.durationMs ?? 0);
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: crossAxisAlignment,
@@ -370,13 +331,7 @@ class _AlbumPlaybackInfo extends StatelessWidget {
             textAlign: textAlign,
             crossAxisAlignment: crossAxisAlignment,
           ),
-          const SizedBox(height: 18),
-          _PlaybackScrubber(
-            position: position,
-            duration: effectiveDuration,
-            onSeek: onSeek,
-          ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 26),
         ],
         Align(
           alignment: centered ? Alignment.center : Alignment.centerLeft,
@@ -441,72 +396,6 @@ class _CurrentTrackInfo extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _PlaybackScrubber extends StatelessWidget {
-  const _PlaybackScrubber({
-    required this.position,
-    required this.duration,
-    required this.onSeek,
-  });
-
-  final Duration position;
-  final Duration duration;
-  final ValueChanged<Duration> onSeek;
-
-  @override
-  Widget build(BuildContext context) {
-    final durationMs = duration.inMilliseconds;
-    final max = durationMs <= 0 ? 1.0 : durationMs.toDouble();
-    final value = position.inMilliseconds.clamp(0, max.toInt()).toDouble();
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 560),
-      child: Column(
-        children: [
-          SliderTheme(
-            data: SliderTheme.of(context).copyWith(
-              trackHeight: 4,
-              activeTrackColor: Colors.white.withValues(alpha: 0.94),
-              inactiveTrackColor: Colors.white.withValues(alpha: 0.22),
-              thumbColor: Colors.white,
-              overlayColor: Colors.white.withValues(alpha: 0.14),
-              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-              overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-            ),
-            child: Slider(
-              min: 0,
-              max: max,
-              value: value,
-              onChanged: durationMs <= 0
-                  ? null
-                  : (nextValue) =>
-                        onSeek(Duration(milliseconds: nextValue.round())),
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 2),
-            child: Row(
-              children: [
-                Text(formatDuration(position), style: _timeStyle(context)),
-                const Spacer(),
-                Text(
-                  durationMs <= 0 ? '-' : formatDuration(duration),
-                  style: _timeStyle(context),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  TextStyle? _timeStyle(BuildContext context) {
-    return Theme.of(context).textTheme.labelMedium?.copyWith(
-      color: Colors.white.withValues(alpha: 0.68),
-      fontWeight: FontWeight.w700,
     );
   }
 }
