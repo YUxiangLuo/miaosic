@@ -264,36 +264,38 @@ class _NowPlayingEntryState extends State<_NowPlayingEntry>
       },
       child: Material(
         color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: widget.onTap,
-          child: Container(
-            width: 82,
-            height: 82,
-            padding: const EdgeInsets.all(4),
-            decoration: BoxDecoration(
-              color: scheme.surface,
-              borderRadius: BorderRadius.circular(10),
-              border: Border.all(
-                color: widget.nowPlaying.playing
-                    ? scheme.primary.withValues(alpha: 0.55)
-                    : scheme.outlineVariant,
-              ),
-            ),
-            child: Stack(
-              children: [
-                Positioned.fill(
-                  child: _NowPlayingArtwork(nowPlaying: widget.nowPlaying),
+        child: AspectRatio(
+          aspectRatio: 1,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: widget.onTap,
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: widget.nowPlaying.playing
+                      ? scheme.primary.withValues(alpha: 0.55)
+                      : scheme.outlineVariant,
                 ),
-                if (widget.nowPlaying.playing)
-                  Center(
-                    child: _MiniPlayingBars(
-                      controller: _controller,
-                      color: scheme.onPrimary,
-                      backgroundColor: scheme.primary,
-                    ),
+              ),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: _NowPlayingArtwork(nowPlaying: widget.nowPlaying),
                   ),
-              ],
+                  if (widget.nowPlaying.playing)
+                    Center(
+                      child: _MiniPlayingBars(
+                        controller: _controller,
+                        color: scheme.onPrimary,
+                        backgroundColor: scheme.primary,
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         ),
