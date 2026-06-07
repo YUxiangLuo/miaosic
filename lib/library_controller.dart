@@ -39,6 +39,7 @@ class LibraryController extends ChangeNotifier {
   List<AlbumSummary> _albums = const [];
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
+  LastPlaybackState? _lastPlayback;
   String _musicRoot = defaultMusicRoot;
   ScanProgress? _scanProgress;
   bool _loading = true;
@@ -52,12 +53,15 @@ class LibraryController extends ChangeNotifier {
   List<AlbumSummary> get albums => _albums;
   Map<String, String?> get trackCoverCache => _trackCoverCache;
   Map<String, Object?>? get scanState => _scanState;
+  LastPlaybackState? get lastPlayback => _lastPlayback;
   String get musicRoot => _musicRoot;
   ScanProgress? get scanProgress => _scanProgress;
   bool get loading => _loading;
   bool get scanning => _scanning;
   String? get error => _error;
   bool get canChangeMusicRoot => _database != null && !_scanning;
+  bool get canRestoreLastPlayback =>
+      !_loading && !_scanning && !_scanRootChanged;
 
   List<FolderSummary> get playlistFolders =>
       _folders.where((folder) => folder.kind == FolderKind.playlist).toList();
@@ -221,6 +225,15 @@ class LibraryController extends ChangeNotifier {
     return true;
   }
 
+  Future<void> saveLastPlayback(LastPlaybackState state) async {
+    final database = _database;
+    if (database == null || _disposed) {
+      return;
+    }
+    _lastPlayback = state;
+    await database.saveLastPlayback(state);
+  }
+
   Future<void> _loadFromDatabase() async {
     final database = _database;
     if (database == null || _disposed) {
@@ -231,6 +244,7 @@ class LibraryController extends ChangeNotifier {
     final folders = await database.loadFolders();
     final albums = await database.loadAlbums();
     final scanState = await database.loadScanState();
+    final lastPlayback = await database.loadLastPlayback();
     final trackCoverCache = await database.loadTrackCoverCache(tracks);
 
     if (_disposed) {
@@ -241,6 +255,7 @@ class LibraryController extends ChangeNotifier {
     _albums = albums;
     _setTrackCoverCache(trackCoverCache, tracks: tracks);
     _scanState = scanState;
+    _lastPlayback = lastPlayback;
     _loading = false;
     _emit();
     _startBackgroundCoverIndexing(tracks, knownCache: trackCoverCache);

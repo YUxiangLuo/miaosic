@@ -63,12 +63,28 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> playQueueFrom(List<Track> queue, Track track) async {
+    await _openQueueFrom(queue, track, play: true);
+  }
+
+  Future<void> restoreQueueFrom(
+    List<Track> queue,
+    Track track, {
+    required bool play,
+  }) async {
+    await _openQueueFrom(queue, track, play: play);
+  }
+
+  Future<void> _openQueueFrom(
+    List<Track> queue,
+    Track track, {
+    required bool play,
+  }) async {
     if (queue.isEmpty) {
       return;
     }
     final index = queue.indexWhere((candidate) => candidate.path == track.path);
     final nextIndex = index < 0 ? 0 : index;
-    await _playQueueAt(List.unmodifiable(queue), nextIndex);
+    await _playQueueAt(List.unmodifiable(queue), nextIndex, play: play);
   }
 
   Future<void> togglePlayPause(List<Track> defaultQueue) async {
@@ -119,7 +135,7 @@ class PlaybackController extends ChangeNotifier {
     if (index < 0 || index >= _queue.length) {
       return;
     }
-    await _playQueueAt(_queue, index);
+    await _playQueueAt(_queue, index, play: true);
   }
 
   Future<void> seek(Duration position) => _player.seek(position);
@@ -138,7 +154,11 @@ class PlaybackController extends ChangeNotifier {
     await _player.stop();
   }
 
-  Future<void> _playQueueAt(List<Track> queue, int index) async {
+  Future<void> _playQueueAt(
+    List<Track> queue,
+    int index, {
+    required bool play,
+  }) async {
     final track = queue[index];
     _queue = queue;
     _queueIndex = index;
@@ -146,7 +166,7 @@ class PlaybackController extends ChangeNotifier {
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
-    await _player.open(Media(track.path), play: true);
+    await _player.open(Media(track.path), play: play);
   }
 
   @override

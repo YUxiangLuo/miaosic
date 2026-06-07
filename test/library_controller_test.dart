@@ -15,6 +15,13 @@ void main() {
     final dbPath = '${dir.path}/miaosic.db';
     final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
     await seedDatabase.saveMusicRoot('/music/root');
+    const lastPlayback = LastPlaybackState(
+      kind: LastPlaybackKind.album,
+      folderPath: '/music/root',
+      trackPath: '/music/root/a.flac',
+      playing: true,
+    );
+    await seedDatabase.saveLastPlayback(lastPlayback);
     await seedDatabase.close();
 
     final controller = LibraryController(
@@ -45,6 +52,10 @@ void main() {
       expect(controller.scanning, isFalse);
       expect(controller.musicRoot, '/music/root');
       expect(controller.tracks.single.path, '/music/root/a.flac');
+      expect(controller.lastPlayback?.kind, LastPlaybackKind.album);
+      expect(controller.lastPlayback?.folderPath, lastPlayback.folderPath);
+      expect(controller.lastPlayback?.trackPath, lastPlayback.trackPath);
+      expect(controller.lastPlayback?.playing, isTrue);
 
       final reopened = await LibraryDatabase.openAtPath(dbPath);
       addTearDown(reopened.close);

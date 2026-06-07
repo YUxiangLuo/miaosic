@@ -257,6 +257,71 @@ class AlbumSummary {
   }
 }
 
+enum LastPlaybackKind {
+  album('album'),
+  playlist('playlist');
+
+  const LastPlaybackKind(this.dbValue);
+
+  final String dbValue;
+
+  static LastPlaybackKind? fromDb(String value) {
+    for (final kind in LastPlaybackKind.values) {
+      if (kind.dbValue == value) {
+        return kind;
+      }
+    }
+    return null;
+  }
+}
+
+class LastPlaybackState {
+  const LastPlaybackState({
+    required this.kind,
+    required this.folderPath,
+    required this.trackPath,
+    required this.playing,
+  });
+
+  final LastPlaybackKind kind;
+  final String folderPath;
+  final String trackPath;
+  final bool playing;
+
+  Map<String, Object?> toJson() {
+    return {
+      'kind': kind.dbValue,
+      'folder_path': folderPath,
+      'track_path': trackPath,
+      'playing': playing,
+    };
+  }
+
+  static LastPlaybackState? fromJson(Map<String, Object?> json) {
+    final kindValue = json['kind'];
+    final folderPath = json['folder_path'];
+    final trackPath = json['track_path'];
+    final playing = json['playing'];
+    if (kindValue is! String ||
+        folderPath is! String ||
+        trackPath is! String ||
+        folderPath.isEmpty ||
+        trackPath.isEmpty) {
+      return null;
+    }
+    final kind = LastPlaybackKind.fromDb(kindValue);
+    if (kind == null) {
+      return null;
+    }
+    return LastPlaybackState(
+      kind: kind,
+      folderPath: folderPath,
+      trackPath: trackPath,
+      playing: playing is bool ? playing : false,
+    );
+  }
+}
+
 class ScanResult {
   const ScanResult({
     required this.rootPath,

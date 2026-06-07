@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -9,6 +11,7 @@ class LibraryDatabase {
   LibraryDatabase._(this._db, this.path);
 
   static const musicRootSettingKey = 'music_root';
+  static const lastPlaybackSettingKey = 'last_playback';
 
   final Database _db;
   final String path;
@@ -201,6 +204,35 @@ class LibraryDatabase {
     await _db.insert('settings', {
       'key': musicRootSettingKey,
       'value': normalizeMusicRootPath(rootPath),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<LastPlaybackState?> loadLastPlayback() async {
+    final rows = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [lastPlaybackSettingKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return null;
+    }
+    try {
+      final decoded = jsonDecode(rows.first['value'] as String);
+      if (decoded is! Map) {
+        return null;
+      }
+      return LastPlaybackState.fromJson(Map<String, Object?>.from(decoded));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveLastPlayback(LastPlaybackState state) async {
+    await _db.insert('settings', {
+      'key': lastPlaybackSettingKey,
+      'value': jsonEncode(state.toJson()),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 

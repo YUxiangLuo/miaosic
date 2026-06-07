@@ -30,7 +30,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   _ActiveAlbumPlayback? _activeAlbumPlayback;
   _ActivePlaylistPlayback? _activePlaylistPlayback;
   String? _lastPlaybackPath;
+  String? _lastPersistedPlaybackKey;
   bool _lastPlaybackPlaying = false;
+  bool _lastPlaybackRestoreAttempted = false;
+  bool _lastPlaybackRestoring = false;
   LibraryView _view = LibraryView.albums;
   String? _selectedPlaylistPath;
   double _playlistListScrollOffset = 0;
@@ -61,6 +64,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
     setState(_syncActiveSelectionsWithLibrary);
+    unawaited(_restoreLastPlaybackIfReady());
   }
 
   void _syncActiveSelectionsWithLibrary() {
@@ -104,6 +108,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted) {
       return;
     }
+    _saveCurrentPlaybackStateIfChanged();
     final displayTrack = activeAlbumPlayback == null
         ? activePlaylistPlayback == null
               ? _playback.currentTrack
@@ -118,6 +123,146 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _lastPlaybackPath = nextPath;
       _lastPlaybackPlaying = nextPlaying;
     });
+  }
+
+  Future<void> _restoreLastPlaybackIfReady() async {
+    if (_lastPlaybackRestoreAttempted ||
+        _lastPlaybackRestoring ||
+        !_library.canRestoreLastPlayback ||
+        _library.tracks.isEmpty) {
+      return;
+    }
+
+    final state = _library.lastPlayback;
+    if (state == null) {
+      _lastPlaybackRestoreAttempted = true;
+      return;
+    }
+
+    _lastPlaybackRestoreAttempted = true;
+    _lastPlaybackRestoring = true;
+    try {
+      switch (state.kind) {
+        case LastPlaybackKind.album:
+          await _restoreAlbumPlayback(state);
+        case LastPlaybackKind.playlist:
+          await _restorePlaylistPlayback(state);
+      }
+    } finally {
+      _lastPlaybackRestoring = false;
+    }
+  }
+
+  Future<void> _restoreAlbumPlayback(LastPlaybackState state) async {
+    final album = _library.albums
+        .where((album) => album.folderPath == state.folderPath)
+        .firstOrNull;
+    if (album == null) {
+      return;
+    }
+    final tracks = _tracksByFolder[album.folderPath] ?? const <Track>[];
+    if (tracks.isEmpty || !mounted) {
+      return;
+    }
+    final track = _trackByPathOrFirst(tracks, state.trackPath);
+    setState(() {
+      _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
+      _activePlaylistPlayback = null;
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _restoreQueueFrom(tracks, track, play: state.playing);
+  }
+
+  Future<void> _restorePlaylistPlayback(LastPlaybackState state) async {
+    final folder = _playlistFolderForPath(state.folderPath);
+    if (folder == null) {
+      return;
+    }
+    final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
+    if (tracks.isEmpty || !mounted) {
+      return;
+    }
+    final track = _trackByPathOrFirst(tracks, state.trackPath);
+    setState(() {
+      _activeAlbumPlayback = null;
+      _activePlaylistPlayback = _ActivePlaylistPlayback(
+        folderPath: folder.path,
+        tracks: tracks,
+      );
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _restoreQueueFrom(tracks, track, play: state.playing);
+  }
+
+  Track _trackByPathOrFirst(List<Track> tracks, String path) {
+    return tracks.firstWhere(
+      (track) => track.path == path,
+      orElse: () => tracks.first,
+    );
+  }
+
+  void _saveCurrentPlaybackStateIfChanged() {
+    final state = _currentPlaybackState();
+    if (state == null) {
+      return;
+    }
+    final key = _lastPlaybackStateKey(state);
+    if (key == _lastPersistedPlaybackKey) {
+      return;
+    }
+    _lastPersistedPlaybackKey = key;
+    unawaited(_library.saveLastPlayback(state));
+  }
+
+  LastPlaybackState? _currentPlaybackState() {
+    final currentTrack = _playback.currentTrack;
+    if (currentTrack == null) {
+      return null;
+    }
+
+    final activePlaylist = _activePlaylistPlayback;
+    if (activePlaylist != null &&
+        _currentTrackForPlaylist(activePlaylist) != null) {
+      return LastPlaybackState(
+        kind: LastPlaybackKind.playlist,
+        folderPath: activePlaylist.folderPath,
+        trackPath: currentTrack.path,
+        playing: _playback.playing,
+      );
+    }
+
+    final activeAlbum = _activeAlbumPlayback;
+    if (activeAlbum != null &&
+        _playback.isCurrentQueue(activeAlbum.tracks) &&
+        _currentTrackForAlbum(activeAlbum) != null) {
+      return LastPlaybackState(
+        kind: LastPlaybackKind.album,
+        folderPath: activeAlbum.album.folderPath,
+        trackPath: currentTrack.path,
+        playing: _playback.playing,
+      );
+    }
+
+    final album = _albumForCurrentTrack(currentTrack);
+    if (album == null) {
+      return null;
+    }
+    final tracks = _tracksByFolder[album.folderPath] ?? const <Track>[];
+    if (!_playback.isCurrentQueue(tracks)) {
+      return null;
+    }
+    return LastPlaybackState(
+      kind: LastPlaybackKind.album,
+      folderPath: album.folderPath,
+      trackPath: currentTrack.path,
+      playing: _playback.playing,
+    );
+  }
+
+  String _lastPlaybackStateKey(LastPlaybackState state) {
+    return '${state.kind.dbValue}\n${state.folderPath}\n${state.trackPath}\n${state.playing}';
   }
 
   void _handleRescanPressed() {
@@ -250,6 +395,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> _playQueueFrom(List<Track> queue, Track track) {
     return _playback.playQueueFrom(queue, track);
+  }
+
+  Future<void> _restoreQueueFrom(
+    List<Track> queue,
+    Track track, {
+    required bool play,
+  }) {
+    return _playback.restoreQueueFrom(queue, track, play: play);
   }
 
   Future<void> _playAlbumFrom(
