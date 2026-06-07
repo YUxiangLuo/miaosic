@@ -536,8 +536,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
       LibraryView.albums => AlbumGrid(
         albums: _library.albums,
         tracksByFolder: _tracksByFolder,
-        isPlayingAlbum: _isPlayingAlbum,
-        onPlay: _playAlbum,
         onOpen: _openAlbumPlayback,
       ),
       LibraryView.playlists => _buildPlaylistsContent(),
@@ -631,17 +629,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
         )
         ? currentTrack
         : null;
-  }
-
-  bool _isPlayingAlbum(AlbumSummary album, List<Track> tracks) {
-    final currentTrack = _playback.currentTrack;
-    if (currentTrack == null ||
-        tracks.isEmpty ||
-        _activePlaylistPlayback != null ||
-        currentTrack.folderPath != album.folderPath) {
-      return false;
-    }
-    return _playback.isCurrentQueue(tracks);
   }
 
   void _savePlaylistListScrollOffset() {

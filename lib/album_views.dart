@@ -10,15 +10,11 @@ class AlbumGrid extends StatelessWidget {
     super.key,
     required this.albums,
     required this.tracksByFolder,
-    required this.isPlayingAlbum,
-    required this.onPlay,
     required this.onOpen,
   });
 
   final List<AlbumSummary> albums;
   final Map<String, List<Track>> tracksByFolder;
-  final bool Function(AlbumSummary album, List<Track> tracks) isPlayingAlbum;
-  final void Function(AlbumSummary album, List<Track> tracks) onPlay;
   final void Function(AlbumSummary album, List<Track> tracks) onOpen;
 
   @override
@@ -50,15 +46,9 @@ class AlbumGrid extends StatelessWidget {
           itemBuilder: (context, index) {
             final album = albums[index];
             final tracks = tracksByFolder[album.folderPath] ?? const <Track>[];
-            final playingAlbum = isPlayingAlbum(album, tracks);
             return _AlbumTile(
               album: album,
               onTap: tracks.isEmpty ? null : () => onOpen(album, tracks),
-              onDoubleTap: tracks.isEmpty
-                  ? null
-                  : playingAlbum
-                  ? () => onOpen(album, tracks)
-                  : () => onPlay(album, tracks),
             );
           },
         );
@@ -68,15 +58,10 @@ class AlbumGrid extends StatelessWidget {
 }
 
 class _AlbumTile extends StatelessWidget {
-  const _AlbumTile({
-    required this.album,
-    required this.onTap,
-    required this.onDoubleTap,
-  });
+  const _AlbumTile({required this.album, required this.onTap});
 
   final AlbumSummary album;
   final VoidCallback? onTap;
-  final VoidCallback? onDoubleTap;
 
   @override
   Widget build(BuildContext context) {
@@ -84,7 +69,6 @@ class _AlbumTile extends StatelessWidget {
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
-      onDoubleTap: onDoubleTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
