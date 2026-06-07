@@ -57,7 +57,7 @@ class AlbumGrid extends StatelessWidget {
               onDoubleTap: tracks.isEmpty
                   ? null
                   : playingAlbum
-                  ? () => onShowPlayback(album, tracks)
+                  ? null
                   : () => onPlay(album, tracks),
             );
           },
