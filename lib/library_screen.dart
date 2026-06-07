@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import 'album_playback_view.dart';
 import 'album_views.dart';
+import 'artwork_resolver.dart';
 import 'library_controller.dart';
 import 'library_diff.dart';
 import 'library_sidebar.dart';
@@ -100,13 +101,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _handlePlaybackChanged() {
     final activeAlbumPlayback = _activeAlbumPlayback;
     final activePlaylistPlayback = _activePlaylistPlayback;
-    if (!mounted ||
-        activeAlbumPlayback == null && activePlaylistPlayback == null) {
+    if (!mounted) {
       return;
     }
     final displayTrack = activeAlbumPlayback == null
         ? activePlaylistPlayback == null
-              ? null
+              ? _playback.currentTrack
               : _currentTrackForPlaylist(activePlaylistPlayback)
         : _currentTrackForAlbum(activeAlbumPlayback);
     final nextPath = displayTrack?.path;
@@ -323,12 +323,128 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   Map<String, List<Track>> get _tracksByFolder => _library.tracksByFolder;
 
+  _NowPlayingTarget? get _nowPlayingTarget {
+    final currentTrack = _playback.currentTrack;
+    if (currentTrack == null) {
+      return null;
+    }
+
+    final activePlaylist = _activePlaylistPlayback;
+    if (activePlaylist != null &&
+        _currentTrackForPlaylist(activePlaylist) != null) {
+      final folder = _playlistFolderForPath(activePlaylist.folderPath);
+      if (folder != null) {
+        return _NowPlayingTarget.playlist(
+          folder: folder,
+          tracks: activePlaylist.tracks,
+          sidebarItem: SidebarNowPlaying.playlist(
+            playlistCoverArtPaths: _playlistCoverArtPaths(
+              folder,
+              activePlaylist.tracks,
+            ),
+            playing: _playback.playing,
+          ),
+        );
+      }
+    }
+
+    final activeAlbum = _activeAlbumPlayback;
+    if (activeAlbum != null && _currentTrackForAlbum(activeAlbum) != null) {
+      return _NowPlayingTarget.album(
+        album: activeAlbum.album,
+        tracks: activeAlbum.tracks,
+        sidebarItem: SidebarNowPlaying.album(
+          coverArtPath: activeAlbum.album.coverArtPath,
+          playing: _playback.playing,
+        ),
+      );
+    }
+
+    final album = _albumForCurrentTrack(currentTrack);
+    if (album == null) {
+      return null;
+    }
+    final tracks = _tracksByFolder[album.folderPath] ?? const <Track>[];
+    if (!_playback.isCurrentQueue(tracks)) {
+      return null;
+    }
+    return _NowPlayingTarget.album(
+      album: album,
+      tracks: tracks,
+      sidebarItem: SidebarNowPlaying.album(
+        coverArtPath: album.coverArtPath,
+        playing: _playback.playing,
+      ),
+    );
+  }
+
+  AlbumSummary? _albumForCurrentTrack(Track currentTrack) {
+    return _library.albums
+        .where((album) => album.folderPath == currentTrack.folderPath)
+        .firstOrNull;
+  }
+
+  FolderSummary? _playlistFolderForPath(String path) {
+    return _library.folders
+        .where(
+          (folder) => folder.kind == FolderKind.playlist && folder.path == path,
+        )
+        .firstOrNull;
+  }
+
+  List<String?> _playlistCoverArtPaths(
+    FolderSummary folder,
+    List<Track> tracks,
+  ) {
+    final paths = tracks
+        .take(4)
+        .map((track) => resolveTrackArtwork(track, _library.trackCoverCache))
+        .toList(growable: true);
+    if (paths.every((path) => path == null || path.isEmpty)) {
+      paths
+        ..clear()
+        ..add(folder.coverArtPath);
+    }
+    return paths;
+  }
+
+  void _openNowPlaying(_NowPlayingTarget target) {
+    switch (target.kind) {
+      case _NowPlayingKind.album:
+        final album = target.album;
+        final tracks = target.tracks;
+        if (album == null || tracks.isEmpty) {
+          return;
+        }
+        setState(() {
+          _activeAlbumPlayback = _ActiveAlbumPlayback(
+            album: album,
+            tracks: tracks,
+          );
+          _activePlaylistPlayback = null;
+          _lastPlaybackPath = _playback.currentTrack?.path;
+          _lastPlaybackPlaying = _playback.playing;
+        });
+      case _NowPlayingKind.playlist:
+        final folder = target.folder;
+        if (folder == null) {
+          return;
+        }
+        setState(() {
+          _view = LibraryView.playlists;
+          _selectedPlaylistPath = folder.path;
+          _activeAlbumPlayback = null;
+        });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final activeAlbumPlayback = _activeAlbumPlayback;
     final activeAlbumTrack = activeAlbumPlayback == null
         ? null
         : _currentTrackForAlbum(activeAlbumPlayback);
+    final nowPlayingTarget = _nowPlayingTarget;
     return Scaffold(
       body: Stack(
         children: [
@@ -343,8 +459,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 scanning: _library.scanning,
                 progress: _library.scanProgress,
                 error: _library.error,
+                nowPlaying: nowPlayingTarget?.sidebarItem,
                 onEditMusicRoot: _handleMusicRootPressed,
                 onRescan: _handleRescanPressed,
+                onOpenNowPlaying: nowPlayingTarget == null
+                    ? null
+                    : () => _openNowPlaying(nowPlayingTarget),
                 onSelected: (view) {
                   setState(() {
                     _view = view;
@@ -534,4 +654,28 @@ class _ActivePlaylistPlayback {
 
   final String folderPath;
   final List<Track> tracks;
+}
+
+enum _NowPlayingKind { album, playlist }
+
+class _NowPlayingTarget {
+  const _NowPlayingTarget.album({
+    required AlbumSummary this.album,
+    required this.tracks,
+    required this.sidebarItem,
+  }) : kind = _NowPlayingKind.album,
+       folder = null;
+
+  const _NowPlayingTarget.playlist({
+    required FolderSummary this.folder,
+    required this.tracks,
+    required this.sidebarItem,
+  }) : kind = _NowPlayingKind.playlist,
+       album = null;
+
+  final _NowPlayingKind kind;
+  final AlbumSummary? album;
+  final FolderSummary? folder;
+  final List<Track> tracks;
+  final SidebarNowPlaying sidebarItem;
 }
