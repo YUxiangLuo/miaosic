@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'library_diff.dart';
+import 'models.dart';
+
 enum LibraryView {
   albums('Albums', Icons.album),
   playlists('Playlists', Icons.queue_music);
@@ -25,5 +28,37 @@ enum RescanPhase {
         this == RescanPhase.scanning ||
         this == RescanPhase.diffing ||
         this == RescanPhase.applying;
+  }
+}
+
+class RescanUiState {
+  const RescanUiState({
+    required this.phase,
+    this.message = '',
+    this.progress,
+    this.diff,
+    this.error,
+  });
+
+  final RescanPhase phase;
+  final String message;
+  final ScanProgress? progress;
+  final LibraryDiff? diff;
+  final String? error;
+
+  RescanUiState copyWith({
+    RescanPhase? phase,
+    String? message,
+    ScanProgress? progress,
+    LibraryDiff? diff,
+    String? error,
+  }) {
+    return RescanUiState(
+      phase: phase ?? this.phase,
+      message: message ?? this.message,
+      progress: progress,
+      diff: diff ?? this.diff,
+      error: error,
+    );
   }
 }

@@ -6,39 +6,6 @@ import 'library_diff.dart';
 import 'library_formatters.dart';
 import 'library_types.dart';
 import 'library_widgets.dart';
-import 'models.dart';
-
-class RescanUiState {
-  const RescanUiState({
-    required this.phase,
-    this.message = '',
-    this.progress,
-    this.diff,
-    this.error,
-  });
-
-  final RescanPhase phase;
-  final String message;
-  final ScanProgress? progress;
-  final LibraryDiff? diff;
-  final String? error;
-
-  RescanUiState copyWith({
-    RescanPhase? phase,
-    String? message,
-    ScanProgress? progress,
-    LibraryDiff? diff,
-    String? error,
-  }) {
-    return RescanUiState(
-      phase: phase ?? this.phase,
-      message: message ?? this.message,
-      progress: progress,
-      diff: diff ?? this.diff,
-      error: error,
-    );
-  }
-}
 
 class RescanDialog extends StatelessWidget {
   const RescanDialog({
