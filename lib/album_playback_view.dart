@@ -188,20 +188,24 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
         children: [
           _LargeAlbumArtwork(album: album, size: coverSize),
           const SizedBox(width: 54),
-          ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 520),
-            child: _AlbumPlaybackInfo(
-              album: album,
-              tracks: tracks,
-              currentTrack: currentTrack,
-              playing: playing,
-              trackListHeight: math.min(340, math.max(240, coverSize * 0.48)),
-              canPrevious: canPrevious,
-              canNext: canNext,
-              onPrevious: onPrevious,
-              onToggle: onToggle,
-              onNext: onNext,
-              onPlayTrack: onPlayTrack,
+          SizedBox(
+            width: 520,
+            height: coverSize,
+            child: Align(
+              alignment: Alignment.topLeft,
+              child: _AlbumPlaybackInfo(
+                album: album,
+                tracks: tracks,
+                currentTrack: currentTrack,
+                playing: playing,
+                trackListHeight: null,
+                canPrevious: canPrevious,
+                canNext: canNext,
+                onPrevious: onPrevious,
+                onToggle: onToggle,
+                onNext: onNext,
+                onPlayTrack: onPlayTrack,
+              ),
             ),
           ),
         ],
@@ -285,7 +289,7 @@ class _AlbumPlaybackInfo extends StatelessWidget {
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
-  final double trackListHeight;
+  final double? trackListHeight;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
@@ -301,8 +305,17 @@ class _AlbumPlaybackInfo extends StatelessWidget {
         ? CrossAxisAlignment.center
         : CrossAxisAlignment.start;
     final current = currentTrack;
+    final trackList = _AlbumTrackList(
+      tracks: tracks,
+      currentTrack: current,
+      playing: playing,
+      height: trackListHeight,
+      onPlayTrack: onPlayTrack,
+    );
     return Column(
-      mainAxisSize: MainAxisSize.min,
+      mainAxisSize: trackListHeight == null
+          ? MainAxisSize.max
+          : MainAxisSize.min,
       crossAxisAlignment: crossAxisAlignment,
       children: [
         Text(
@@ -348,13 +361,7 @@ class _AlbumPlaybackInfo extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 28),
-        _AlbumTrackList(
-          tracks: tracks,
-          currentTrack: current,
-          playing: playing,
-          height: trackListHeight,
-          onPlayTrack: onPlayTrack,
-        ),
+        if (trackListHeight == null) Expanded(child: trackList) else trackList,
       ],
     );
   }
@@ -415,7 +422,7 @@ class _AlbumTrackList extends StatefulWidget {
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
-  final double height;
+  final double? height;
   final ValueChanged<Track> onPlayTrack;
 
   @override
@@ -501,42 +508,41 @@ class _AlbumTrackListState extends State<_AlbumTrackList> {
 
   @override
   Widget build(BuildContext context) {
+    final list = DecoratedBox(
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.18),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ListView.separated(
+        controller: _scrollController,
+        padding: const EdgeInsets.symmetric(
+          vertical: _albumTrackListVerticalPadding,
+        ),
+        itemCount: widget.tracks.length,
+        separatorBuilder: (_, _) => Divider(
+          height: _albumTrackSeparatorHeight,
+          indent: 58,
+          endIndent: 12,
+          color: Colors.white.withValues(alpha: 0.08),
+        ),
+        itemBuilder: (context, index) {
+          final track = widget.tracks[index];
+          final selected = widget.currentTrack?.path == track.path;
+          return _AlbumTrackRow(
+            index: index,
+            track: track,
+            selected: selected,
+            playing: selected && widget.playing,
+            onTap: () => widget.onPlayTrack(track),
+          );
+        },
+      ),
+    );
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 560),
-      child: SizedBox(
-        height: widget.height,
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.18),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.13)),
-          ),
-          child: ListView.separated(
-            controller: _scrollController,
-            padding: const EdgeInsets.symmetric(
-              vertical: _albumTrackListVerticalPadding,
-            ),
-            itemCount: widget.tracks.length,
-            separatorBuilder: (_, _) => Divider(
-              height: _albumTrackSeparatorHeight,
-              indent: 58,
-              endIndent: 12,
-              color: Colors.white.withValues(alpha: 0.08),
-            ),
-            itemBuilder: (context, index) {
-              final track = widget.tracks[index];
-              final selected = widget.currentTrack?.path == track.path;
-              return _AlbumTrackRow(
-                index: index,
-                track: track,
-                selected: selected,
-                playing: selected && widget.playing,
-                onTap: () => widget.onPlayTrack(track),
-              );
-            },
-          ),
-        ),
-      ),
+      child: widget.height == null
+          ? SizedBox(width: double.infinity, child: list)
+          : SizedBox(height: widget.height, child: list),
     );
   }
 }
