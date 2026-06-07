@@ -1,7 +1,13 @@
-part of 'main.dart';
+import 'dart:math' as math;
 
-class _AlbumGrid extends StatelessWidget {
-  const _AlbumGrid({
+import 'package:flutter/material.dart';
+
+import 'library_widgets.dart';
+import 'models.dart';
+
+class AlbumGrid extends StatelessWidget {
+  const AlbumGrid({
+    super.key,
     required this.albums,
     required this.tracksByFolder,
     required this.onPlay,
@@ -14,7 +20,7 @@ class _AlbumGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (albums.isEmpty) {
-      return const _EmptyState(message: 'No album folders detected');
+      return const EmptyState(message: 'No album folders detected');
     }
 
     return LayoutBuilder(
@@ -66,7 +72,7 @@ class _AlbumTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _Artwork(
+          Artwork(
             path: album.coverArtPath,
             size: double.infinity,
             icon: Icons.album,

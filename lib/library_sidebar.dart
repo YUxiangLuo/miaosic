@@ -1,7 +1,12 @@
-part of 'main.dart';
+import 'package:flutter/material.dart';
 
-class _LibrarySidebar extends StatelessWidget {
-  const _LibrarySidebar({
+import 'library_formatters.dart';
+import 'library_types.dart';
+import 'models.dart';
+
+class LibrarySidebar extends StatelessWidget {
+  const LibrarySidebar({
+    super.key,
     required this.selected,
     required this.tracks,
     required this.albums,
@@ -16,7 +21,7 @@ class _LibrarySidebar extends StatelessWidget {
     required this.onSelected,
   });
 
-  final _LibraryView selected;
+  final LibraryView selected;
   final int tracks;
   final int albums;
   final int playlists;
@@ -27,7 +32,7 @@ class _LibrarySidebar extends StatelessWidget {
   final String? error;
   final VoidCallback onEditMusicRoot;
   final VoidCallback onRescan;
-  final ValueChanged<_LibraryView> onSelected;
+  final ValueChanged<LibraryView> onSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -61,14 +66,14 @@ class _LibrarySidebar extends StatelessWidget {
                 ],
               ),
             ),
-            for (final view in _LibraryView.values)
+            for (final view in LibraryView.values)
               _SidebarItem(
                 view: view,
                 selected: selected == view,
                 count: switch (view) {
-                  _LibraryView.tracks => tracks,
-                  _LibraryView.albums => albums,
-                  _LibraryView.playlists => playlists,
+                  LibraryView.tracks => tracks,
+                  LibraryView.albums => albums,
+                  LibraryView.playlists => playlists,
                 },
                 onTap: () => onSelected(view),
               ),
@@ -100,7 +105,7 @@ class _SidebarItem extends StatelessWidget {
     required this.onTap,
   });
 
-  final _LibraryView view;
+  final LibraryView view;
   final bool selected;
   final int count;
   final VoidCallback onTap;
@@ -224,7 +229,7 @@ class _LibraryStats extends StatelessWidget {
           Text(
             scannedAt == null
                 ? 'No scan yet'
-                : 'Last scan ${_formatDate(scannedAt)} · ${_formatElapsed(elapsedMs)}',
+                : 'Last scan ${formatDate(scannedAt)} · ${formatElapsed(elapsedMs)}',
             style: Theme.of(
               context,
             ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),

@@ -1,7 +1,14 @@
-part of 'main.dart';
+import 'dart:math' as math;
 
-class _PlaylistTrackList extends StatelessWidget {
-  const _PlaylistTrackList({
+import 'package:flutter/material.dart';
+
+import 'library_formatters.dart';
+import 'library_widgets.dart';
+import 'models.dart';
+
+class PlaylistTrackList extends StatelessWidget {
+  const PlaylistTrackList({
+    super.key,
     required this.tracks,
     required this.currentPath,
     required this.onPlay,
@@ -18,7 +25,7 @@ class _PlaylistTrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (tracks.isEmpty) {
-      return const _EmptyState(message: 'No tracks found');
+      return const EmptyState(message: 'No tracks found');
     }
 
     final leftPadding = showArtwork ? 18.0 : 60.0;
@@ -45,8 +52,9 @@ class _PlaylistTrackList extends StatelessWidget {
   }
 }
 
-class _LibraryTrackList extends StatelessWidget {
-  const _LibraryTrackList({
+class LibraryTrackList extends StatelessWidget {
+  const LibraryTrackList({
+    super.key,
     required this.tracks,
     required this.currentPath,
     required this.trackCoverCache,
@@ -61,7 +69,7 @@ class _LibraryTrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (tracks.isEmpty) {
-      return const _EmptyState(message: 'No tracks found');
+      return const EmptyState(message: 'No tracks found');
     }
 
     return LayoutBuilder(
@@ -133,7 +141,7 @@ class _LibraryTrackTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            _Artwork(path: artworkPath, size: 56, icon: Icons.music_note),
+            Artwork(path: artworkPath, size: 56, icon: Icons.music_note),
             const SizedBox(width: 10),
             Expanded(
               child: _LibraryTrackText(
@@ -224,7 +232,7 @@ class _PlaylistTrackRow extends StatelessWidget {
         child: Row(
           children: [
             if (showArtwork || artworkPath != null) ...[
-              _Artwork(path: artworkPath, size: 50, icon: Icons.music_note),
+              Artwork(path: artworkPath, size: 50, icon: Icons.music_note),
               const SizedBox(width: 14),
             ] else ...[
               SizedBox(
@@ -241,7 +249,7 @@ class _PlaylistTrackRow extends StatelessWidget {
             ],
             Expanded(
               flex: 5,
-              child: _TwoLineText(
+              child: TwoLineText(
                 title: track.title,
                 subtitle: track.artist,
                 selected: selected,
@@ -259,7 +267,7 @@ class _PlaylistTrackRow extends StatelessWidget {
             SizedBox(
               width: 56,
               child: Text(
-                _formatDurationMs(track.durationMs),
+                formatDurationMs(track.durationMs),
                 textAlign: TextAlign.right,
                 style: TextStyle(color: scheme.onSurfaceVariant),
               ),

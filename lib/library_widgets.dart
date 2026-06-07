@@ -1,7 +1,14 @@
-part of 'main.dart';
+import 'dart:io';
+import 'dart:math' as math;
 
-class _PlayerBar extends StatelessWidget {
-  const _PlayerBar({
+import 'package:flutter/material.dart';
+
+import 'library_formatters.dart';
+import 'models.dart';
+
+class PlayerBar extends StatelessWidget {
+  const PlayerBar({
+    super.key,
     required this.track,
     required this.coverArtPath,
     required this.playing,
@@ -39,11 +46,11 @@ class _PlayerBar extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            _Artwork(path: coverArtPath, size: 56, icon: Icons.music_note),
+            Artwork(path: coverArtPath, size: 56, icon: Icons.music_note),
             const SizedBox(width: 14),
             Expanded(
               flex: 3,
-              child: _TwoLineText(
+              child: TwoLineText(
                 title: track?.title ?? 'Nothing playing',
                 subtitle: track == null
                     ? 'Select a local track'
@@ -77,7 +84,7 @@ class _PlayerBar extends StatelessWidget {
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  SizedBox(width: 42, child: Text(_formatDuration(position))),
+                  SizedBox(width: 42, child: Text(formatDuration(position))),
                   Expanded(
                     child: Slider(
                       value: positionMs,
@@ -92,7 +99,7 @@ class _PlayerBar extends StatelessWidget {
                   SizedBox(
                     width: 42,
                     child: Text(
-                      _formatDuration(duration),
+                      formatDuration(duration),
                       textAlign: TextAlign.right,
                     ),
                   ),
@@ -106,8 +113,9 @@ class _PlayerBar extends StatelessWidget {
   }
 }
 
-class _Artwork extends StatelessWidget {
-  const _Artwork({
+class Artwork extends StatelessWidget {
+  const Artwork({
+    super.key,
     required this.path,
     required this.size,
     required this.icon,
@@ -164,8 +172,9 @@ class _ArtworkPlaceholder extends StatelessWidget {
   }
 }
 
-class _TwoLineText extends StatelessWidget {
-  const _TwoLineText({
+class TwoLineText extends StatelessWidget {
+  const TwoLineText({
+    super.key,
     required this.title,
     required this.subtitle,
     this.selected = false,
@@ -202,8 +211,8 @@ class _TwoLineText extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.message});
+class EmptyState extends StatelessWidget {
+  const EmptyState({super.key, required this.message});
 
   final String message;
 

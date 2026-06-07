@@ -1,7 +1,13 @@
-part of 'main.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 
-class _RescanUiState {
-  const _RescanUiState({
+import 'library_diff.dart';
+import 'library_types.dart';
+import 'library_widgets.dart';
+import 'models.dart';
+
+class RescanUiState {
+  const RescanUiState({
     required this.phase,
     this.message = '',
     this.progress,
@@ -9,20 +15,20 @@ class _RescanUiState {
     this.error,
   });
 
-  final _RescanPhase phase;
+  final RescanPhase phase;
   final String message;
   final ScanProgress? progress;
   final LibraryDiff? diff;
   final String? error;
 
-  _RescanUiState copyWith({
-    _RescanPhase? phase,
+  RescanUiState copyWith({
+    RescanPhase? phase,
     String? message,
     ScanProgress? progress,
     LibraryDiff? diff,
     String? error,
   }) {
-    return _RescanUiState(
+    return RescanUiState(
       phase: phase ?? this.phase,
       message: message ?? this.message,
       progress: progress,
@@ -32,22 +38,23 @@ class _RescanUiState {
   }
 }
 
-class _RescanDialog extends StatelessWidget {
-  const _RescanDialog({
+class RescanDialog extends StatelessWidget {
+  const RescanDialog({
+    super.key,
     required this.stateListenable,
     required this.onApply,
     required this.onRescan,
     required this.onFullRescan,
   });
 
-  final ValueListenable<_RescanUiState> stateListenable;
+  final ValueListenable<RescanUiState> stateListenable;
   final Future<void> Function() onApply;
   final VoidCallback onRescan;
   final VoidCallback onFullRescan;
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<_RescanUiState>(
+    return ValueListenableBuilder<RescanUiState>(
       valueListenable: stateListenable,
       builder: (context, state, _) {
         final busy = state.phase.isBusy;
@@ -68,7 +75,7 @@ class _RescanDialog extends StatelessWidget {
           ),
           actions: [
             TextButton(
-              onPressed: state.phase == _RescanPhase.applying
+              onPressed: state.phase == RescanPhase.applying
                   ? null
                   : () => Navigator.of(context).pop(),
               child: const Text('Close'),
@@ -76,7 +83,7 @@ class _RescanDialog extends StatelessWidget {
             TextButton(
               onPressed: busy ? null : onRescan,
               child: Text(
-                state.phase == _RescanPhase.error ? 'Retry' : 'Rescan',
+                state.phase == RescanPhase.error ? 'Retry' : 'Rescan',
               ),
             ),
             TextButton(
@@ -85,7 +92,7 @@ class _RescanDialog extends StatelessWidget {
             ),
             FilledButton(
               onPressed:
-                  state.phase == _RescanPhase.ready &&
+                  state.phase == RescanPhase.ready &&
                       !busy &&
                       diff != null &&
                       diff.hasChanges
@@ -103,7 +110,7 @@ class _RescanDialog extends StatelessWidget {
 class _RescanStatus extends StatelessWidget {
   const _RescanStatus({required this.state});
 
-  final _RescanUiState state;
+  final RescanUiState state;
 
   @override
   Widget build(BuildContext context) {
@@ -159,26 +166,26 @@ class _RescanStatus extends StatelessWidget {
     );
   }
 
-  IconData _phaseIcon(_RescanPhase phase) {
+  IconData _phaseIcon(RescanPhase phase) {
     return switch (phase) {
-      _RescanPhase.ready => Icons.fact_check,
-      _RescanPhase.done => Icons.check_circle,
-      _RescanPhase.error => Icons.error,
-      _RescanPhase.applying => Icons.save,
+      RescanPhase.ready => Icons.fact_check,
+      RescanPhase.done => Icons.check_circle,
+      RescanPhase.error => Icons.error,
+      RescanPhase.applying => Icons.save,
       _ => Icons.sync,
     };
   }
 
-  String _phaseLabel(_RescanPhase phase) {
+  String _phaseLabel(RescanPhase phase) {
     return switch (phase) {
-      _RescanPhase.idle => 'Ready to rescan',
-      _RescanPhase.loadingDatabase => 'Loading current library snapshot',
-      _RescanPhase.scanning => 'Scanning local files',
-      _RescanPhase.diffing => 'Comparing scan with database',
-      _RescanPhase.ready => 'Review changes before applying',
-      _RescanPhase.applying => 'Applying library changes',
-      _RescanPhase.done => 'Library refreshed',
-      _RescanPhase.error => 'Rescan failed',
+      RescanPhase.idle => 'Ready to rescan',
+      RescanPhase.loadingDatabase => 'Loading current library snapshot',
+      RescanPhase.scanning => 'Scanning local files',
+      RescanPhase.diffing => 'Comparing scan with database',
+      RescanPhase.ready => 'Review changes before applying',
+      RescanPhase.applying => 'Applying library changes',
+      RescanPhase.done => 'Library refreshed',
+      RescanPhase.error => 'Rescan failed',
     };
   }
 }
@@ -220,21 +227,21 @@ class _DiffStat extends StatelessWidget {
 class _RescanBody extends StatelessWidget {
   const _RescanBody({required this.state});
 
-  final _RescanUiState state;
+  final RescanUiState state;
 
   @override
   Widget build(BuildContext context) {
     final diff = state.diff;
-    if (state.phase == _RescanPhase.error) {
-      return const _EmptyState(message: 'Fix the error and retry the scan');
+    if (state.phase == RescanPhase.error) {
+      return const EmptyState(message: 'Fix the error and retry the scan');
     }
     if (diff == null) {
-      return const _EmptyState(
+      return const EmptyState(
         message: 'Scanning will continue even if this window is closed',
       );
     }
     if (!diff.hasChanges) {
-      return const _EmptyState(message: 'Library is already up to date');
+      return const EmptyState(message: 'Library is already up to date');
     }
     return DefaultTabController(
       length: 3,
@@ -270,7 +277,7 @@ class _ChangeList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (changes.isEmpty) {
-      return const _EmptyState(message: 'No tracks in this category');
+      return const EmptyState(message: 'No tracks in this category');
     }
     return ListView.builder(
       itemCount: changes.length,

@@ -1,4 +1,23 @@
-part of 'main.dart';
+import 'dart:async';
+import 'dart:io';
+import 'dart:math' as math;
+
+import 'package:flutter/material.dart';
+
+import 'album_views.dart';
+import 'library_database.dart';
+import 'library_diff.dart';
+import 'library_formatters.dart';
+import 'library_sidebar.dart';
+import 'library_types.dart';
+import 'library_widgets.dart';
+import 'models.dart';
+import 'music_scanner.dart';
+import 'playback_controller.dart';
+import 'playlist_cover_indexer.dart';
+import 'playlist_views.dart';
+import 'rescan_dialog.dart';
+import 'track_views.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({super.key});
@@ -12,8 +31,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
   final _playback = PlaybackController();
   final _coverIndexer = TrackCoverIndexer();
   final _playlistListScrollController = ScrollController();
-  final _rescanState = ValueNotifier<_RescanUiState>(
-    const _RescanUiState(phase: _RescanPhase.idle),
+  final _rescanState = ValueNotifier<RescanUiState>(
+    const RescanUiState(phase: RescanPhase.idle),
   );
 
   LibraryDatabase? _database;
@@ -24,7 +43,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Map<String, Object?>? _scanState;
   String _musicRoot = defaultMusicRoot;
   ScanProgress? _scanProgress;
-  _LibraryView _view = _LibraryView.tracks;
+  LibraryView _view = LibraryView.tracks;
   String? _selectedPlaylistPath;
   double _playlistListScrollOffset = 0;
   bool _loading = true;
@@ -175,8 +194,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _error = null;
       _scanProgress = null;
     });
-    _rescanState.value = const _RescanUiState(
-      phase: _RescanPhase.loadingDatabase,
+    _rescanState.value = const RescanUiState(
+      phase: RescanPhase.loadingDatabase,
       message: 'Loading current library snapshot',
     );
 
@@ -185,8 +204,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (!mounted) {
         return;
       }
-      _rescanState.value = _RescanUiState(
-        phase: _RescanPhase.scanning,
+      _rescanState.value = RescanUiState(
+        phase: RescanPhase.scanning,
         message: full ? 'Fully scanning local files' : 'Scanning local files',
       );
       final result = await _scanner.scan(
@@ -210,7 +229,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return;
       }
       _rescanState.value = _rescanState.value.copyWith(
-        phase: _RescanPhase.diffing,
+        phase: RescanPhase.diffing,
         message: 'Comparing scan with database',
         progress: null,
       );
@@ -226,8 +245,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         }
         setState(() => _scanState = scanState);
       }
-      _rescanState.value = _RescanUiState(
-        phase: _RescanPhase.ready,
+      _rescanState.value = RescanUiState(
+        phase: RescanPhase.ready,
         message: diff.hasChanges
             ? 'Review changes before applying'
             : 'Library is up to date',
@@ -235,8 +254,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     } catch (error) {
       if (mounted) {
-        _rescanState.value = _RescanUiState(
-          phase: _RescanPhase.error,
+        _rescanState.value = RescanUiState(
+          phase: RescanPhase.error,
           message: 'Rescan failed',
           error: error.toString(),
         );
@@ -262,7 +281,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       context: context,
       barrierDismissible: true,
       builder: (context) {
-        return _RescanDialog(
+        return RescanDialog(
           stateListenable: _rescanState,
           onApply: _applyPendingDiff,
           onRescan: () => _startRescanDiff(),
@@ -288,7 +307,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
 
     _rescanState.value = _rescanState.value.copyWith(
-      phase: _RescanPhase.applying,
+      phase: RescanPhase.applying,
       message: 'Applying library changes',
     );
     try {
@@ -304,13 +323,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
         diff.removed.map((change) => change.path),
       );
       _rescanState.value = _rescanState.value.copyWith(
-        phase: _RescanPhase.done,
+        phase: RescanPhase.done,
         message: 'Library refreshed',
       );
     } catch (error) {
       if (mounted) {
         _rescanState.value = _rescanState.value.copyWith(
-          phase: _RescanPhase.error,
+          phase: RescanPhase.error,
           message: 'Apply failed',
           error: error.toString(),
         );
@@ -464,7 +483,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         scannedRoot != _musicRoot;
   }
 
-  Map<String, List<Track>> get _tracksByFolder => _tracksByFolderMap(_tracks);
+  Map<String, List<Track>> get _tracksByFolder => tracksByFolderMap(_tracks);
 
   @override
   Widget build(BuildContext context) {
@@ -472,7 +491,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       body: Row(
         children: [
-          _LibrarySidebar(
+          LibrarySidebar(
             selected: _view,
             tracks: _tracks.length,
             albums: _albums.length,
@@ -496,7 +515,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             child: Column(
               children: [
                 Expanded(child: _buildContent()),
-                _PlayerBar(
+                PlayerBar(
                   track: currentTrack,
                   coverArtPath: currentTrack == null
                       ? null
@@ -522,18 +541,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return const Center(child: CircularProgressIndicator());
     }
     return switch (_view) {
-      _LibraryView.tracks => _LibraryTrackList(
+      LibraryView.tracks => LibraryTrackList(
         tracks: _tracks,
         currentPath: _playback.currentTrack?.path,
         trackCoverCache: _trackCoverCache,
         onPlay: (track) => _playQueueFrom(_tracks, track),
       ),
-      _LibraryView.albums => _AlbumGrid(
+      LibraryView.albums => AlbumGrid(
         albums: _albums,
         tracksByFolder: _tracksByFolder,
         onPlay: (tracks) => _playQueueFrom(tracks, tracks.first),
       ),
-      _LibraryView.playlists => _buildPlaylistsContent(),
+      LibraryView.playlists => _buildPlaylistsContent(),
     };
   }
 
@@ -550,7 +569,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               .firstOrNull;
     if (selectedFolder != null) {
       final tracks = _tracksByFolder[selectedFolder.path] ?? const <Track>[];
-      return _PlaylistDetail(
+      return PlaylistDetail(
         folder: selectedFolder,
         tracks: tracks,
         currentPath: _playback.currentTrack?.path,
@@ -567,7 +586,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       );
     }
 
-    return _PlaylistList(
+    return PlaylistList(
       folders: _playlistFolders,
       tracksByFolder: _tracksByFolder,
       trackCoverCache: _trackCoverCache,

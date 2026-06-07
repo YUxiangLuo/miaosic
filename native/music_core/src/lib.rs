@@ -497,9 +497,7 @@ fn scan_library_incremental(
         let track = match track_file_state(path) {
             Ok((size_bytes, modified_ms)) => previous_by_path
                 .get(&path_string)
-                .filter(|track| {
-                    track.size_bytes == size_bytes && track.modified_ms == modified_ms
-                })
+                .filter(|track| track.size_bytes == size_bytes && track.modified_ms == modified_ms)
                 .cloned()
                 .or_else(|| parse_track(path).ok()),
             Err(_) => None,
@@ -1257,21 +1255,53 @@ mod tests {
     #[test]
     fn extracts_flac_picture_payload() {
         let image = b"fake-jpeg-bytes";
-        let mut block = Vec::new();
-        block.extend_from_slice(&3_u32.to_be_bytes());
-        block.extend_from_slice(&10_u32.to_be_bytes());
-        block.extend_from_slice(b"image/jpeg");
-        block.extend_from_slice(&0_u32.to_be_bytes());
-        block.extend_from_slice(&0_u32.to_be_bytes());
-        block.extend_from_slice(&0_u32.to_be_bytes());
-        block.extend_from_slice(&0_u32.to_be_bytes());
-        block.extend_from_slice(&0_u32.to_be_bytes());
-        block.extend_from_slice(&(image.len() as u32).to_be_bytes());
-        block.extend_from_slice(image);
+        let block = picture_block(b"image/jpeg", image);
 
         let picture = read_picture_data(&block).expect("picture payload");
         assert_eq!(picture.extension, "jpg");
         assert_eq!(picture.bytes.as_slice(), image.as_slice());
+    }
+
+    #[test]
+    fn rejects_invalid_streaminfo_duration_blocks() {
+        assert_eq!(read_streaminfo_duration(&[0; 12]), None);
+        assert_eq!(read_streaminfo_duration(&[0; 34]), None);
+    }
+
+    #[test]
+    fn parses_vorbis_comments_defensively() {
+        let block = vorbis_comment_block(&[
+            b"TITLE=First".as_slice(),
+            b"TITLE=Second".as_slice(),
+            b"ARTIST=\xffName".as_slice(),
+        ]);
+
+        let comments = read_vorbis_comments(&block);
+
+        assert_eq!(comments.get("TITLE").map(String::as_str), Some("First"));
+        assert!(comments
+            .get("ARTIST")
+            .is_some_and(|value| value.contains('\u{fffd}')));
+    }
+
+    #[test]
+    fn ignores_truncated_vorbis_comment_blocks() {
+        let mut block = Vec::new();
+        block.extend_from_slice(&32_u32.to_le_bytes());
+        block.extend_from_slice(b"short");
+
+        assert!(read_vorbis_comments(&block).is_empty());
+    }
+
+    #[test]
+    fn rejects_unsupported_or_oversized_picture_payloads() {
+        assert!(read_picture_data(&picture_block(b"image/gif", b"gif")).is_none());
+        assert!(read_picture_data(&picture_block_with_len(
+            b"image/jpeg",
+            (MAX_COVER_BYTES + 1) as u32,
+            &[],
+        ))
+        .is_none());
     }
 
     #[test]
@@ -1288,5 +1318,36 @@ mod tests {
         assert!(results[0].cover_art_path.is_none());
         assert_eq!(results[1].path, "/missing/b.flac");
         assert!(results[1].cover_art_path.is_none());
+    }
+
+    fn vorbis_comment_block(comments: &[&[u8]]) -> Vec<u8> {
+        let mut block = Vec::new();
+        block.extend_from_slice(&7_u32.to_le_bytes());
+        block.extend_from_slice(b"miaosic");
+        block.extend_from_slice(&(comments.len() as u32).to_le_bytes());
+        for comment in comments {
+            block.extend_from_slice(&(comment.len() as u32).to_le_bytes());
+            block.extend_from_slice(comment);
+        }
+        block
+    }
+
+    fn picture_block(mime: &[u8], data: &[u8]) -> Vec<u8> {
+        picture_block_with_len(mime, data.len() as u32, data)
+    }
+
+    fn picture_block_with_len(mime: &[u8], data_len: u32, data: &[u8]) -> Vec<u8> {
+        let mut block = Vec::new();
+        block.extend_from_slice(&3_u32.to_be_bytes());
+        block.extend_from_slice(&(mime.len() as u32).to_be_bytes());
+        block.extend_from_slice(mime);
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&0_u32.to_be_bytes());
+        block.extend_from_slice(&data_len.to_be_bytes());
+        block.extend_from_slice(data);
+        block
     }
 }

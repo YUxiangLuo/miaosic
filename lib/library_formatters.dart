@@ -1,6 +1,6 @@
-part of 'main.dart';
+import 'models.dart';
 
-Map<String, List<Track>> _tracksByFolderMap(List<Track> tracks) {
+Map<String, List<Track>> tracksByFolderMap(List<Track> tracks) {
   final grouped = <String, List<Track>>{};
   for (final track in tracks) {
     grouped.putIfAbsent(track.folderPath, () => []).add(track);
@@ -8,26 +8,26 @@ Map<String, List<Track>> _tracksByFolderMap(List<Track> tracks) {
   return grouped;
 }
 
-String _formatDate(int ms) {
+String formatDate(int ms) {
   final date = DateTime.fromMillisecondsSinceEpoch(ms);
   return '${date.year}-${_two(date.month)}-${_two(date.day)}';
 }
 
-String _formatElapsed(int? ms) {
+String formatElapsed(int? ms) {
   if (ms == null) {
     return '-';
   }
   return '${(ms / 1000).toStringAsFixed(1)}s';
 }
 
-String _formatDurationMs(int? durationMs) {
+String formatDurationMs(int? durationMs) {
   if (durationMs == null || durationMs <= 0) {
     return '-';
   }
-  return _formatDuration(Duration(milliseconds: durationMs));
+  return formatDuration(Duration(milliseconds: durationMs));
 }
 
-String _formatDuration(Duration duration) {
+String formatDuration(Duration duration) {
   final totalSeconds = duration.inSeconds;
   final minutes = totalSeconds ~/ 60;
   final seconds = totalSeconds % 60;

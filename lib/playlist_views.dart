@@ -1,7 +1,14 @@
-part of 'main.dart';
+import 'dart:math' as math;
 
-class _PlaylistList extends StatelessWidget {
-  const _PlaylistList({
+import 'package:flutter/material.dart';
+
+import 'library_widgets.dart';
+import 'models.dart';
+import 'track_views.dart';
+
+class PlaylistList extends StatelessWidget {
+  const PlaylistList({
+    super.key,
     required this.folders,
     required this.tracksByFolder,
     required this.trackCoverCache,
@@ -18,7 +25,7 @@ class _PlaylistList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (folders.isEmpty) {
-      return const _EmptyState(message: 'No playlist folders detected');
+      return const EmptyState(message: 'No playlist folders detected');
     }
 
     return LayoutBuilder(
@@ -69,8 +76,9 @@ class _PlaylistList extends StatelessWidget {
   }
 }
 
-class _PlaylistDetail extends StatelessWidget {
-  const _PlaylistDetail({
+class PlaylistDetail extends StatelessWidget {
+  const PlaylistDetail({
+    super.key,
     required this.folder,
     required this.tracks,
     required this.currentPath,
@@ -114,7 +122,7 @@ class _PlaylistDetail extends StatelessWidget {
                 icon: const Icon(Icons.arrow_back),
               ),
               const SizedBox(width: 10),
-              _Artwork(
+              Artwork(
                 path: folder.coverArtPath,
                 size: 76,
                 icon: Icons.queue_music,
@@ -178,7 +186,7 @@ class _PlaylistDetail extends StatelessWidget {
           ),
         ),
         Expanded(
-          child: _PlaylistTrackList(
+          child: PlaylistTrackList(
             tracks: tracks,
             currentPath: currentPath,
             trackCoverCache: trackCoverCache,
@@ -309,7 +317,7 @@ class _PlaylistCoverCollage extends StatelessWidget {
       dimension: 188,
       child: ClipRRect(
         child: paths.length <= 1
-            ? _Artwork(
+            ? Artwork(
                 path: paths.isEmpty ? null : paths.first,
                 size: double.infinity,
                 icon: Icons.queue_music,
@@ -338,7 +346,7 @@ class _CoverGrid extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: _Artwork(
+                child: Artwork(
                   path: padded[0],
                   size: double.infinity,
                   icon: Icons.music_note,
@@ -346,7 +354,7 @@ class _CoverGrid extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: _Artwork(
+                child: Artwork(
                   path: padded[1],
                   size: double.infinity,
                   icon: Icons.music_note,
@@ -360,7 +368,7 @@ class _CoverGrid extends StatelessWidget {
           child: Row(
             children: [
               Expanded(
-                child: _Artwork(
+                child: Artwork(
                   path: padded[2],
                   size: double.infinity,
                   icon: Icons.music_note,
@@ -368,7 +376,7 @@ class _CoverGrid extends StatelessWidget {
                 ),
               ),
               Expanded(
-                child: _Artwork(
+                child: Artwork(
                   path: padded[3],
                   size: double.infinity,
                   icon: Icons.music_note,
