@@ -43,9 +43,6 @@ class LibrarySidebar extends StatelessWidget {
     required this.onEditMusicRoot,
     required this.onRescan,
     required this.onOpenNowPlaying,
-    required this.onNowPlayingPrevious,
-    required this.onNowPlayingToggle,
-    required this.onNowPlayingNext,
     required this.onSelected,
   });
 
@@ -61,9 +58,6 @@ class LibrarySidebar extends StatelessWidget {
   final VoidCallback onEditMusicRoot;
   final VoidCallback onRescan;
   final VoidCallback? onOpenNowPlaying;
-  final VoidCallback? onNowPlayingPrevious;
-  final VoidCallback? onNowPlayingToggle;
-  final VoidCallback? onNowPlayingNext;
   final ValueChanged<LibraryView> onSelected;
 
   @override
@@ -110,15 +104,6 @@ class LibrarySidebar extends StatelessWidget {
               ),
             const Spacer(),
             if (nowPlaying != null) ...[
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 0, 20, 8),
-                child: _SidebarPlaybackControls(
-                  playing: nowPlaying!.playing,
-                  onPrevious: onNowPlayingPrevious,
-                  onToggle: onNowPlayingToggle,
-                  onNext: onNowPlayingNext,
-                ),
-              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
                 child: _NowPlayingEntry(
@@ -202,84 +187,6 @@ class _SidebarItem extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _SidebarPlaybackControls extends StatelessWidget {
-  const _SidebarPlaybackControls({
-    required this.playing,
-    required this.onPrevious,
-    required this.onToggle,
-    required this.onNext,
-  });
-
-  final bool playing;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onToggle;
-  final VoidCallback? onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return SizedBox(
-      height: 36,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          _PlaybackIconButton(
-            tooltip: 'Previous',
-            icon: Icons.skip_previous,
-            onPressed: onPrevious,
-          ),
-          const SizedBox(width: 8),
-          IconButton.filledTonal(
-            tooltip: playing ? 'Pause' : 'Play',
-            style: IconButton.styleFrom(
-              fixedSize: const Size.square(36),
-              padding: EdgeInsets.zero,
-              backgroundColor: scheme.primaryContainer,
-              foregroundColor: scheme.onPrimaryContainer,
-              disabledBackgroundColor: scheme.surfaceContainerHighest,
-              disabledForegroundColor: scheme.onSurfaceVariant,
-            ),
-            onPressed: onToggle,
-            icon: Icon(playing ? Icons.pause : Icons.play_arrow, size: 21),
-          ),
-          const SizedBox(width: 8),
-          _PlaybackIconButton(
-            tooltip: 'Next',
-            icon: Icons.skip_next,
-            onPressed: onNext,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _PlaybackIconButton extends StatelessWidget {
-  const _PlaybackIconButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      style: IconButton.styleFrom(
-        fixedSize: const Size.square(32),
-        padding: EdgeInsets.zero,
-      ),
-      onPressed: onPressed,
-      icon: Icon(icon, size: 20),
     );
   }
 }

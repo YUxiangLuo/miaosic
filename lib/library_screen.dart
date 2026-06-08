@@ -25,6 +25,7 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   final _library = LibraryController();
   final _playback = PlaybackController();
+  final _albumGridScrollController = ScrollController();
   final _playlistListScrollController = ScrollController();
 
   _ActiveAlbumPlayback? _activeAlbumPlayback;
@@ -49,6 +50,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
+    _albumGridScrollController.dispose();
     _playlistListScrollController.dispose();
     _library
       ..removeListener(_handleLibraryChanged)
@@ -666,20 +668,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
-  void _skipNowPlaying(_NowPlayingTarget target, int delta) {
-    if (target.tracks.isEmpty) {
-      return;
-    }
-    unawaited(_playback.skip(delta, target.tracks));
-  }
-
-  void _toggleNowPlaying(_NowPlayingTarget target) {
-    if (target.tracks.isEmpty) {
-      return;
-    }
-    unawaited(_playback.togglePlayPause(target.tracks));
-  }
-
   @override
   Widget build(BuildContext context) {
     final activeAlbumPlayback = _activeAlbumPlayback;
@@ -710,15 +698,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 onOpenNowPlaying: nowPlayingTarget == null
                     ? null
                     : () => _openNowPlaying(nowPlayingTarget),
-                onNowPlayingPrevious: nowPlayingTarget == null
-                    ? null
-                    : () => _skipNowPlaying(nowPlayingTarget, -1),
-                onNowPlayingToggle: nowPlayingTarget == null
-                    ? null
-                    : () => _toggleNowPlaying(nowPlayingTarget),
-                onNowPlayingNext: nowPlayingTarget == null
-                    ? null
-                    : () => _skipNowPlaying(nowPlayingTarget, 1),
                 onSelected: (view) {
                   setState(() {
                     _view = view;
@@ -780,6 +759,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
       LibraryView.albums => AlbumGrid(
         albums: _library.albums,
         tracksByFolder: _tracksByFolder,
+        scrollController: _albumGridScrollController,
+        keyboardShortcutsEnabled: _activeAlbumPlayback == null,
         onOpen: _openAlbumPlayback,
       ),
       LibraryView.playlists => _buildPlaylistsContent(),
