@@ -21,6 +21,16 @@ const _albumCoverTransitionDuration = Duration(milliseconds: 90);
 const _albumTrackListTransitionDuration = Duration(milliseconds: 380);
 const _albumBackgroundTransitionDuration = Duration(milliseconds: 1000);
 const _albumSwitchThrottleDuration = Duration(milliseconds: 90);
+const _albumPlaybackSpaceActivator = SingleActivator(
+  LogicalKeyboardKey.space,
+  includeRepeats: false,
+);
+const _albumPlaybackConsumedTraversalKeys = [
+  LogicalKeyboardKey.arrowUp,
+  LogicalKeyboardKey.arrowDown,
+  LogicalKeyboardKey.arrowLeft,
+  LogicalKeyboardKey.arrowRight,
+];
 
 _WideAlbumMetrics _wideAlbumMetrics({
   required double availableWidth,
@@ -167,6 +177,21 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
     }
   }
 
+  KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
+    if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
+        _albumPlaybackConsumedTraversalKeys.contains(event.logicalKey)) {
+      return KeyEventResult.handled;
+    }
+    if (_albumPlaybackSpaceActivator.accepts(
+      event,
+      HardwareKeyboard.instance,
+    )) {
+      _handlePlayPauseCommand();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentTrack = widget.currentTrack;
@@ -176,109 +201,103 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
     final canPrevious = currentIndex > 0;
     final canNext =
         currentIndex >= 0 && currentIndex < widget.tracks.length - 1;
-    return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false):
-            _handlePlayPauseCommand,
-      },
-      child: Focus(
-        autofocus: true,
-        child: Material(
-          color: Colors.transparent,
-          child: LayoutBuilder(
-            builder: (context, viewportConstraints) {
-              final dockHeight = math.max(
-                viewportConstraints.maxHeight *
-                    _albumPlaybackDockHeightFraction,
-                _albumPlaybackDockMinHeight,
-              );
-              final contentWidth = math.max(
-                0.0,
-                viewportConstraints.maxWidth - 56,
-              );
-              final contentHeight = math.max(
-                0.0,
-                viewportConstraints.maxHeight - dockHeight - 84,
-              );
-              return Stack(
-                children: [
-                  _AlbumPlaybackBackground(
-                    coverArtPath: widget.album.coverArtPath,
-                    themeColor: _themeColor,
-                  ),
-                  SafeArea(
-                    child: Padding(
-                      padding: EdgeInsets.fromLTRB(28, 28, 28, dockHeight + 28),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          IconButton.filledTonal(
-                            tooltip: 'Back to library',
-                            onPressed: widget.onClose,
-                            icon: const Icon(Icons.keyboard_arrow_down),
-                          ),
-                          Expanded(
-                            child: LayoutBuilder(
-                              builder: (context, constraints) {
-                                final transitionDirection =
-                                    _albumTransitionDirection == 0
-                                    ? 1
-                                    : _albumTransitionDirection;
-                                if (constraints.maxWidth < 860) {
-                                  return _AlbumPlaybackNarrowLayout(
-                                    album: widget.album,
-                                    tracks: widget.tracks,
-                                    currentTrack: currentTrack,
-                                    coverSize: math.min(
-                                      constraints.maxWidth - 36,
-                                      constraints.maxHeight * 0.52,
-                                    ),
-                                    transitionDirection: transitionDirection,
-                                    playing: widget.playing,
-                                    onAlbumWheel: _handleAlbumWheel,
-                                    onPlayTrack: widget.onPlayTrack,
-                                  );
-                                }
-                                return _AlbumPlaybackWideLayout(
+    return Focus(
+      autofocus: true,
+      onKeyEvent: _handleKeyEvent,
+      child: Material(
+        color: Colors.transparent,
+        child: LayoutBuilder(
+          builder: (context, viewportConstraints) {
+            final dockHeight = math.max(
+              viewportConstraints.maxHeight * _albumPlaybackDockHeightFraction,
+              _albumPlaybackDockMinHeight,
+            );
+            final contentWidth = math.max(
+              0.0,
+              viewportConstraints.maxWidth - 56,
+            );
+            final contentHeight = math.max(
+              0.0,
+              viewportConstraints.maxHeight - dockHeight - 84,
+            );
+            return Stack(
+              children: [
+                _AlbumPlaybackBackground(
+                  coverArtPath: widget.album.coverArtPath,
+                  themeColor: _themeColor,
+                ),
+                SafeArea(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(28, 28, 28, dockHeight + 28),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        IconButton.filledTonal(
+                          tooltip: 'Back to library',
+                          onPressed: widget.onClose,
+                          icon: const Icon(Icons.keyboard_arrow_down),
+                        ),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final transitionDirection =
+                                  _albumTransitionDirection == 0
+                                  ? 1
+                                  : _albumTransitionDirection;
+                              if (constraints.maxWidth < 860) {
+                                return _AlbumPlaybackNarrowLayout(
                                   album: widget.album,
                                   tracks: widget.tracks,
                                   currentTrack: currentTrack,
-                                  availableWidth: constraints.maxWidth,
-                                  availableHeight: constraints.maxHeight,
+                                  coverSize: math.min(
+                                    constraints.maxWidth - 36,
+                                    constraints.maxHeight * 0.52,
+                                  ),
                                   transitionDirection: transitionDirection,
                                   playing: widget.playing,
                                   onAlbumWheel: _handleAlbumWheel,
                                   onPlayTrack: widget.onPlayTrack,
                                 );
-                              },
-                            ),
+                              }
+                              return _AlbumPlaybackWideLayout(
+                                album: widget.album,
+                                tracks: widget.tracks,
+                                currentTrack: currentTrack,
+                                availableWidth: constraints.maxWidth,
+                                availableHeight: constraints.maxHeight,
+                                transitionDirection: transitionDirection,
+                                playing: widget.playing,
+                                onAlbumWheel: _handleAlbumWheel,
+                                onPlayTrack: widget.onPlayTrack,
+                              );
+                            },
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: dockHeight,
-                    child: _AlbumPlaybackDock(
-                      album: widget.album,
-                      tracks: widget.tracks,
-                      playing: widget.playing,
-                      canPrevious: canPrevious,
-                      canNext: canNext,
-                      onPrevious: widget.onPrevious,
-                      onToggle: _handlePlayPauseCommand,
-                      onNext: widget.onNext,
-                      mainContentWidth: contentWidth,
-                      mainContentHeight: contentHeight,
-                    ),
+                ),
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  height: dockHeight,
+                  child: _AlbumPlaybackDock(
+                    album: widget.album,
+                    tracks: widget.tracks,
+                    playing: widget.playing,
+                    canPrevious: canPrevious,
+                    canNext: canNext,
+                    onPrevious: widget.onPrevious,
+                    onToggle: _handlePlayPauseCommand,
+                    onNext: widget.onNext,
+                    mainContentWidth: contentWidth,
+                    mainContentHeight: contentHeight,
                   ),
-                ],
-              );
-            },
-          ),
+                ),
+              ],
+            );
+          },
         ),
       ),
     );

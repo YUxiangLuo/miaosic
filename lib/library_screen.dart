@@ -681,33 +681,36 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return Scaffold(
       body: Stack(
         children: [
-          Row(
-            children: [
-              LibrarySidebar(
-                selected: _view,
-                albums: _library.albums.length,
-                playlists: _playlistCount,
-                scanState: _library.scanState,
-                musicRoot: _library.musicRoot,
-                scanning: _library.scanning,
-                progress: _library.scanProgress,
-                error: _library.error,
-                nowPlaying: nowPlayingTarget?.sidebarItem,
-                onEditMusicRoot: _handleMusicRootPressed,
-                onRescan: _handleRescanPressed,
-                onOpenNowPlaying: nowPlayingTarget == null
-                    ? null
-                    : () => _openNowPlaying(nowPlayingTarget),
-                onSelected: (view) {
-                  setState(() {
-                    _view = view;
-                    _selectedPlaylistPath = null;
-                  });
-                },
-              ),
-              const VerticalDivider(width: 1),
-              Expanded(child: _buildContent()),
-            ],
+          ExcludeFocus(
+            excluding: activeAlbumPlayback != null,
+            child: Row(
+              children: [
+                LibrarySidebar(
+                  selected: _view,
+                  albums: _library.albums.length,
+                  playlists: _playlistCount,
+                  scanState: _library.scanState,
+                  musicRoot: _library.musicRoot,
+                  scanning: _library.scanning,
+                  progress: _library.scanProgress,
+                  error: _library.error,
+                  nowPlaying: nowPlayingTarget?.sidebarItem,
+                  onEditMusicRoot: _handleMusicRootPressed,
+                  onRescan: _handleRescanPressed,
+                  onOpenNowPlaying: nowPlayingTarget == null
+                      ? null
+                      : () => _openNowPlaying(nowPlayingTarget),
+                  onSelected: (view) {
+                    setState(() {
+                      _view = view;
+                      _selectedPlaylistPath = null;
+                    });
+                  },
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: _buildContent()),
+              ],
+            ),
           ),
           if (activeAlbumPlayback != null)
             Positioned.fill(
