@@ -19,7 +19,7 @@ const _albumPlaybackDockHeightFraction = 0.2;
 const _albumPlaybackDockMinHeight = 168.0;
 const _albumCoverTransitionDuration = Duration(milliseconds: 90);
 const _albumTrackListTransitionDuration = Duration(milliseconds: 380);
-const _albumBackgroundTransitionDuration = Duration(milliseconds: 1200);
+const _albumBackgroundTransitionDuration = Duration(milliseconds: 1000);
 const _albumSwitchThrottleDuration = Duration(milliseconds: 90);
 
 _WideAlbumMetrics _wideAlbumMetrics({
@@ -1108,7 +1108,7 @@ class _AlbumPlaybackBackground extends StatelessWidget {
       children: [
         AnimatedContainer(
           duration: _albumBackgroundTransitionDuration,
-          curve: Curves.easeOutCubic,
+          curve: Curves.easeInOutCubic,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -1124,8 +1124,8 @@ class _AlbumPlaybackBackground extends StatelessWidget {
         ),
         AnimatedSwitcher(
           duration: _albumBackgroundTransitionDuration,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeOutCubic,
+          switchInCurve: Curves.easeInOutCubic,
+          switchOutCurve: Curves.easeInOutCubic,
           layoutBuilder: (currentChild, previousChildren) {
             return Stack(
               fit: StackFit.expand,
@@ -1133,13 +1133,7 @@ class _AlbumPlaybackBackground extends StatelessWidget {
             );
           },
           transitionBuilder: (child, animation) {
-            return FadeTransition(
-              opacity: CurvedAnimation(
-                parent: animation,
-                curve: Curves.easeOutCubic,
-              ),
-              child: child,
-            );
+            return FadeTransition(opacity: animation, child: child);
           },
           child: coverPath == null || coverPath.isEmpty
               ? const SizedBox.expand(
@@ -1152,7 +1146,7 @@ class _AlbumPlaybackBackground extends StatelessWidget {
         ),
         AnimatedContainer(
           duration: _albumBackgroundTransitionDuration,
-          curve: Curves.easeOutCubic,
+          curve: Curves.easeInOutCubic,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
