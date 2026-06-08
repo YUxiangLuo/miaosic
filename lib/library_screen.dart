@@ -452,6 +452,55 @@ class _LibraryScreenState extends State<LibraryScreen> {
     });
   }
 
+  _AlbumPlaybackSwitchTarget? _albumPlaybackSwitchTarget(
+    AlbumSummary album,
+    int delta,
+  ) {
+    final albums = _library.albums;
+    final currentIndex = albums.indexWhere(
+      (candidate) => candidate.folderPath == album.folderPath,
+    );
+    if (currentIndex < 0) {
+      return null;
+    }
+
+    for (
+      var index = currentIndex + delta;
+      index >= 0 && index < albums.length;
+      index += delta
+    ) {
+      final nextAlbum = albums[index];
+      final nextTracks =
+          _tracksByFolder[nextAlbum.folderPath] ?? const <Track>[];
+      if (nextTracks.isNotEmpty) {
+        return _AlbumPlaybackSwitchTarget(album: nextAlbum, tracks: nextTracks);
+      }
+    }
+    return null;
+  }
+
+  void _switchAlbumPlayback(int delta) {
+    final activeAlbumPlayback = _activeAlbumPlayback;
+    if (activeAlbumPlayback == null) {
+      return;
+    }
+    final target = _albumPlaybackSwitchTarget(activeAlbumPlayback.album, delta);
+    if (target == null) {
+      return;
+    }
+    setState(() {
+      _activeAlbumPlayback = _ActiveAlbumPlayback(
+        album: target.album,
+        tracks: target.tracks,
+      );
+      final currentAlbumTrack = _currentTrackForAlbum(_activeAlbumPlayback!);
+      final showingCurrentAlbum = _playback.isCurrentQueue(target.tracks);
+      _lastPlaybackPath = showingCurrentAlbum ? currentAlbumTrack?.path : null;
+      _lastPlaybackPlaying =
+          showingCurrentAlbum && currentAlbumTrack != null && _playback.playing;
+    });
+  }
+
   Future<void> _playPlaylist(
     FolderSummary folder,
     List<Track> tracks, {
@@ -701,6 +750,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
                 onNext: () =>
                     unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
+                canSwitchPreviousAlbum:
+                    _albumPlaybackSwitchTarget(activeAlbumPlayback.album, -1) !=
+                    null,
+                canSwitchNextAlbum:
+                    _albumPlaybackSwitchTarget(activeAlbumPlayback.album, 1) !=
+                    null,
+                onSwitchPreviousAlbum: () => _switchAlbumPlayback(-1),
+                onSwitchNextAlbum: () => _switchAlbumPlayback(1),
                 onPlayTrack: (track) => unawaited(
                   _playAlbumFrom(
                     activeAlbumPlayback.album,
@@ -842,6 +899,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
 class _ActiveAlbumPlayback {
   const _ActiveAlbumPlayback({required this.album, required this.tracks});
+
+  final AlbumSummary album;
+  final List<Track> tracks;
+}
+
+class _AlbumPlaybackSwitchTarget {
+  const _AlbumPlaybackSwitchTarget({required this.album, required this.tracks});
 
   final AlbumSummary album;
   final List<Track> tracks;
