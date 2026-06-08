@@ -5,6 +5,7 @@ folder, stores the library in SQLite, caches artwork, and plays tracks with
 `media_kit`.
 
 ## Screenshots
+![Album](docs/screenshots/Screenshot_20260609_073814.png)
 
 | Albums | Playlists |
 | --- | --- |
