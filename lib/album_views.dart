@@ -29,7 +29,6 @@ class AlbumGrid extends StatelessWidget {
         const gridPadding = 26.0;
         const crossAxisSpacing = 30.0;
         const mainAxisSpacing = 36.0;
-        const labelExtent = 78.0;
         final columns = math.min(6, math.max(2, (width / 220).floor()));
         final usableWidth =
             width - (gridPadding * 2) - (crossAxisSpacing * (columns - 1));
@@ -40,7 +39,7 @@ class AlbumGrid extends StatelessWidget {
             crossAxisCount: columns,
             crossAxisSpacing: crossAxisSpacing,
             mainAxisSpacing: mainAxisSpacing,
-            mainAxisExtent: tileWidth + labelExtent,
+            mainAxisExtent: tileWidth,
           ),
           itemCount: albums.length,
           itemBuilder: (context, index) {
@@ -65,40 +64,14 @@ class _AlbumTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
     return InkWell(
       borderRadius: BorderRadius.circular(8),
       onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Artwork(
-            path: album.coverArtPath,
-            size: double.infinity,
-            icon: Icons.album,
-            radius: 8,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            album.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w800),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            '${album.albumArtist}${album.year == null ? '' : ' · ${album.year}'}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: scheme.onSurfaceVariant),
-          ),
-          Text(
-            '${album.trackCount} tracks',
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-          ),
-        ],
+      child: Artwork(
+        path: album.coverArtPath,
+        size: double.infinity,
+        icon: Icons.album,
+        radius: 8,
       ),
     );
   }

@@ -17,7 +17,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text(album.title));
+    expect(find.text(album.title), findsNothing);
+
+    await tester.tap(find.byType(InkWell));
     await tester.pump();
 
     expect(openCount, 1);
@@ -35,7 +37,9 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text(album.title));
+    expect(find.text(album.title), findsNothing);
+
+    await tester.tap(find.byType(InkWell));
     await tester.pump();
 
     expect(openCount, 0);
