@@ -23,9 +23,6 @@ Future<void> main(List<String> args) async {
   final playlistFolders = result.folders
       .where((folder) => folder.kind == FolderKind.playlist)
       .length;
-  final mixedFolders = result.folders
-      .where((folder) => folder.kind == FolderKind.mixed)
-      .length;
 
   print('root=${result.rootPath}');
   print('engine=${result.engine}');
@@ -33,7 +30,6 @@ Future<void> main(List<String> args) async {
   print('folders=${result.folders.length}');
   print('album_folders=$albumFolders');
   print('playlist_folders=$playlistFolders');
-  print('mixed_folders=$mixedFolders');
   print('albums=${result.albums.length}');
   print('covers_cached=${result.coversCached}');
   print('elapsed=${result.elapsed.inMilliseconds}ms');

@@ -320,10 +320,12 @@ class LibraryController extends ChangeNotifier {
 
       final diff = diffLibrary(snapshot, result);
       if (!diff.hasChanges) {
-        await database.saveScanState(result);
+        await database.applyDiff(diff);
         if (_disposed) {
           return;
         }
+        _folders = await database.loadFolders();
+        _albums = await database.loadAlbums();
         _scanState = await database.loadScanState();
         if (_disposed) {
           return;

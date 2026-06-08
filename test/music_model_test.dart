@@ -20,6 +20,10 @@ void main() {
     expect(normalizeMusicRootPath(' /tmp/music '), '/tmp/music');
   });
 
+  test('maps legacy mixed folders to playlists', () {
+    expect(FolderKind.fromDb('mixed'), FolderKind.playlist);
+  });
+
   test('maps nullable cover art paths on tracks', () {
     final track = Track.fromMap({
       'id': 1,

@@ -28,7 +28,6 @@ String get _homeDirectoryPath {
 enum FolderKind {
   album('album'),
   playlist('playlist'),
-  mixed('mixed'),
   unknown('unknown');
 
   const FolderKind(this.dbValue);
@@ -36,10 +35,11 @@ enum FolderKind {
   final String dbValue;
 
   static FolderKind fromDb(String value) {
-    return FolderKind.values.firstWhere(
-      (kind) => kind.dbValue == value,
-      orElse: () => FolderKind.unknown,
-    );
+    return switch (value) {
+      'album' => FolderKind.album,
+      'playlist' || 'mixed' => FolderKind.playlist,
+      _ => FolderKind.unknown,
+    };
   }
 }
 

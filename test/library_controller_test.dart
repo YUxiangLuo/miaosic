@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_database.dart';
+import 'package:miaosic/library_types.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/music_scanner.dart';
 import 'package:miaosic/playlist_cover_indexer.dart';
@@ -67,6 +68,63 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+
+  test('rescan refreshes folder metadata when tracks are unchanged', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_rescan_metadata_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final track = _track('/music/root/Maroon 5 Essentials/01.flac');
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.replaceLibrary(
+      _scanResult(
+        [track],
+        folders: [_folder('/music/root/Maroon 5 Essentials')],
+      ),
+    );
+    await seedDatabase.close();
+
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: _FakeMusicScanner((
+        rootPath, {
+        onProgress,
+        previousTracks,
+      }) async {
+        expect(rootPath, '/music/root');
+        expect(previousTracks?.map((track) => track.path), [track.path]);
+        return _scanResult(
+          [track],
+          folders: [
+            _folder(
+              '/music/root/Maroon 5 Essentials',
+              kind: FolderKind.playlist,
+            ),
+          ],
+        );
+      }),
+      coverIndexer: _NoopTrackCoverIndexer(),
+    );
+
+    try {
+      await controller.open();
+      expect(controller.playlistFolders, isEmpty);
+
+      controller.startRescanDiff();
+      await _waitForRescanReady(controller);
+
+      expect(controller.rescanState.value.diff?.hasChanges, isFalse);
+      expect(controller.playlistFolders.single.kind, FolderKind.playlist);
+
+      final reopened = await LibraryDatabase.openAtPath(dbPath);
+      addTearDown(reopened.close);
+      expect((await reopened.loadFolders()).single.kind, FolderKind.playlist);
+    } finally {
+      controller.dispose();
+      await dir.delete(recursive: true);
+    }
+  });
 }
 
 typedef _ScanHandler =
@@ -108,12 +166,15 @@ class _NoopTrackCoverIndexer extends TrackCoverIndexer {
   }
 }
 
-ScanResult _scanResult(List<Track> tracks) {
+ScanResult _scanResult(
+  List<Track> tracks, {
+  List<FolderSummary> folders = const [],
+}) {
   return ScanResult(
     rootPath: '/music/root',
     engine: 'test',
     tracks: tracks,
-    folders: const [],
+    folders: folders,
     albums: const [],
     elapsed: Duration.zero,
     coversCached: 0,
@@ -135,5 +196,34 @@ Track _track(String path) {
     sizeBytes: 1,
     modifiedMs: 1,
     coverArtPath: null,
+  );
+}
+
+FolderSummary _folder(String path, {FolderKind kind = FolderKind.album}) {
+  return FolderSummary(
+    path: path,
+    name: 'Maroon 5 Essentials',
+    kind: kind,
+    confidence: 0.75,
+    trackCount: 1,
+    albumCount: 1,
+    albumArtistCount: 1,
+    artistCount: 1,
+    yearCount: 1,
+    coverArtPath: null,
+  );
+}
+
+Future<void> _waitForRescanReady(LibraryController controller) async {
+  for (var i = 0; i < 100; i++) {
+    if (controller.rescanState.value.phase == RescanPhase.ready) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  fail(
+    'Timed out waiting for rescan ready. '
+    'phase=${controller.rescanState.value.phase} '
+    'error=${controller.rescanState.value.error}',
   );
 }

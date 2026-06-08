@@ -968,6 +968,9 @@ fn detect_folder_kind(
     let mut album_score = 0_i32;
     let mut playlist_score = 0_i32;
     let folder_name = basename(path).to_lowercase();
+    let has_playlist_name = is_playlist_name(&folder_name);
+    let has_playlist_name_with_source_diversity = has_playlist_name
+        && (album_count >= 3 || album_artist_count >= 3 || artist_count >= 3 || year_count >= 3);
     if folder_name == OTHER_TRACKS_FOLDER.to_lowercase() {
         return ("playlist".to_string(), 0.99);
     }
@@ -1013,23 +1016,23 @@ fn detect_folder_kind(
     if year_count >= 5 {
         playlist_score += 1;
     }
-    if is_playlist_name(&folder_name) {
+    if has_playlist_name {
         playlist_score += 3;
+    }
+    if has_playlist_name_with_source_diversity {
+        playlist_score += 2;
     }
     if (track_numbers.len() as f64) < track_count as f64 * 0.55 {
         playlist_score += 1;
     }
 
-    if playlist_score >= album_score + 2 && playlist_score >= 5 {
-        return (
-            "playlist".to_string(),
-            confidence(playlist_score, album_score),
-        );
-    }
     if album_score >= playlist_score + 2 && album_score >= 6 {
         return ("album".to_string(), confidence(album_score, playlist_score));
     }
-    ("mixed".to_string(), 0.5)
+    (
+        "playlist".to_string(),
+        confidence(playlist_score, album_score),
+    )
 }
 
 fn is_audio_path(path: &Path) -> bool {
@@ -1398,6 +1401,66 @@ mod tests {
     }
 
     #[test]
+    fn detects_named_multi_source_essentials_folder_as_playlist() {
+        let path = "/music/Maroon 5 Essentials";
+        let tracks = (0..8)
+            .map(|index| {
+                test_track(
+                    path,
+                    &format!("Track {index}"),
+                    &format!("Artist {}", index % 4),
+                    &format!("Album {}", index % 4),
+                    &format!("Album Artist {}", index % 4),
+                    Some((index + 1) as i64),
+                    Some(2010 + index as i64),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(detect_folder_kind(path, &tracks, 4, 4, 4, 8).0, "playlist");
+    }
+
+    #[test]
+    fn keeps_named_single_source_essentials_folder_as_album() {
+        let path = "/music/The Essentials";
+        let tracks = (0..10)
+            .map(|index| {
+                test_track(
+                    path,
+                    &format!("Track {index}"),
+                    "Artist",
+                    "The Essentials",
+                    "Artist",
+                    Some((index + 1) as i64),
+                    Some(2010),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(detect_folder_kind(path, &tracks, 1, 1, 1, 1).0, "album");
+    }
+
+    #[test]
+    fn treats_non_album_folders_as_playlists() {
+        let path = "/music/Unsorted";
+        let tracks = (0..4)
+            .map(|index| {
+                test_track(
+                    path,
+                    &format!("Track {index}"),
+                    &format!("Artist {index}"),
+                    &format!("Album {index}"),
+                    &format!("Album Artist {index}"),
+                    None,
+                    Some(2010 + index as i64),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(detect_folder_kind(path, &tracks, 4, 4, 4, 4).0, "playlist");
+    }
+
+    #[test]
     fn scan_moves_root_tracks_to_other_tracks_playlist() {
         let root = temp_root("root_tracks");
         let loose_track = root.join("Loose.flac");
@@ -1555,5 +1618,31 @@ mod tests {
         let root = std::env::temp_dir().join(format!("miaosic_{label}_{unique}"));
         fs::create_dir_all(&root).expect("create temp root");
         root
+    }
+
+    fn test_track(
+        folder_path: &str,
+        title: &str,
+        artist: &str,
+        album: &str,
+        album_artist: &str,
+        track_number: Option<i64>,
+        year: Option<i64>,
+    ) -> Track {
+        Track {
+            path: format!("{folder_path}/{title}.flac"),
+            folder_path: folder_path.to_string(),
+            title: title.to_string(),
+            artist: artist.to_string(),
+            album: album.to_string(),
+            album_artist: album_artist.to_string(),
+            track_number,
+            disc_number: Some(1),
+            year,
+            duration_ms: Some(120000),
+            size_bytes: 42,
+            modified_ms: 99,
+            cover_art_path: None,
+        }
     }
 }
