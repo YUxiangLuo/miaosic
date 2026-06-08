@@ -162,7 +162,9 @@ class _NoopTrackCoverIndexer extends TrackCoverIndexer {
     required bool Function() shouldPause,
     required TrackCoverCacheUpdated onCacheUpdated,
   }) async {
-    return true;
+    // Avoid reporting completion in tests because LibraryController prunes the
+    // real app cover cache after a completed background index pass.
+    return false;
   }
 }
 
