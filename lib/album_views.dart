@@ -6,6 +6,8 @@ import 'library_widgets.dart';
 import 'models.dart';
 
 const _albumCaseRadius = 8.0;
+const _albumHoverDuration = Duration(milliseconds: 140);
+const _albumHoverCurve = Curves.easeOutCubic;
 
 class AlbumGrid extends StatelessWidget {
   const AlbumGrid({
@@ -58,40 +60,66 @@ class AlbumGrid extends StatelessWidget {
   }
 }
 
-class _AlbumTile extends StatelessWidget {
+class _AlbumTile extends StatefulWidget {
   const _AlbumTile({required this.album, required this.onTap});
 
   final AlbumSummary album;
   final VoidCallback? onTap;
 
   @override
+  State<_AlbumTile> createState() => _AlbumTileState();
+}
+
+class _AlbumTileState extends State<_AlbumTile> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(_albumCaseRadius),
-      onTap: onTap,
-      child: _AlbumJewelCase(coverArtPath: album.coverArtPath),
+    final interactive = widget.onTap != null;
+    final hovering = interactive && _hovered;
+    return AnimatedScale(
+      scale: hovering ? 1.035 : 1,
+      duration: _albumHoverDuration,
+      curve: _albumHoverCurve,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(_albumCaseRadius),
+        mouseCursor: interactive
+            ? SystemMouseCursors.click
+            : SystemMouseCursors.basic,
+        onHover: interactive
+            ? (hovered) => setState(() => _hovered = hovered)
+            : null,
+        onTap: widget.onTap,
+        child: _AlbumJewelCase(
+          coverArtPath: widget.album.coverArtPath,
+          hovered: hovering,
+        ),
+      ),
     );
   }
 }
 
 class _AlbumJewelCase extends StatelessWidget {
-  const _AlbumJewelCase({required this.coverArtPath});
+  const _AlbumJewelCase({required this.coverArtPath, required this.hovered});
 
   final String? coverArtPath;
+  final bool hovered;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
+    return AnimatedContainer(
+      duration: _albumHoverDuration,
+      curve: _albumHoverCurve,
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(_albumCaseRadius),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.10),
-            blurRadius: 14,
-            offset: const Offset(0, 7),
+            color: Colors.black.withValues(alpha: hovered ? 0.14 : 0.10),
+            blurRadius: hovered ? 24 : 14,
+            offset: Offset(0, hovered ? 12 : 7),
           ),
           BoxShadow(
-            color: Colors.white.withValues(alpha: 0.56),
+            color: Colors.white.withValues(alpha: hovered ? 0.72 : 0.56),
             blurRadius: 1,
             offset: const Offset(-1, -1),
           ),
@@ -113,7 +141,7 @@ class _AlbumJewelCase extends StatelessWidget {
                   icon: Icons.album,
                   radius: 0,
                 ),
-                const _PlasticShellTint(),
+                _PlasticShellTint(hovered: hovered),
                 Positioned(
                   left: 0,
                   top: 0,
@@ -146,19 +174,23 @@ class _AlbumJewelCase extends StatelessWidget {
 }
 
 class _PlasticShellTint extends StatelessWidget {
-  const _PlasticShellTint();
+  const _PlasticShellTint({required this.hovered});
+
+  final bool hovered;
 
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
       decoration: BoxDecoration(
-        border: Border.all(color: Colors.white.withValues(alpha: 0.42)),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: hovered ? 0.58 : 0.42),
+        ),
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Colors.white.withValues(alpha: 0.18),
-            Colors.white.withValues(alpha: 0.05),
+            Colors.white.withValues(alpha: hovered ? 0.25 : 0.18),
+            Colors.white.withValues(alpha: hovered ? 0.08 : 0.05),
             Colors.transparent,
             Colors.black.withValues(alpha: 0.045),
           ],

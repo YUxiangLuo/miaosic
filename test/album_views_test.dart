@@ -18,6 +18,10 @@ void main() {
     );
 
     expect(find.text(album.title), findsNothing);
+    expect(
+      tester.widget<InkWell>(find.byType(InkWell)).mouseCursor,
+      SystemMouseCursors.click,
+    );
 
     await tester.tap(find.byType(InkWell));
     await tester.pump();
@@ -38,6 +42,10 @@ void main() {
     );
 
     expect(find.text(album.title), findsNothing);
+    expect(
+      tester.widget<InkWell>(find.byType(InkWell)).mouseCursor,
+      SystemMouseCursors.basic,
+    );
 
     await tester.tap(find.byType(InkWell));
     await tester.pump();
