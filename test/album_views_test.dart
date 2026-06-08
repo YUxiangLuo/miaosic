@@ -164,6 +164,71 @@ void main() {
     expect(scrollController.offset, closeTo(180, 0.1));
   });
 
+  testWidgets(
+    'album grid resumes space paging after shortcuts are re-enabled',
+    (tester) async {
+      final scrollController = ScrollController();
+      final otherFocusNode = FocusNode();
+      addTearDown(scrollController.dispose);
+      addTearDown(otherFocusNode.dispose);
+      final albums = _albums(24);
+      final tracksByFolder = {
+        for (final album in albums)
+          album.folderPath: [_track(folderPath: album.folderPath)],
+      };
+      var keyboardShortcutsEnabled = false;
+      late StateSetter updateState;
+
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            updateState = setState;
+            return MaterialApp(
+              home: Scaffold(
+                body: Column(
+                  children: [
+                    SizedBox(
+                      width: 900,
+                      height: 360,
+                      child: AlbumGrid(
+                        albums: albums,
+                        tracksByFolder: tracksByFolder,
+                        scrollController: scrollController,
+                        keyboardShortcutsEnabled: keyboardShortcutsEnabled,
+                        onOpen: (_, _) {},
+                      ),
+                    ),
+                    Focus(
+                      focusNode: otherFocusNode,
+                      child: const SizedBox(width: 1, height: 1),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+      await tester.pump();
+      otherFocusNode.requestFocus();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+
+      expect(scrollController.offset, 0);
+
+      updateState(() => keyboardShortcutsEnabled = true);
+      await tester.pump();
+      await tester.pump();
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+
+      expect(scrollController.offset, greaterThan(0));
+    },
+  );
+
   testWidgets('album grid restores scroll position after remount', (
     tester,
   ) async {

@@ -35,6 +35,7 @@ class AlbumGrid extends StatefulWidget {
 }
 
 class _AlbumGridState extends State<AlbumGrid> {
+  late final FocusNode _shortcutFocusNode;
   bool _canJumpToTop = false;
   bool _canJumpToBottom = false;
   bool _jumpButtonUpdateScheduled = false;
@@ -42,8 +43,10 @@ class _AlbumGridState extends State<AlbumGrid> {
   @override
   void initState() {
     super.initState();
+    _shortcutFocusNode = FocusNode(debugLabel: 'AlbumGridShortcuts');
     widget.scrollController.addListener(_updateJumpButtons);
     _scheduleJumpButtonUpdate();
+    _scheduleShortcutFocusRequest();
   }
 
   @override
@@ -57,12 +60,26 @@ class _AlbumGridState extends State<AlbumGrid> {
         oldWidget.scrollController != widget.scrollController) {
       _scheduleJumpButtonUpdate();
     }
+    if (!oldWidget.keyboardShortcutsEnabled &&
+        widget.keyboardShortcutsEnabled) {
+      _scheduleShortcutFocusRequest();
+    }
   }
 
   @override
   void dispose() {
     widget.scrollController.removeListener(_updateJumpButtons);
+    _shortcutFocusNode.dispose();
     super.dispose();
+  }
+
+  void _scheduleShortcutFocusRequest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.keyboardShortcutsEnabled) {
+        return;
+      }
+      _shortcutFocusNode.requestFocus();
+    });
   }
 
   void _scheduleJumpButtonUpdate() {
@@ -241,6 +258,7 @@ class _AlbumGridState extends State<AlbumGrid> {
             }
           : const <ShortcutActivator, VoidCallback>{},
       child: Focus(
+        focusNode: _shortcutFocusNode,
         autofocus: widget.keyboardShortcutsEnabled,
         canRequestFocus: widget.keyboardShortcutsEnabled,
         child: grid,
