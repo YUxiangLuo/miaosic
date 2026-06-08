@@ -186,6 +186,7 @@ class _AlbumGridState extends State<AlbumGrid> {
               child: NotificationListener<ScrollNotification>(
                 onNotification: _handleScrollNotification,
                 child: GridView.builder(
+                  key: const PageStorageKey<String>('album-grid'),
                   controller: widget.scrollController,
                   padding: const EdgeInsets.all(gridPadding),
                   gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
@@ -227,17 +228,23 @@ class _AlbumGridState extends State<AlbumGrid> {
       },
     );
 
-    if (!widget.keyboardShortcutsEnabled) {
-      return grid;
-    }
-
     return CallbackShortcuts(
-      bindings: <ShortcutActivator, VoidCallback>{
-        const SingleActivator(LogicalKeyboardKey.space): () => _scrollPage(1),
-        const SingleActivator(LogicalKeyboardKey.space, shift: true): () =>
-            _scrollPage(-1),
-      },
-      child: Focus(autofocus: true, child: grid),
+      bindings: widget.keyboardShortcutsEnabled
+          ? <ShortcutActivator, VoidCallback>{
+              const SingleActivator(LogicalKeyboardKey.space): () =>
+                  _scrollPage(1),
+              const SingleActivator(
+                LogicalKeyboardKey.space,
+                shift: true,
+              ): () =>
+                  _scrollPage(-1),
+            }
+          : const <ShortcutActivator, VoidCallback>{},
+      child: Focus(
+        autofocus: widget.keyboardShortcutsEnabled,
+        canRequestFocus: widget.keyboardShortcutsEnabled,
+        child: grid,
+      ),
     );
   }
 }

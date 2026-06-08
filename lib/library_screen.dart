@@ -37,6 +37,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _lastPlaybackRestoring = false;
   LibraryView _view = LibraryView.albums;
   String? _selectedPlaylistPath;
+  double _albumGridScrollOffset = 0;
   double _playlistListScrollOffset = 0;
   bool _rescanDialogOpen = false;
 
@@ -424,6 +425,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (tracks.isEmpty) {
       return;
     }
+    _saveAlbumGridScrollOffset();
     setState(() {
       _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
       _activePlaylistPlayback = null;
@@ -444,6 +446,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (tracks.isEmpty) {
       return;
     }
+    _saveAlbumGridScrollOffset();
     setState(() {
       _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
       final currentAlbumTrack = _currentTrackForAlbum(_activeAlbumPlayback!);
@@ -646,6 +649,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (album == null || tracks.isEmpty) {
           return;
         }
+        _saveAlbumGridScrollOffset();
         setState(() {
           _activeAlbumPlayback = _ActiveAlbumPlayback(
             album: album,
@@ -660,6 +664,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (folder == null) {
           return;
         }
+        if (_view == LibraryView.playlists && _selectedPlaylistPath == null) {
+          _savePlaylistListScrollOffset();
+        }
+        _saveAlbumGridScrollOffset();
         setState(() {
           _view = LibraryView.playlists;
           _selectedPlaylistPath = folder.path;
@@ -700,12 +708,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   onOpenNowPlaying: nowPlayingTarget == null
                       ? null
                       : () => _openNowPlaying(nowPlayingTarget),
-                  onSelected: (view) {
-                    setState(() {
-                      _view = view;
-                      _selectedPlaylistPath = null;
-                    });
-                  },
+                  onSelected: _selectLibraryView,
                 ),
                 const VerticalDivider(width: 1),
                 Expanded(child: _buildContent()),
@@ -833,8 +836,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() => _selectedPlaylistPath = folder.path);
   }
 
+  void _selectLibraryView(LibraryView view) {
+    final currentView = _view;
+    final showingPlaylistList =
+        currentView == LibraryView.playlists && _selectedPlaylistPath == null;
+    if (currentView == view &&
+        (currentView == LibraryView.albums || showingPlaylistList)) {
+      return;
+    }
+
+    if (currentView == LibraryView.albums && view != LibraryView.albums) {
+      _saveAlbumGridScrollOffset();
+    }
+    if (currentView == LibraryView.playlists &&
+        view != LibraryView.playlists &&
+        _selectedPlaylistPath == null) {
+      _savePlaylistListScrollOffset();
+    }
+    setState(() {
+      _view = view;
+      _selectedPlaylistPath = null;
+    });
+    if (currentView != LibraryView.albums && view == LibraryView.albums) {
+      _restoreAlbumGridScrollOffset();
+    }
+    if (!showingPlaylistList && view == LibraryView.playlists) {
+      _restorePlaylistListScrollOffset();
+    }
+  }
+
   void _closeAlbumPlayback() {
     setState(() => _activeAlbumPlayback = null);
+    _restoreAlbumGridScrollOffset();
   }
 
   Track? _currentTrackForAlbum(_ActiveAlbumPlayback albumPlayback) {
@@ -859,6 +892,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
         : null;
   }
 
+  void _saveAlbumGridScrollOffset() {
+    if (_albumGridScrollController.hasClients) {
+      _albumGridScrollOffset = _albumGridScrollController.offset;
+    }
+  }
+
+  void _restoreAlbumGridScrollOffset() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _view != LibraryView.albums ||
+          !_albumGridScrollController.hasClients) {
+        return;
+      }
+      final position = _albumGridScrollController.position;
+      final target = _albumGridScrollOffset
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      _albumGridScrollController.jumpTo(target);
+    });
+  }
+
   void _savePlaylistListScrollOffset() {
     if (_playlistListScrollController.hasClients) {
       _playlistListScrollOffset = _playlistListScrollController.offset;
@@ -868,6 +922,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _restorePlaylistListScrollOffset() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
+          _view != LibraryView.playlists ||
           _selectedPlaylistPath != null ||
           !_playlistListScrollController.hasClients) {
         return;

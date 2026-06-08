@@ -47,6 +47,7 @@ class PlaylistList extends StatelessWidget {
         );
         const cardHeight = 220.0;
         return GridView.builder(
+          key: const PageStorageKey<String>('playlist-list'),
           controller: scrollController,
           padding: const EdgeInsets.fromLTRB(
             horizontalPadding,

@@ -126,6 +126,93 @@ void main() {
     expect(scrollController.offset, lessThan(pageDownOffset));
   });
 
+  testWidgets('album grid keeps scroll position when shortcuts toggle', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final albums = _albums(24);
+    final tracksByFolder = {
+      for (final album in albums)
+        album.folderPath: [_track(folderPath: album.folderPath)],
+    };
+    var keyboardShortcutsEnabled = true;
+    late StateSetter updateState;
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          updateState = setState;
+          return _albumGrid(
+            albums: albums,
+            tracksByFolder: tracksByFolder,
+            scrollController: scrollController,
+            keyboardShortcutsEnabled: keyboardShortcutsEnabled,
+            onOpen: (_, _) {},
+          );
+        },
+      ),
+    );
+    await tester.pump();
+
+    scrollController.jumpTo(180);
+    await tester.pump();
+
+    updateState(() => keyboardShortcutsEnabled = false);
+    await tester.pump();
+
+    expect(scrollController.offset, closeTo(180, 0.1));
+  });
+
+  testWidgets('album grid restores scroll position after remount', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final albums = _albums(24);
+    final tracksByFolder = {
+      for (final album in albums)
+        album.folderPath: [_track(folderPath: album.folderPath)],
+    };
+    var showGrid = true;
+    late StateSetter updateState;
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          updateState = setState;
+          return MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 900,
+                height: 360,
+                child: showGrid
+                    ? AlbumGrid(
+                        albums: albums,
+                        tracksByFolder: tracksByFolder,
+                        scrollController: scrollController,
+                        keyboardShortcutsEnabled: true,
+                        onOpen: (_, _) {},
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pump();
+
+    scrollController.jumpTo(180);
+    await tester.pump();
+    updateState(() => showGrid = false);
+    await tester.pump();
+    updateState(() => showGrid = true);
+    await tester.pump();
+
+    expect(scrollController.offset, closeTo(180, 0.1));
+  });
+
   testWidgets('disabled album grid shortcuts do not page the hidden grid', (
     tester,
   ) async {

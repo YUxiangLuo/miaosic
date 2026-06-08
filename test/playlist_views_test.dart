@@ -1,0 +1,91 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:miaosic/models.dart';
+import 'package:miaosic/playlist_views.dart';
+
+void main() {
+  testWidgets('playlist list restores scroll position after remount', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final folders = _folders(24);
+    final tracksByFolder = {
+      for (final folder in folders)
+        folder.path: [_track(folderPath: folder.path)],
+    };
+    var showList = true;
+    late StateSetter updateState;
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          updateState = setState;
+          return MaterialApp(
+            home: Scaffold(
+              body: SizedBox(
+                width: 900,
+                height: 360,
+                child: showList
+                    ? PlaylistList(
+                        folders: folders,
+                        tracksByFolder: tracksByFolder,
+                        trackCoverCache: const {},
+                        scrollController: scrollController,
+                        onOpen: (_) {},
+                      )
+                    : const SizedBox.shrink(),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pump();
+
+    scrollController.jumpTo(180);
+    await tester.pump();
+    updateState(() => showList = false);
+    await tester.pump();
+    updateState(() => showList = true);
+    await tester.pump();
+
+    expect(scrollController.offset, closeTo(180, 0.1));
+  });
+}
+
+List<FolderSummary> _folders(int count) {
+  return [
+    for (var index = 0; index < count; index += 1)
+      FolderSummary(
+        path: '/music/playlists/playlist_$index',
+        name: 'Playlist $index',
+        kind: FolderKind.playlist,
+        confidence: 0.9,
+        trackCount: 1,
+        albumCount: 1,
+        albumArtistCount: 1,
+        artistCount: 1,
+        yearCount: 1,
+        coverArtPath: null,
+      ),
+  ];
+}
+
+Track _track({required String folderPath}) {
+  return Track(
+    path: '$folderPath/01.flac',
+    folderPath: folderPath,
+    title: 'Track One',
+    artist: 'Artist',
+    album: 'Album One',
+    albumArtist: 'Artist',
+    trackNumber: 1,
+    discNumber: 1,
+    year: 2026,
+    durationMs: 120000,
+    sizeBytes: 42,
+    modifiedMs: 99,
+    coverArtPath: null,
+  );
+}
