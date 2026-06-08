@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'library_formatters.dart';
 import 'library_widgets.dart';
@@ -14,12 +15,45 @@ const _albumTrackRowHeight = 56.0;
 const _albumTrackSeparatorHeight = 1.0;
 const _albumTrackListVerticalPadding = 8.0;
 const _wideAlbumColumnsGap = 24.0;
-const _wideAlbumDetailsGap = 28.0;
-const _wideAlbumDetailsHeight = 220.0;
+const _albumPlaybackDockHeightFraction = 0.2;
+const _albumPlaybackDockMinHeight = 168.0;
 const _albumCoverTransitionDuration = Duration(milliseconds: 90);
 const _albumTrackListTransitionDuration = Duration(milliseconds: 380);
 const _albumBackgroundTransitionDuration = Duration(milliseconds: 1200);
-const _albumSwitchThrottleDuration = Duration(milliseconds: 140);
+const _albumSwitchThrottleDuration = Duration(milliseconds: 90);
+
+_WideAlbumMetrics _wideAlbumMetrics({
+  required double availableWidth,
+  required double availableHeight,
+}) {
+  final trackListWidth = math.min(
+    560.0,
+    math.max(320.0, availableWidth * 0.38),
+  );
+  final coverSize = [
+    availableWidth * 0.42,
+    availableWidth - _wideAlbumColumnsGap - trackListWidth,
+    availableHeight,
+  ].reduce(math.min).clamp(260.0, 820.0).toDouble();
+  final contentWidth = coverSize + _wideAlbumColumnsGap + trackListWidth;
+  return _WideAlbumMetrics(
+    coverSize: coverSize,
+    trackListWidth: trackListWidth,
+    contentWidth: contentWidth,
+  );
+}
+
+class _WideAlbumMetrics {
+  const _WideAlbumMetrics({
+    required this.coverSize,
+    required this.trackListWidth,
+    required this.contentWidth,
+  });
+
+  final double coverSize;
+  final double trackListWidth;
+  final double contentWidth;
+}
 
 class AlbumPlaybackView extends StatefulWidget {
   const AlbumPlaybackView({
@@ -118,6 +152,21 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
     callback();
   }
 
+  void _handlePlayPauseCommand() {
+    final currentTrack = widget.currentTrack;
+    final showingCurrentAlbum =
+        currentTrack != null &&
+        widget.tracks.any((track) => track.path == currentTrack.path);
+    if (showingCurrentAlbum) {
+      widget.onToggle();
+      return;
+    }
+
+    if (widget.tracks.isNotEmpty) {
+      widget.onPlayTrack(widget.tracks.first);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentTrack = widget.currentTrack;
@@ -127,76 +176,110 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
     final canPrevious = currentIndex > 0;
     final canNext =
         currentIndex >= 0 && currentIndex < widget.tracks.length - 1;
-    return Material(
-      color: Colors.transparent,
-      child: Stack(
-        children: [
-          _AlbumPlaybackBackground(
-            coverArtPath: widget.album.coverArtPath,
-            themeColor: _themeColor,
-          ),
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    return CallbackShortcuts(
+      bindings: <ShortcutActivator, VoidCallback>{
+        const SingleActivator(LogicalKeyboardKey.space, includeRepeats: false):
+            _handlePlayPauseCommand,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Material(
+          color: Colors.transparent,
+          child: LayoutBuilder(
+            builder: (context, viewportConstraints) {
+              final dockHeight = math.max(
+                viewportConstraints.maxHeight *
+                    _albumPlaybackDockHeightFraction,
+                _albumPlaybackDockMinHeight,
+              );
+              final contentWidth = math.max(
+                0.0,
+                viewportConstraints.maxWidth - 56,
+              );
+              final contentHeight = math.max(
+                0.0,
+                viewportConstraints.maxHeight - dockHeight - 84,
+              );
+              return Stack(
                 children: [
-                  IconButton.filledTonal(
-                    tooltip: 'Back to library',
-                    onPressed: widget.onClose,
-                    icon: const Icon(Icons.keyboard_arrow_down),
+                  _AlbumPlaybackBackground(
+                    coverArtPath: widget.album.coverArtPath,
+                    themeColor: _themeColor,
                   ),
-                  Expanded(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) {
-                        final transitionDirection =
-                            _albumTransitionDirection == 0
-                            ? 1
-                            : _albumTransitionDirection;
-                        if (constraints.maxWidth < 860) {
-                          return _AlbumPlaybackNarrowLayout(
-                            album: widget.album,
-                            tracks: widget.tracks,
-                            currentTrack: currentTrack,
-                            coverSize: math.min(
-                              constraints.maxWidth - 36,
-                              constraints.maxHeight * 0.52,
+                  SafeArea(
+                    child: Padding(
+                      padding: EdgeInsets.fromLTRB(28, 28, 28, dockHeight + 28),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          IconButton.filledTonal(
+                            tooltip: 'Back to library',
+                            onPressed: widget.onClose,
+                            icon: const Icon(Icons.keyboard_arrow_down),
+                          ),
+                          Expanded(
+                            child: LayoutBuilder(
+                              builder: (context, constraints) {
+                                final transitionDirection =
+                                    _albumTransitionDirection == 0
+                                    ? 1
+                                    : _albumTransitionDirection;
+                                if (constraints.maxWidth < 860) {
+                                  return _AlbumPlaybackNarrowLayout(
+                                    album: widget.album,
+                                    tracks: widget.tracks,
+                                    currentTrack: currentTrack,
+                                    coverSize: math.min(
+                                      constraints.maxWidth - 36,
+                                      constraints.maxHeight * 0.52,
+                                    ),
+                                    transitionDirection: transitionDirection,
+                                    playing: widget.playing,
+                                    onAlbumWheel: _handleAlbumWheel,
+                                    onPlayTrack: widget.onPlayTrack,
+                                  );
+                                }
+                                return _AlbumPlaybackWideLayout(
+                                  album: widget.album,
+                                  tracks: widget.tracks,
+                                  currentTrack: currentTrack,
+                                  availableWidth: constraints.maxWidth,
+                                  availableHeight: constraints.maxHeight,
+                                  transitionDirection: transitionDirection,
+                                  playing: widget.playing,
+                                  onAlbumWheel: _handleAlbumWheel,
+                                  onPlayTrack: widget.onPlayTrack,
+                                );
+                              },
                             ),
-                            transitionDirection: transitionDirection,
-                            playing: widget.playing,
-                            canPrevious: canPrevious,
-                            canNext: canNext,
-                            onPrevious: widget.onPrevious,
-                            onToggle: widget.onToggle,
-                            onNext: widget.onNext,
-                            onAlbumWheel: _handleAlbumWheel,
-                            onPlayTrack: widget.onPlayTrack,
-                          );
-                        }
-                        return _AlbumPlaybackWideLayout(
-                          album: widget.album,
-                          tracks: widget.tracks,
-                          currentTrack: currentTrack,
-                          availableWidth: constraints.maxWidth,
-                          availableHeight: constraints.maxHeight,
-                          transitionDirection: transitionDirection,
-                          playing: widget.playing,
-                          canPrevious: canPrevious,
-                          canNext: canNext,
-                          onPrevious: widget.onPrevious,
-                          onToggle: widget.onToggle,
-                          onNext: widget.onNext,
-                          onAlbumWheel: _handleAlbumWheel,
-                          onPlayTrack: widget.onPlayTrack,
-                        );
-                      },
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    height: dockHeight,
+                    child: _AlbumPlaybackDock(
+                      album: widget.album,
+                      tracks: widget.tracks,
+                      playing: widget.playing,
+                      canPrevious: canPrevious,
+                      canNext: canNext,
+                      onPrevious: widget.onPrevious,
+                      onToggle: _handlePlayPauseCommand,
+                      onNext: widget.onNext,
+                      mainContentWidth: contentWidth,
+                      mainContentHeight: contentHeight,
                     ),
                   ),
                 ],
-              ),
-            ),
+              );
+            },
           ),
-        ],
+        ),
       ),
     );
   }
@@ -211,11 +294,6 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     required this.availableHeight,
     required this.transitionDirection,
     required this.playing,
-    required this.canPrevious,
-    required this.canNext,
-    required this.onPrevious,
-    required this.onToggle,
-    required this.onNext,
     required this.onAlbumWheel,
     required this.onPlayTrack,
   });
@@ -227,72 +305,36 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
   final double availableHeight;
   final int transitionDirection;
   final bool playing;
-  final bool canPrevious;
-  final bool canNext;
-  final VoidCallback onPrevious;
-  final VoidCallback onToggle;
-  final VoidCallback onNext;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
 
   @override
   Widget build(BuildContext context) {
-    final trackListWidth = math.min(
-      560.0,
-      math.max(320.0, availableWidth * 0.38),
+    final metrics = _wideAlbumMetrics(
+      availableWidth: availableWidth,
+      availableHeight: availableHeight,
     );
-    final coverSize = [
-      availableWidth * 0.42,
-      availableWidth - _wideAlbumColumnsGap - trackListWidth,
-      availableHeight - _wideAlbumDetailsGap - _wideAlbumDetailsHeight,
-    ].reduce(math.min).clamp(260.0, 820.0).toDouble();
-    final columnHeight =
-        coverSize + _wideAlbumDetailsGap + _wideAlbumDetailsHeight;
     return Center(
       child: Row(
         mainAxisAlignment: MainAxisAlignment.center,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: coverSize,
-            height: columnHeight,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _LargeAlbumArtwork(
-                  album: album,
-                  size: coverSize,
-                  transitionDirection: transitionDirection,
-                  onWheel: onAlbumWheel,
-                ),
-                const SizedBox(height: _wideAlbumDetailsGap),
-                SizedBox(
-                  width: coverSize,
-                  height: _wideAlbumDetailsHeight,
-                  child: _AlbumPlaybackDetails(
-                    album: album,
-                    tracks: tracks,
-                    playing: playing,
-                    canPrevious: canPrevious,
-                    canNext: canNext,
-                    onPrevious: onPrevious,
-                    onToggle: onToggle,
-                    onNext: onNext,
-                  ),
-                ),
-              ],
-            ),
+          _LargeAlbumArtwork(
+            album: album,
+            size: metrics.coverSize,
+            transitionDirection: transitionDirection,
+            onWheel: onAlbumWheel,
           ),
           const SizedBox(width: _wideAlbumColumnsGap),
           SizedBox(
-            width: trackListWidth,
-            height: coverSize,
+            width: metrics.trackListWidth,
+            height: metrics.coverSize,
             child: _FadingAlbumTrackList(
               albumFolderPath: album.folderPath,
               tracks: tracks,
               currentTrack: currentTrack,
               playing: playing,
-              height: coverSize,
+              height: metrics.coverSize,
               onPlayTrack: onPlayTrack,
             ),
           ),
@@ -310,11 +352,6 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
     required this.coverSize,
     required this.transitionDirection,
     required this.playing,
-    required this.canPrevious,
-    required this.canNext,
-    required this.onPrevious,
-    required this.onToggle,
-    required this.onNext,
     required this.onAlbumWheel,
     required this.onPlayTrack,
   });
@@ -325,11 +362,6 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   final double coverSize;
   final int transitionDirection;
   final bool playing;
-  final bool canPrevious;
-  final bool canNext;
-  final VoidCallback onPrevious;
-  final VoidCallback onToggle;
-  final VoidCallback onNext;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
 
@@ -346,21 +378,6 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
             onWheel: onAlbumWheel,
           ),
           const SizedBox(height: 28),
-          SizedBox(
-            width: coverSize,
-            child: _AlbumPlaybackDetails(
-              album: album,
-              tracks: tracks,
-              playing: playing,
-              canPrevious: canPrevious,
-              canNext: canNext,
-              onPrevious: onPrevious,
-              onToggle: onToggle,
-              onNext: onNext,
-              centered: true,
-            ),
-          ),
-          const SizedBox(height: 28),
           _FadingAlbumTrackList(
             albumFolderPath: album.folderPath,
             tracks: tracks,
@@ -375,8 +392,8 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   }
 }
 
-class _AlbumPlaybackDetails extends StatelessWidget {
-  const _AlbumPlaybackDetails({
+class _AlbumPlaybackDock extends StatelessWidget {
+  const _AlbumPlaybackDock({
     required this.album,
     required this.tracks,
     required this.playing,
@@ -385,7 +402,8 @@ class _AlbumPlaybackDetails extends StatelessWidget {
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    this.centered = false,
+    required this.mainContentWidth,
+    required this.mainContentHeight,
   });
 
   final AlbumSummary album;
@@ -396,112 +414,138 @@ class _AlbumPlaybackDetails extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final bool centered;
+  final double mainContentWidth;
+  final double mainContentHeight;
 
   @override
   Widget build(BuildContext context) {
-    final textAlign = centered ? TextAlign.center : TextAlign.start;
-    final crossAxisAlignment = centered
-        ? CrossAxisAlignment.center
-        : CrossAxisAlignment.start;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: crossAxisAlignment,
-      children: [
-        _AlbumTitleText(title: album.title, textAlign: textAlign),
-        const SizedBox(height: 12),
-        SizedBox(
-          width: double.infinity,
-          child: Text(
-            _albumSubtitle(album, tracks),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: textAlign,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-              color: Colors.white.withValues(alpha: 0.74),
-              fontWeight: FontWeight.w700,
+    return ClipRect(
+      child: BackdropFilter(
+        filter: ui.ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.34),
+            border: Border(
+              top: BorderSide(color: Colors.white.withValues(alpha: 0.10)),
+            ),
+          ),
+          child: SafeArea(
+            top: false,
+            left: false,
+            right: false,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(28, 12, 28, 12),
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  final compact =
+                      constraints.maxWidth < 760 || constraints.maxHeight < 168;
+                  final dockContentWidth = constraints.maxWidth;
+                  final alignToCover =
+                      mainContentWidth >= 860 && dockContentWidth > 0;
+                  final wideMetrics = alignToCover
+                      ? _wideAlbumMetrics(
+                          availableWidth: mainContentWidth,
+                          availableHeight: mainContentHeight,
+                        )
+                      : null;
+                  final alignedLeftInset = wideMetrics == null
+                      ? 0.0
+                      : math.max(
+                          0.0,
+                          (dockContentWidth - wideMetrics.contentWidth) / 2,
+                        );
+                  final metadataMaxWidth = math.max(
+                    0.0,
+                    dockContentWidth - alignedLeftInset,
+                  );
+                  final controls = _AlbumPlaybackControls(
+                    playing: playing,
+                    canPrevious: canPrevious,
+                    canNext: canNext,
+                    onPrevious: onPrevious,
+                    onToggle: onToggle,
+                    onNext: onNext,
+                    compact: compact,
+                  );
+                  return Align(
+                    alignment: alignToCover
+                        ? Alignment.centerLeft
+                        : Alignment.center,
+                    child: Padding(
+                      padding: EdgeInsets.only(left: alignedLeftInset),
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: metadataMaxWidth),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _AlbumDockMetadata(
+                              album: album,
+                              tracks: tracks,
+                              compact: compact,
+                            ),
+                            SizedBox(height: compact ? 12 : 20),
+                            controls,
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
           ),
         ),
-        const SizedBox(height: 30),
-        Align(
-          alignment: centered ? Alignment.center : Alignment.centerLeft,
-          child: _AlbumPlaybackControls(
-            playing: playing,
-            canPrevious: canPrevious,
-            canNext: canNext,
-            onPrevious: onPrevious,
-            onToggle: onToggle,
-            onNext: onNext,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }
 
-class _AlbumTitleText extends StatelessWidget {
-  const _AlbumTitleText({required this.title, required this.textAlign});
+class _AlbumDockMetadata extends StatelessWidget {
+  const _AlbumDockMetadata({
+    required this.album,
+    required this.tracks,
+    required this.compact,
+  });
 
-  final String title;
-  final TextAlign textAlign;
+  final AlbumSummary album;
+  final List<Track> tracks;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final baseStyle = Theme.of(context).textTheme.displaySmall?.copyWith(
-      color: Colors.white,
-      fontWeight: FontWeight.w900,
-      height: 1.04,
+    final titleStyle =
+        (compact
+                ? Theme.of(context).textTheme.headlineSmall
+                : Theme.of(context).textTheme.displaySmall)
+            ?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w900,
+              height: 1.04,
+            );
+    final subtitleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
+      color: Colors.white.withValues(alpha: 0.74),
+      fontWeight: FontWeight.w700,
     );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final style = baseStyle ?? const TextStyle();
-        final maxWidth = constraints.hasBoundedWidth
-            ? constraints.maxWidth
-            : 360.0;
-        final fontSize = _fittingFontSize(
-          context: context,
-          style: style,
-          maxWidth: maxWidth,
-        );
-        return SizedBox(
-          width: double.infinity,
-          child: Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: textAlign,
-            style: style.copyWith(fontSize: fontSize),
-          ),
-        );
-      },
-    );
-  }
-
-  double _fittingFontSize({
-    required BuildContext context,
-    required TextStyle style,
-    required double maxWidth,
-  }) {
-    final baseSize = style.fontSize ?? 36;
-    const minSize = 24.0;
-    for (var size = baseSize; size >= minSize; size -= 1) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: title,
-          style: style.copyWith(fontSize: size),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          album.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: titleStyle,
         ),
-        maxLines: 2,
-        ellipsis: '...',
-        textAlign: textAlign,
-        textDirection: Directionality.of(context),
-        textScaler: MediaQuery.textScalerOf(context),
-      )..layout(maxWidth: maxWidth);
-      if (!painter.didExceedMaxLines) {
-        return size;
-      }
-    }
-    return minSize;
+        const SizedBox(height: 8),
+        Text(
+          _albumSubtitle(album, tracks),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: subtitleStyle,
+        ),
+      ],
+    );
   }
 }
 
@@ -683,7 +727,7 @@ class _AlbumTrackListState extends State<_AlbumTrackList> {
   }
 }
 
-class _AlbumTrackRow extends StatelessWidget {
+class _AlbumTrackRow extends StatefulWidget {
   const _AlbumTrackRow({
     required this.index,
     required this.track,
@@ -699,18 +743,35 @@ class _AlbumTrackRow extends StatelessWidget {
   final VoidCallback onTap;
 
   @override
+  State<_AlbumTrackRow> createState() => _AlbumTrackRowState();
+}
+
+class _AlbumTrackRowState extends State<_AlbumTrackRow> {
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
-    final primary = Colors.white.withValues(alpha: selected ? 1 : 0.86);
-    final secondary = Colors.white.withValues(alpha: selected ? 0.78 : 0.52);
+    final primary = Colors.white.withValues(alpha: widget.selected ? 1 : 0.86);
+    final secondary = Colors.white.withValues(
+      alpha: widget.selected ? 0.78 : 0.52,
+    );
+    final backgroundAlpha = widget.selected
+        ? (_hovered ? 0.18 : 0.12)
+        : (_hovered ? 0.07 : 0.0);
     return InkWell(
-      onTap: onTap,
-      child: Container(
+      mouseCursor: SystemMouseCursors.click,
+      hoverColor: Colors.transparent,
+      splashColor: Colors.white.withValues(alpha: 0.08),
+      highlightColor: Colors.white.withValues(alpha: 0.05),
+      onHover: (hovered) => setState(() => _hovered = hovered),
+      onTap: widget.onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOutCubic,
         height: _albumTrackRowHeight,
         padding: const EdgeInsets.fromLTRB(12, 0, 14, 0),
         decoration: BoxDecoration(
-          color: selected
-              ? Colors.white.withValues(alpha: 0.12)
-              : Colors.transparent,
+          color: Colors.white.withValues(alpha: backgroundAlpha),
         ),
         child: Row(
           children: [
@@ -718,14 +779,14 @@ class _AlbumTrackRow extends StatelessWidget {
               width: 34,
               child: AnimatedSwitcher(
                 duration: const Duration(milliseconds: 160),
-                child: playing
+                child: widget.playing
                     ? _PlayingBarsIcon(
                         key: const ValueKey('playing'),
                         color: primary,
                       )
                     : Text(
-                        _trackIndexLabel(index, track),
-                        key: ValueKey('index-$index'),
+                        _trackIndexLabel(widget.index, widget.track),
+                        key: ValueKey('index-${widget.index}'),
                         textAlign: TextAlign.center,
                         style: Theme.of(context).textTheme.labelLarge?.copyWith(
                           color: secondary,
@@ -741,17 +802,19 @@ class _AlbumTrackRow extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    track.title,
+                    widget.track.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodyLarge?.copyWith(
                       color: primary,
-                      fontWeight: selected ? FontWeight.w900 : FontWeight.w700,
+                      fontWeight: widget.selected
+                          ? FontWeight.w900
+                          : FontWeight.w700,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    track.artist,
+                    widget.track.artist,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
@@ -764,7 +827,7 @@ class _AlbumTrackRow extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             Text(
-              formatDurationMs(track.durationMs),
+              formatDurationMs(widget.track.durationMs),
               style: Theme.of(context).textTheme.labelMedium?.copyWith(
                 color: secondary,
                 fontWeight: FontWeight.w700,
@@ -867,6 +930,7 @@ class _AlbumPlaybackControls extends StatelessWidget {
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
+    this.compact = false,
   });
 
   final bool playing;
@@ -875,9 +939,11 @@ class _AlbumPlaybackControls extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final gap = compact ? 12.0 : 18.0;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -885,19 +951,22 @@ class _AlbumPlaybackControls extends StatelessWidget {
           tooltip: 'Previous',
           icon: Icons.skip_previous,
           onPressed: canPrevious ? onPrevious : null,
+          compact: compact,
         ),
-        const SizedBox(width: 18),
+        SizedBox(width: gap),
         _PlaybackIconButton(
           tooltip: playing ? 'Pause' : 'Play',
           icon: playing ? Icons.pause : Icons.play_arrow,
           prominent: true,
           onPressed: onToggle,
+          compact: compact,
         ),
-        const SizedBox(width: 18),
+        SizedBox(width: gap),
         _PlaybackIconButton(
           tooltip: 'Next',
           icon: Icons.skip_next,
           onPressed: canNext ? onNext : null,
+          compact: compact,
         ),
       ],
     );
@@ -910,20 +979,24 @@ class _PlaybackIconButton extends StatelessWidget {
     required this.icon,
     required this.onPressed,
     this.prominent = false,
+    this.compact = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
   final bool prominent;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final size = prominent ? 72.0 : 54.0;
+    final size = compact
+        ? (prominent ? 54.0 : 42.0)
+        : (prominent ? 72.0 : 54.0);
     return IconButton.filled(
       tooltip: tooltip,
       onPressed: onPressed,
-      iconSize: prominent ? 34 : 26,
+      iconSize: compact ? (prominent ? 28 : 22) : (prominent ? 34 : 26),
       style: IconButton.styleFrom(
         fixedSize: Size.square(size),
         backgroundColor: Colors.white.withValues(alpha: prominent ? 0.92 : 0.2),
@@ -1035,7 +1108,7 @@ class _AlbumPlaybackBackground extends StatelessWidget {
       children: [
         AnimatedContainer(
           duration: _albumBackgroundTransitionDuration,
-          curve: Curves.easeInOutCubic,
+          curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -1051,8 +1124,8 @@ class _AlbumPlaybackBackground extends StatelessWidget {
         ),
         AnimatedSwitcher(
           duration: _albumBackgroundTransitionDuration,
-          switchInCurve: Curves.easeInOutCubic,
-          switchOutCurve: Curves.easeInOutCubic,
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeOutCubic,
           layoutBuilder: (currentChild, previousChildren) {
             return Stack(
               fit: StackFit.expand,
@@ -1063,7 +1136,7 @@ class _AlbumPlaybackBackground extends StatelessWidget {
             return FadeTransition(
               opacity: CurvedAnimation(
                 parent: animation,
-                curve: Curves.easeInOutCubic,
+                curve: Curves.easeOutCubic,
               ),
               child: child,
             );
@@ -1079,7 +1152,7 @@ class _AlbumPlaybackBackground extends StatelessWidget {
         ),
         AnimatedContainer(
           duration: _albumBackgroundTransitionDuration,
-          curve: Curves.easeInOutCubic,
+          curve: Curves.easeOutCubic,
           decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topCenter,
