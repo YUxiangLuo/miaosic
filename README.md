@@ -22,7 +22,7 @@ folder, stores the library in SQLite, caches artwork, and plays tracks with
 
 ## Scope
 
-Miaosic 0.2.0 is intentionally narrow:
+Miaosic 0.3.0 is intentionally narrow:
 
 - Supported runtime: Linux.
 - Supported library format: `.flac`.
