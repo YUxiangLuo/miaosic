@@ -31,8 +31,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
   _ActiveAlbumPlayback? _activeAlbumPlayback;
   _ActivePlaylistPlayback? _activePlaylistPlayback;
   String? _lastPlaybackPath;
+  String? _lastNowPlayingPath;
   String? _lastPersistedPlaybackKey;
   bool _lastPlaybackPlaying = false;
+  bool _lastNowPlayingPlaying = false;
   bool _lastPlaybackRestoreAttempted = false;
   bool _lastPlaybackRestoring = false;
   LibraryView _view = LibraryView.albums;
@@ -119,12 +121,20 @@ class _LibraryScreenState extends State<LibraryScreen> {
         : _currentTrackForAlbum(activeAlbumPlayback);
     final nextPath = displayTrack?.path;
     final nextPlaying = nextPath != null && _playback.playing;
-    if (nextPath == _lastPlaybackPath && nextPlaying == _lastPlaybackPlaying) {
+    final nextNowPlayingPath = _playback.currentTrack?.path;
+    final nextNowPlayingPlaying =
+        nextNowPlayingPath != null && _playback.playing;
+    if (nextPath == _lastPlaybackPath &&
+        nextPlaying == _lastPlaybackPlaying &&
+        nextNowPlayingPath == _lastNowPlayingPath &&
+        nextNowPlayingPlaying == _lastNowPlayingPlaying) {
       return;
     }
     setState(() {
       _lastPlaybackPath = nextPath;
       _lastPlaybackPlaying = nextPlaying;
+      _lastNowPlayingPath = nextNowPlayingPath;
+      _lastNowPlayingPlaying = nextNowPlayingPlaying;
     });
   }
 
@@ -462,6 +472,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
     int delta,
   ) {
     final albums = _library.albums;
+    if (albums.length < 2 || delta == 0) {
+      return null;
+    }
     final currentIndex = albums.indexWhere(
       (candidate) => candidate.folderPath == album.folderPath,
     );
@@ -469,11 +482,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return null;
     }
 
-    for (
-      var index = currentIndex + delta;
-      index >= 0 && index < albums.length;
-      index += delta
-    ) {
+    final step = delta.sign;
+    for (var offset = 1; offset < albums.length; offset += 1) {
+      final index = (currentIndex + step * offset) % albums.length;
       final nextAlbum = albums[index];
       final nextTracks =
           _tracksByFolder[nextAlbum.folderPath] ?? const <Track>[];
@@ -686,6 +697,16 @@ class _LibraryScreenState extends State<LibraryScreen> {
         ? _currentTrackForAlbum(activeAlbumPlayback)
         : null;
     final nowPlayingTarget = _nowPlayingTarget;
+    final _NowPlayingTarget? dockNowPlayingAlbumTarget;
+    if (activeAlbumPlayback != null &&
+        nowPlayingTarget != null &&
+        nowPlayingTarget.kind == _NowPlayingKind.album &&
+        nowPlayingTarget.album?.folderPath !=
+            activeAlbumPlayback.album.folderPath) {
+      dockNowPlayingAlbumTarget = nowPlayingTarget;
+    } else {
+      dockNowPlayingAlbumTarget = null;
+    }
     return Scaffold(
       body: Stack(
         children: [
@@ -722,6 +743,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 tracks: activeAlbumPlayback.tracks,
                 currentTrack: activeAlbumTrack,
                 playing: activeAlbumTrack != null && _playback.playing,
+                nowPlayingAlbum: dockNowPlayingAlbumTarget == null
+                    ? null
+                    : AlbumPlaybackNowPlaying(
+                        coverArtPath:
+                            dockNowPlayingAlbumTarget.album?.coverArtPath,
+                        playing: dockNowPlayingAlbumTarget.sidebarItem.playing,
+                      ),
                 onClose: _closeAlbumPlayback,
                 onPrevious: () =>
                     unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
@@ -735,6 +763,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
                 onNext: () =>
                     unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
+                onOpenNowPlayingAlbum: dockNowPlayingAlbumTarget == null
+                    ? null
+                    : () => _openNowPlaying(dockNowPlayingAlbumTarget!),
                 canSwitchPreviousAlbum:
                     _albumPlaybackSwitchTarget(activeAlbumPlayback.album, -1) !=
                     null,

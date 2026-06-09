@@ -21,6 +21,8 @@ const _albumCoverTransitionDuration = Duration(milliseconds: 90);
 const _albumTrackListTransitionDuration = Duration(milliseconds: 380);
 const _albumBackgroundTransitionDuration = Duration(milliseconds: 1000);
 const _albumSwitchThrottleDuration = Duration(milliseconds: 90);
+const _albumDiscMorphDuration = Duration(milliseconds: 520);
+const _albumDiscRotationDuration = Duration(seconds: 18);
 const _albumPlaybackSpaceActivator = SingleActivator(
   LogicalKeyboardKey.space,
   includeRepeats: false,
@@ -65,6 +67,16 @@ class _WideAlbumMetrics {
   final double contentWidth;
 }
 
+class AlbumPlaybackNowPlaying {
+  const AlbumPlaybackNowPlaying({
+    required this.coverArtPath,
+    required this.playing,
+  });
+
+  final String? coverArtPath;
+  final bool playing;
+}
+
 class AlbumPlaybackView extends StatefulWidget {
   const AlbumPlaybackView({
     super.key,
@@ -72,10 +84,12 @@ class AlbumPlaybackView extends StatefulWidget {
     required this.tracks,
     required this.currentTrack,
     required this.playing,
+    this.nowPlayingAlbum,
     required this.onClose,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
+    this.onOpenNowPlayingAlbum,
     required this.canSwitchPreviousAlbum,
     required this.canSwitchNextAlbum,
     required this.onSwitchPreviousAlbum,
@@ -87,10 +101,12 @@ class AlbumPlaybackView extends StatefulWidget {
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
+  final AlbumPlaybackNowPlaying? nowPlayingAlbum;
   final VoidCallback onClose;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
+  final VoidCallback? onOpenNowPlayingAlbum;
   final bool canSwitchPreviousAlbum;
   final bool canSwitchNextAlbum;
   final VoidCallback? onSwitchPreviousAlbum;
@@ -177,9 +193,34 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
     }
   }
 
+  void _handleAlbumKeySwitch(LogicalKeyboardKey key) {
+    final direction = switch (key) {
+      LogicalKeyboardKey.arrowLeft => -1,
+      LogicalKeyboardKey.arrowRight => 1,
+      _ => 0,
+    };
+    if (direction == 0) {
+      return;
+    }
+
+    final canSwitch = direction < 0
+        ? widget.canSwitchPreviousAlbum
+        : widget.canSwitchNextAlbum;
+    final callback = direction < 0
+        ? widget.onSwitchPreviousAlbum
+        : widget.onSwitchNextAlbum;
+    if (!canSwitch || callback == null) {
+      return;
+    }
+
+    setState(() => _albumTransitionDirection = direction);
+    callback();
+  }
+
   KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
     if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
         _albumPlaybackConsumedTraversalKeys.contains(event.logicalKey)) {
+      _handleAlbumKeySwitch(event.logicalKey);
       return KeyEventResult.handled;
     }
     if (_albumPlaybackSpaceActivator.accepts(
@@ -198,6 +239,7 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
     final currentIndex = currentTrack == null
         ? -1
         : widget.tracks.indexWhere((track) => track.path == currentTrack.path);
+    final albumActive = currentIndex >= 0;
     final canPrevious = currentIndex > 0;
     final canNext =
         currentIndex >= 0 && currentIndex < widget.tracks.length - 1;
@@ -211,14 +253,6 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
             final dockHeight = math.max(
               viewportConstraints.maxHeight * _albumPlaybackDockHeightFraction,
               _albumPlaybackDockMinHeight,
-            );
-            final contentWidth = math.max(
-              0.0,
-              viewportConstraints.maxWidth - 56,
-            );
-            final contentHeight = math.max(
-              0.0,
-              viewportConstraints.maxHeight - dockHeight - 84,
             );
             return Stack(
               children: [
@@ -254,6 +288,7 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                                     constraints.maxHeight * 0.52,
                                   ),
                                   transitionDirection: transitionDirection,
+                                  active: albumActive,
                                   playing: widget.playing,
                                   onAlbumWheel: _handleAlbumWheel,
                                   onPlayTrack: widget.onPlayTrack,
@@ -266,6 +301,7 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                                 availableWidth: constraints.maxWidth,
                                 availableHeight: constraints.maxHeight,
                                 transitionDirection: transitionDirection,
+                                active: albumActive,
                                 playing: widget.playing,
                                 onAlbumWheel: _handleAlbumWheel,
                                 onPlayTrack: widget.onPlayTrack,
@@ -283,16 +319,14 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                   bottom: 0,
                   height: dockHeight,
                   child: _AlbumPlaybackDock(
-                    album: widget.album,
-                    tracks: widget.tracks,
                     playing: widget.playing,
+                    nowPlayingAlbum: widget.nowPlayingAlbum,
                     canPrevious: canPrevious,
                     canNext: canNext,
                     onPrevious: widget.onPrevious,
                     onToggle: _handlePlayPauseCommand,
                     onNext: widget.onNext,
-                    mainContentWidth: contentWidth,
-                    mainContentHeight: contentHeight,
+                    onOpenNowPlayingAlbum: widget.onOpenNowPlayingAlbum,
                   ),
                 ),
               ],
@@ -312,6 +346,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     required this.availableWidth,
     required this.availableHeight,
     required this.transitionDirection,
+    required this.active,
     required this.playing,
     required this.onAlbumWheel,
     required this.onPlayTrack,
@@ -323,6 +358,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
   final double availableWidth;
   final double availableHeight;
   final int transitionDirection;
+  final bool active;
   final bool playing;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
@@ -342,6 +378,8 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
             album: album,
             size: metrics.coverSize,
             transitionDirection: transitionDirection,
+            active: active,
+            playing: playing,
             onWheel: onAlbumWheel,
           ),
           const SizedBox(width: _wideAlbumColumnsGap),
@@ -370,6 +408,7 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
     required this.currentTrack,
     required this.coverSize,
     required this.transitionDirection,
+    required this.active,
     required this.playing,
     required this.onAlbumWheel,
     required this.onPlayTrack,
@@ -380,6 +419,7 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   final Track? currentTrack;
   final double coverSize;
   final int transitionDirection;
+  final bool active;
   final bool playing;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
@@ -394,6 +434,8 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
             album: album,
             size: coverSize,
             transitionDirection: transitionDirection,
+            active: active,
+            playing: playing,
             onWheel: onAlbumWheel,
           ),
           const SizedBox(height: 28),
@@ -413,28 +455,24 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
 
 class _AlbumPlaybackDock extends StatelessWidget {
   const _AlbumPlaybackDock({
-    required this.album,
-    required this.tracks,
     required this.playing,
+    required this.nowPlayingAlbum,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    required this.mainContentWidth,
-    required this.mainContentHeight,
+    required this.onOpenNowPlayingAlbum,
   });
 
-  final AlbumSummary album;
-  final List<Track> tracks;
   final bool playing;
+  final AlbumPlaybackNowPlaying? nowPlayingAlbum;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final double mainContentWidth;
-  final double mainContentHeight;
+  final VoidCallback? onOpenNowPlayingAlbum;
 
   @override
   Widget build(BuildContext context) {
@@ -456,59 +494,63 @@ class _AlbumPlaybackDock extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(28, 12, 28, 12),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final compact =
-                      constraints.maxWidth < 760 || constraints.maxHeight < 168;
-                  final dockContentWidth = constraints.maxWidth;
-                  final alignToCover =
-                      mainContentWidth >= 860 && dockContentWidth > 0;
-                  final wideMetrics = alignToCover
-                      ? _wideAlbumMetrics(
-                          availableWidth: mainContentWidth,
-                          availableHeight: mainContentHeight,
-                        )
-                      : null;
-                  final alignedLeftInset = wideMetrics == null
-                      ? 0.0
-                      : math.max(
-                          0.0,
-                          (dockContentWidth - wideMetrics.contentWidth) / 2,
-                        );
-                  final metadataMaxWidth = math.max(
-                    0.0,
-                    dockContentWidth - alignedLeftInset,
+                  final gap = math.min(
+                    24.0,
+                    math.max(14.0, constraints.maxHeight * 0.12),
                   );
-                  final controls = _AlbumPlaybackControls(
-                    playing: playing,
-                    canPrevious: canPrevious,
-                    canNext: canNext,
-                    onPrevious: onPrevious,
-                    onToggle: onToggle,
-                    onNext: onNext,
-                    compact: compact,
+                  final maxPrimaryButtonWidth =
+                      (constraints.maxWidth - gap * 2) / 3;
+                  final primaryButtonSize = math.max(
+                    64.0,
+                    [
+                      constraints.maxHeight * 0.78,
+                      maxPrimaryButtonWidth,
+                      112.0,
+                    ].reduce(math.min),
                   );
-                  return Align(
-                    alignment: alignToCover
-                        ? Alignment.centerLeft
-                        : Alignment.center,
-                    child: Padding(
-                      padding: EdgeInsets.only(left: alignedLeftInset),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: metadataMaxWidth),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _AlbumDockMetadata(
-                              album: album,
-                              tracks: tracks,
-                              compact: compact,
+                  final secondaryButtonSize = math.max(
+                    56.0,
+                    primaryButtonSize * 0.72,
+                  );
+                  final controlsWidth =
+                      secondaryButtonSize * 2 + primaryButtonSize + gap * 2;
+                  final sideSlotWidth =
+                      (constraints.maxWidth - controlsWidth) / 2 - gap;
+                  final baseNowPlayingSize = math.min(
+                    96.0,
+                    math.max(64.0, constraints.maxHeight * 0.72),
+                  );
+                  final showNowPlaying =
+                      nowPlayingAlbum != null && sideSlotWidth >= 56;
+                  final nowPlayingSize = showNowPlaying
+                      ? math.min(baseNowPlayingSize, sideSlotWidth)
+                      : baseNowPlayingSize;
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (showNowPlaying)
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: SizedBox.square(
+                            dimension: nowPlayingSize,
+                            child: _DockNowPlayingAlbum(
+                              nowPlaying: nowPlayingAlbum!,
+                              onTap: onOpenNowPlayingAlbum,
                             ),
-                            SizedBox(height: compact ? 12 : 20),
-                            controls,
-                          ],
+                          ),
                         ),
+                      _AlbumPlaybackControls(
+                        playing: playing,
+                        canPrevious: canPrevious,
+                        canNext: canNext,
+                        onPrevious: onPrevious,
+                        onToggle: onToggle,
+                        onNext: onNext,
+                        primaryButtonSize: primaryButtonSize,
+                        secondaryButtonSize: secondaryButtonSize,
+                        gap: gap,
                       ),
-                    ),
+                    ],
                   );
                 },
               ),
@@ -520,50 +562,186 @@ class _AlbumPlaybackDock extends StatelessWidget {
   }
 }
 
-class _AlbumDockMetadata extends StatelessWidget {
-  const _AlbumDockMetadata({
-    required this.album,
-    required this.tracks,
-    required this.compact,
-  });
+class _DockNowPlayingAlbum extends StatefulWidget {
+  const _DockNowPlayingAlbum({required this.nowPlaying, required this.onTap});
 
-  final AlbumSummary album;
-  final List<Track> tracks;
-  final bool compact;
+  final AlbumPlaybackNowPlaying nowPlaying;
+  final VoidCallback? onTap;
+
+  @override
+  State<_DockNowPlayingAlbum> createState() => _DockNowPlayingAlbumState();
+}
+
+class _DockNowPlayingAlbumState extends State<_DockNowPlayingAlbum>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    );
+    _syncAnimation();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DockNowPlayingAlbum oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.nowPlaying.playing != widget.nowPlaying.playing) {
+      _syncAnimation();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _syncAnimation() {
+    if (widget.nowPlaying.playing) {
+      _controller.repeat();
+    } else {
+      _controller
+        ..stop()
+        ..value = 0;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final titleStyle =
-        (compact
-                ? Theme.of(context).textTheme.headlineSmall
-                : Theme.of(context).textTheme.displaySmall)
-            ?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              height: 1.04,
-            );
-    final subtitleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-      color: Colors.white.withValues(alpha: 0.74),
-      fontWeight: FontWeight.w700,
+    return Tooltip(
+      message: 'Back to now playing album',
+      child: AnimatedBuilder(
+        animation: _controller,
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: widget.onTap,
+            child: Container(
+              padding: const EdgeInsets.all(4),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
+              ),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(7),
+                    child: Artwork(
+                      path: widget.nowPlaying.coverArtPath,
+                      size: double.infinity,
+                      icon: Icons.album,
+                      radius: 0,
+                    ),
+                  ),
+                  if (widget.nowPlaying.playing)
+                    Center(
+                      child: _DockMiniPlayingBars(
+                        controller: _controller,
+                        color: Colors.white,
+                        backgroundColor: Colors.black,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ),
+        builder: (context, child) {
+          final pulse = widget.nowPlaying.playing
+              ? (0.5 + 0.5 * Curves.easeInOut.transform(_controller.value))
+              : 0.0;
+          return DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(10),
+              boxShadow: [
+                if (widget.nowPlaying.playing)
+                  BoxShadow(
+                    color: Colors.white.withValues(alpha: 0.08 + pulse * 0.08),
+                    blurRadius: 14 + pulse * 5,
+                    spreadRadius: 1,
+                  ),
+              ],
+            ),
+            child: child,
+          );
+        },
+      ),
     );
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          album.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: titleStyle,
+  }
+}
+
+class _DockMiniPlayingBars extends StatelessWidget {
+  const _DockMiniPlayingBars({
+    required this.controller,
+    required this.color,
+    required this.backgroundColor,
+  });
+
+  final Animation<double> controller;
+  final Color color;
+  final Color backgroundColor;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return Container(
+          width: 24,
+          height: 20,
+          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 4),
+          decoration: BoxDecoration(
+            color: backgroundColor.withValues(alpha: 0.62),
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              for (var index = 0; index < 3; index += 1) ...[
+                _DockMiniPlayingBar(
+                  color: color,
+                  height: _barHeight(controller.value, index),
+                ),
+                if (index != 2) const SizedBox(width: 2),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  double _barHeight(double value, int index) {
+    final phase = value * math.pi * 2 + index * 1.4;
+    return 4 + ((1 + math.sin(phase)) / 2) * 8;
+  }
+}
+
+class _DockMiniPlayingBar extends StatelessWidget {
+  const _DockMiniPlayingBar({required this.color, required this.height});
+
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 2.5,
+      height: height,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(99),
         ),
-        const SizedBox(height: 8),
-        Text(
-          _albumSubtitle(album, tracks),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: subtitleStyle,
-        ),
-      ],
+      ),
     );
   }
 }
@@ -949,7 +1127,9 @@ class _AlbumPlaybackControls extends StatelessWidget {
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    this.compact = false,
+    required this.primaryButtonSize,
+    required this.secondaryButtonSize,
+    required this.gap,
   });
 
   final bool playing;
@@ -958,11 +1138,12 @@ class _AlbumPlaybackControls extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final bool compact;
+  final double primaryButtonSize;
+  final double secondaryButtonSize;
+  final double gap;
 
   @override
   Widget build(BuildContext context) {
-    final gap = compact ? 12.0 : 18.0;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -970,7 +1151,8 @@ class _AlbumPlaybackControls extends StatelessWidget {
           tooltip: 'Previous',
           icon: Icons.skip_previous,
           onPressed: canPrevious ? onPrevious : null,
-          compact: compact,
+          size: secondaryButtonSize,
+          iconSize: secondaryButtonSize * 0.44,
         ),
         SizedBox(width: gap),
         _PlaybackIconButton(
@@ -978,14 +1160,16 @@ class _AlbumPlaybackControls extends StatelessWidget {
           icon: playing ? Icons.pause : Icons.play_arrow,
           prominent: true,
           onPressed: onToggle,
-          compact: compact,
+          size: primaryButtonSize,
+          iconSize: primaryButtonSize * 0.44,
         ),
         SizedBox(width: gap),
         _PlaybackIconButton(
           tooltip: 'Next',
           icon: Icons.skip_next,
           onPressed: canNext ? onNext : null,
-          compact: compact,
+          size: secondaryButtonSize,
+          iconSize: secondaryButtonSize * 0.44,
         ),
       ],
     );
@@ -997,25 +1181,24 @@ class _PlaybackIconButton extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    required this.size,
+    required this.iconSize,
     this.prominent = false,
-    this.compact = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
+  final double size;
+  final double iconSize;
   final bool prominent;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final size = compact
-        ? (prominent ? 54.0 : 42.0)
-        : (prominent ? 72.0 : 54.0);
     return IconButton.filled(
       tooltip: tooltip,
       onPressed: onPressed,
-      iconSize: compact ? (prominent ? 28 : 22) : (prominent ? 34 : 26),
+      iconSize: iconSize,
       style: IconButton.styleFrom(
         fixedSize: Size.square(size),
         backgroundColor: Colors.white.withValues(alpha: prominent ? 0.92 : 0.2),
@@ -1035,17 +1218,21 @@ class _LargeAlbumArtwork extends StatelessWidget {
     required this.album,
     required this.size,
     required this.transitionDirection,
+    required this.active,
+    required this.playing,
     required this.onWheel,
   });
 
   final AlbumSummary album;
   final double size;
   final int transitionDirection;
+  final bool active;
+  final bool playing;
   final ValueChanged<PointerScrollEvent> onWheel;
 
   @override
   Widget build(BuildContext context) {
-    final artworkSize = size.clamp(260.0, 820.0).toDouble();
+    final artworkSize = size.clamp(260.0, 820.0).roundToDouble();
     return Listener(
       onPointerSignal: (event) {
         if (event is PointerScrollEvent) {
@@ -1058,35 +1245,21 @@ class _LargeAlbumArtwork extends StatelessWidget {
           });
         }
       },
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(14),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withValues(alpha: 0.36),
-              blurRadius: 34,
-              offset: const Offset(0, 20),
-            ),
-          ],
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(14),
-          child: SizedBox.square(
-            dimension: artworkSize,
-            child: AnimatedSwitcher(
-              duration: _albumCoverTransitionDuration,
-              switchInCurve: Curves.easeOutCubic,
-              switchOutCurve: Curves.easeInCubic,
-              transitionBuilder: _coverTransitionBuilder,
-              child: KeyedSubtree(
-                key: ValueKey(album.folderPath),
-                child: Artwork(
-                  path: album.coverArtPath,
-                  size: artworkSize,
-                  icon: Icons.album,
-                  radius: 14,
-                ),
-              ),
+      child: SizedBox.square(
+        dimension: artworkSize,
+        child: AnimatedSwitcher(
+          duration: _albumCoverTransitionDuration,
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: _coverTransitionBuilder,
+          child: KeyedSubtree(
+            key: ValueKey(album.folderPath),
+            child: _MorphingAlbumDisc(
+              key: const ValueKey('album-morphing-artwork'),
+              coverArtPath: album.coverArtPath,
+              size: artworkSize,
+              active: active,
+              playing: playing,
             ),
           ),
         ),
@@ -1108,6 +1281,279 @@ class _LargeAlbumArtwork extends StatelessWidget {
     ).animate(curved);
     return SlideTransition(position: offset, child: child);
   }
+}
+
+class _MorphingAlbumDisc extends StatefulWidget {
+  const _MorphingAlbumDisc({
+    super.key,
+    required this.coverArtPath,
+    required this.size,
+    required this.active,
+    required this.playing,
+  });
+
+  final String? coverArtPath;
+  final double size;
+  final bool active;
+  final bool playing;
+
+  @override
+  State<_MorphingAlbumDisc> createState() => _MorphingAlbumDiscState();
+}
+
+class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
+    with TickerProviderStateMixin {
+  late final AnimationController _morphController;
+  late final AnimationController _rotationController;
+
+  @override
+  void initState() {
+    super.initState();
+    _morphController = AnimationController(
+      vsync: this,
+      duration: _albumDiscMorphDuration,
+      value: widget.active ? 1 : 0,
+    );
+    _rotationController = AnimationController(
+      vsync: this,
+      duration: _albumDiscRotationDuration,
+    );
+    if (widget.playing) {
+      _rotationController.repeat();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant _MorphingAlbumDisc oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.playing != widget.playing) {
+      if (widget.playing) {
+        _rotationController.repeat();
+      } else {
+        _rotationController.stop();
+      }
+    }
+
+    if (oldWidget.active == widget.active) {
+      return;
+    }
+    if (widget.active) {
+      if (widget.playing) {
+        _rotationController.repeat();
+      }
+      _morphController.forward();
+    } else {
+      _morphController.reverse().then((_) {
+        if (mounted && !widget.active) {
+          _rotationController.stop();
+          _rotationController.reset();
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _morphController.dispose();
+    _rotationController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _morphController,
+      builder: (context, _) {
+        final discProgress = Curves.easeInOutCubic.transform(
+          _morphController.value,
+        );
+        final radius = ui.lerpDouble(14, widget.size / 2, discProgress)!;
+        final holeSize = widget.size * 0.22;
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(radius),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.36),
+                blurRadius: 34,
+                offset: const Offset(0, 20),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                RotationTransition(
+                  turns: _rotationController,
+                  filterQuality: FilterQuality.medium,
+                  child: RepaintBoundary(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _AlbumDiscFill(
+                          coverArtPath: widget.coverArtPath,
+                          size: widget.size,
+                        ),
+                        if (discProgress > 0)
+                          Opacity(
+                            key: const ValueKey('album-disc-sheen'),
+                            opacity: discProgress,
+                            child: const CustomPaint(painter: _DiscPainter()),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (discProgress > 0)
+                  Center(
+                    child: Opacity(
+                      opacity: discProgress,
+                      child: Transform.scale(
+                        scale: 0.72 + discProgress * 0.28,
+                        child: _DiscHole(
+                          key: const ValueKey('album-disc-hole'),
+                          size: holeSize,
+                          discSize: widget.size,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _DiscHole extends StatelessWidget {
+  const _DiscHole({super.key, required this.size, required this.discSize});
+
+  final double size;
+  final double discSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.black.withValues(alpha: 0.58),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.28),
+          width: math.max(2, discSize * 0.008),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.42),
+            blurRadius: discSize * 0.04,
+          ),
+        ],
+      ),
+      child: Center(
+        child: Container(
+          width: size * 0.34,
+          height: size * 0.34,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: Colors.white.withValues(alpha: 0.14),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumDiscFill extends StatelessWidget {
+  const _AlbumDiscFill({required this.coverArtPath, required this.size});
+
+  final String? coverArtPath;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = coverArtPath;
+    if (path == null || path.isEmpty) {
+      return DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            colors: [Color(0xff3a3a3a), Color(0xff111111)],
+          ),
+        ),
+        child: Icon(
+          Icons.album,
+          size: 96,
+          color: Colors.white.withValues(alpha: 0.5),
+        ),
+      );
+    }
+
+    final cacheSize = size.isFinite ? (size * 2).round() : null;
+    return Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      cacheWidth: cacheSize,
+      cacheHeight: cacheSize,
+      filterQuality: FilterQuality.medium,
+      gaplessPlayback: true,
+      errorBuilder: (_, _, _) => DecoratedBox(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            colors: [Color(0xff3a3a3a), Color(0xff111111)],
+          ),
+        ),
+        child: Icon(
+          Icons.album,
+          size: 96,
+          color: Colors.white.withValues(alpha: 0.5),
+        ),
+      ),
+    );
+  }
+}
+
+class _DiscPainter extends CustomPainter {
+  const _DiscPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final center = size.center(Offset.zero);
+    final radius = math.min(size.width, size.height) / 2;
+
+    final sheen = Paint()
+      ..shader = SweepGradient(
+        colors: [
+          Colors.white.withValues(alpha: 0.02),
+          Colors.white.withValues(alpha: 0.20),
+          Colors.white.withValues(alpha: 0.04),
+          Colors.black.withValues(alpha: 0.16),
+          Colors.white.withValues(alpha: 0.08),
+          Colors.white.withValues(alpha: 0.02),
+        ],
+        stops: const [0.0, 0.12, 0.24, 0.52, 0.74, 1.0],
+      ).createShader(Rect.fromCircle(center: center, radius: radius));
+    canvas.drawCircle(center, radius, sheen);
+
+    final outerRim = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(2, radius * 0.018)
+      ..color = Colors.white.withValues(alpha: 0.24);
+    canvas.drawCircle(center, radius - outerRim.strokeWidth / 2, outerRim);
+
+    final innerGlow = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = math.max(5, radius * 0.045)
+      ..color = Colors.white.withValues(alpha: 0.10);
+    canvas.drawCircle(center, radius * 0.25, innerGlow);
+  }
+
+  @override
+  bool shouldRepaint(covariant _DiscPainter oldDelegate) => false;
 }
 
 class _AlbumPlaybackBackground extends StatelessWidget {
@@ -1268,12 +1714,6 @@ Future<Color> _extractThemeColor(String path) async {
   } catch (_) {
     return _fallbackAlbumColor;
   }
-}
-
-String _albumSubtitle(AlbumSummary album, List<Track> tracks) {
-  final year = album.year;
-  final yearText = year == null ? '' : ' · $year';
-  return '${album.albumArtist}$yearText · ${tracks.length} tracks';
 }
 
 String _trackIndexLabel(int index, Track track) {

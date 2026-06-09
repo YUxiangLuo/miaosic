@@ -65,6 +65,314 @@ void main() {
     expect(nextCount, 0);
     expect(playedTrack, isNull);
   });
+
+  testWidgets('left and right arrows switch albums instead of tracks', (
+    tester,
+  ) async {
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+    var previousTrackCount = 0;
+    var nextTrackCount = 0;
+    var previousAlbumCount = 0;
+    var nextAlbumCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: false,
+            onClose: () {},
+            onPrevious: () => previousTrackCount += 1,
+            onToggle: () {},
+            onNext: () => nextTrackCount += 1,
+            canSwitchPreviousAlbum: true,
+            canSwitchNextAlbum: true,
+            onSwitchPreviousAlbum: () => previousAlbumCount += 1,
+            onSwitchNextAlbum: () => nextAlbumCount += 1,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.pump();
+
+    expect(previousAlbumCount, 1);
+    expect(nextAlbumCount, 1);
+    expect(previousTrackCount, 0);
+    expect(nextTrackCount, 0);
+  });
+
+  testWidgets('bottom dock centers enlarged controls without metadata', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 720);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: true,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Album One'), findsNothing);
+    expect(find.text('Artist · 2026 · 3 tracks'), findsNothing);
+
+    final previous = find.byTooltip('Previous');
+    final pause = find.byTooltip('Pause');
+    final next = find.byTooltip('Next');
+    expect(previous, findsOneWidget);
+    expect(pause, findsOneWidget);
+    expect(next, findsOneWidget);
+
+    expect(tester.getSize(previous).width, closeTo(80.6, 0.5));
+    expect(tester.getSize(pause).width, closeTo(112, 0.1));
+    expect(tester.getSize(next).width, closeTo(80.6, 0.5));
+    expect(tester.getSize(previous).height, closeTo(80.6, 0.5));
+    expect(tester.getSize(pause).height, closeTo(112, 0.1));
+    expect(tester.getSize(next).height, closeTo(80.6, 0.5));
+    expect(tester.getCenter(pause).dx, closeTo(640, 0.1));
+    expect(tester.getCenter(pause).dy, closeTo(636, 0.1));
+  });
+
+  testWidgets('bottom dock shows now playing album shortcut on the left', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 720);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+    var openNowPlayingCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: null,
+            playing: false,
+            nowPlayingAlbum: const AlbumPlaybackNowPlaying(
+              coverArtPath: null,
+              playing: true,
+            ),
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            onOpenNowPlayingAlbum: () => openNowPlayingCount += 1,
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final shortcut = find.byTooltip('Back to now playing album');
+    final play = find.byTooltip('Play');
+    expect(shortcut, findsOneWidget);
+    expect(play, findsOneWidget);
+    expect(tester.getSize(shortcut).width, closeTo(96, 0.1));
+    expect(tester.getCenter(shortcut).dx, closeTo(76, 0.1));
+    expect(tester.getCenter(play).dx, closeTo(640, 0.1));
+
+    await tester.tap(shortcut);
+    await tester.pump();
+
+    expect(openNowPlayingCount, 1);
+  });
+
+  testWidgets('large artwork morphs into a disc while album is active', (
+    tester,
+  ) async {
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: null,
+            playing: false,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('album-morphing-artwork')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('album-disc-sheen')), findsNothing);
+    expect(find.byKey(const ValueKey('album-disc-hole')), findsNothing);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: false,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.byKey(const ValueKey('album-morphing-artwork')),
+      findsOneWidget,
+    );
+    expect(find.byType(RotationTransition), findsOneWidget);
+    expect(find.byKey(const ValueKey('album-disc-sheen')), findsOneWidget);
+    expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
+  });
+
+  testWidgets('paused active album keeps the stopped disc visible', (
+    tester,
+  ) async {
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: true,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 2));
+    final spinningTurns = tester
+        .widget<RotationTransition>(find.byType(RotationTransition))
+        .turns
+        .value;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: false,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final pausedTurns = tester
+        .widget<RotationTransition>(find.byType(RotationTransition))
+        .turns
+        .value;
+    await tester.pump(const Duration(milliseconds: 600));
+
+    final rotation = tester.widget<RotationTransition>(
+      find.byType(RotationTransition),
+    );
+    expect(spinningTurns, greaterThan(0));
+    expect(pausedTurns, spinningTurns);
+    expect(rotation.turns.value, pausedTurns);
+    expect(find.byKey(const ValueKey('album-disc-sheen')), findsOneWidget);
+    expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
+  });
 }
 
 AlbumSummary _album() {
