@@ -124,7 +124,7 @@ void main() {
     expect(tester.getCenter(pause).dy, closeTo(636, 0.1));
   });
 
-  testWidgets('large artwork morphs into a disc only while album is playing', (
+  testWidgets('large artwork morphs into a disc while album is active', (
     tester,
   ) async {
     final album = _album();
@@ -138,7 +138,7 @@ void main() {
           child: AlbumPlaybackView(
             album: album,
             tracks: tracks,
-            currentTrack: tracks[1],
+            currentTrack: null,
             playing: false,
             onClose: () {},
             onPrevious: () {},
@@ -171,7 +171,7 @@ void main() {
             album: album,
             tracks: tracks,
             currentTrack: tracks[1],
-            playing: true,
+            playing: false,
             onClose: () {},
             onPrevious: () {},
             onToggle: () {},
@@ -191,6 +191,82 @@ void main() {
       find.byKey(const ValueKey('album-morphing-artwork')),
       findsOneWidget,
     );
+    expect(find.byType(RotationTransition), findsOneWidget);
+    expect(find.byKey(const ValueKey('album-disc-sheen')), findsOneWidget);
+    expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
+  });
+
+  testWidgets('paused active album keeps the stopped disc visible', (
+    tester,
+  ) async {
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: true,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(seconds: 2));
+    final spinningTurns = tester
+        .widget<RotationTransition>(find.byType(RotationTransition))
+        .turns
+        .value;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: false,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final pausedTurns = tester
+        .widget<RotationTransition>(find.byType(RotationTransition))
+        .turns
+        .value;
+    await tester.pump(const Duration(milliseconds: 600));
+
+    final rotation = tester.widget<RotationTransition>(
+      find.byType(RotationTransition),
+    );
+    expect(spinningTurns, greaterThan(0));
+    expect(pausedTurns, spinningTurns);
+    expect(rotation.turns.value, pausedTurns);
     expect(find.byKey(const ValueKey('album-disc-sheen')), findsOneWidget);
     expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
   });

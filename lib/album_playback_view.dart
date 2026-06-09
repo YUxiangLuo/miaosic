@@ -199,6 +199,7 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
     final currentIndex = currentTrack == null
         ? -1
         : widget.tracks.indexWhere((track) => track.path == currentTrack.path);
+    final albumActive = currentIndex >= 0;
     final canPrevious = currentIndex > 0;
     final canNext =
         currentIndex >= 0 && currentIndex < widget.tracks.length - 1;
@@ -247,6 +248,7 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                                     constraints.maxHeight * 0.52,
                                   ),
                                   transitionDirection: transitionDirection,
+                                  active: albumActive,
                                   playing: widget.playing,
                                   onAlbumWheel: _handleAlbumWheel,
                                   onPlayTrack: widget.onPlayTrack,
@@ -259,6 +261,7 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                                 availableWidth: constraints.maxWidth,
                                 availableHeight: constraints.maxHeight,
                                 transitionDirection: transitionDirection,
+                                active: albumActive,
                                 playing: widget.playing,
                                 onAlbumWheel: _handleAlbumWheel,
                                 onPlayTrack: widget.onPlayTrack,
@@ -301,6 +304,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     required this.availableWidth,
     required this.availableHeight,
     required this.transitionDirection,
+    required this.active,
     required this.playing,
     required this.onAlbumWheel,
     required this.onPlayTrack,
@@ -312,6 +316,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
   final double availableWidth;
   final double availableHeight;
   final int transitionDirection;
+  final bool active;
   final bool playing;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
@@ -331,6 +336,7 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
             album: album,
             size: metrics.coverSize,
             transitionDirection: transitionDirection,
+            active: active,
             playing: playing,
             onWheel: onAlbumWheel,
           ),
@@ -360,6 +366,7 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
     required this.currentTrack,
     required this.coverSize,
     required this.transitionDirection,
+    required this.active,
     required this.playing,
     required this.onAlbumWheel,
     required this.onPlayTrack,
@@ -370,6 +377,7 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   final Track? currentTrack;
   final double coverSize;
   final int transitionDirection;
+  final bool active;
   final bool playing;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
@@ -384,6 +392,7 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
             album: album,
             size: coverSize,
             transitionDirection: transitionDirection,
+            active: active,
             playing: playing,
             onWheel: onAlbumWheel,
           ),
@@ -952,6 +961,7 @@ class _LargeAlbumArtwork extends StatelessWidget {
     required this.album,
     required this.size,
     required this.transitionDirection,
+    required this.active,
     required this.playing,
     required this.onWheel,
   });
@@ -959,6 +969,7 @@ class _LargeAlbumArtwork extends StatelessWidget {
   final AlbumSummary album;
   final double size;
   final int transitionDirection;
+  final bool active;
   final bool playing;
   final ValueChanged<PointerScrollEvent> onWheel;
 
@@ -990,6 +1001,7 @@ class _LargeAlbumArtwork extends StatelessWidget {
               key: const ValueKey('album-morphing-artwork'),
               coverArtPath: album.coverArtPath,
               size: artworkSize,
+              active: active,
               playing: playing,
             ),
           ),
@@ -1019,11 +1031,13 @@ class _MorphingAlbumDisc extends StatefulWidget {
     super.key,
     required this.coverArtPath,
     required this.size,
+    required this.active,
     required this.playing,
   });
 
   final String? coverArtPath;
   final double size;
+  final bool active;
   final bool playing;
 
   @override
@@ -1041,7 +1055,7 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
     _morphController = AnimationController(
       vsync: this,
       duration: _albumDiscMorphDuration,
-      value: widget.playing ? 1 : 0,
+      value: widget.active ? 1 : 0,
     );
     _rotationController = AnimationController(
       vsync: this,
@@ -1055,16 +1069,27 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
   @override
   void didUpdateWidget(covariant _MorphingAlbumDisc oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.playing == widget.playing) {
+    if (oldWidget.playing != widget.playing) {
+      if (widget.playing) {
+        _rotationController.repeat();
+      } else {
+        _rotationController.stop();
+      }
+    }
+
+    if (oldWidget.active == widget.active) {
       return;
     }
-    if (widget.playing) {
-      _rotationController.repeat();
+    if (widget.active) {
+      if (widget.playing) {
+        _rotationController.repeat();
+      }
       _morphController.forward();
     } else {
       _morphController.reverse().then((_) {
-        if (mounted && !widget.playing) {
+        if (mounted && !widget.active) {
           _rotationController.stop();
+          _rotationController.reset();
         }
       });
     }
@@ -1080,14 +1105,13 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: Listenable.merge([_morphController, _rotationController]),
+      animation: _morphController,
       builder: (context, _) {
         final discProgress = Curves.easeInOutCubic.transform(
           _morphController.value,
         );
         final radius = ui.lerpDouble(14, widget.size / 2, discProgress)!;
         final holeSize = widget.size * 0.22;
-        final rotation = _rotationController.value * math.pi * 2 * discProgress;
 
         return DecoratedBox(
           decoration: BoxDecoration(
@@ -1100,42 +1124,47 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
               ),
             ],
           ),
-          child: Transform.rotate(
-            angle: rotation,
-            filterQuality: FilterQuality.medium,
-            child: RepaintBoundary(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(radius),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _AlbumDiscFill(
-                      coverArtPath: widget.coverArtPath,
-                      size: widget.size,
-                    ),
-                    if (discProgress > 0)
-                      Opacity(
-                        key: const ValueKey('album-disc-sheen'),
-                        opacity: discProgress,
-                        child: const CustomPaint(painter: _DiscPainter()),
-                      ),
-                    if (discProgress > 0)
-                      Center(
-                        child: Opacity(
-                          opacity: discProgress,
-                          child: Transform.scale(
-                            scale: 0.72 + discProgress * 0.28,
-                            child: _DiscHole(
-                              key: const ValueKey('album-disc-hole'),
-                              size: holeSize,
-                              discSize: widget.size,
-                            ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(radius),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                RotationTransition(
+                  turns: _rotationController,
+                  filterQuality: FilterQuality.medium,
+                  child: RepaintBoundary(
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _AlbumDiscFill(
+                          coverArtPath: widget.coverArtPath,
+                          size: widget.size,
+                        ),
+                        if (discProgress > 0)
+                          Opacity(
+                            key: const ValueKey('album-disc-sheen'),
+                            opacity: discProgress,
+                            child: const CustomPaint(painter: _DiscPainter()),
                           ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (discProgress > 0)
+                  Center(
+                    child: Opacity(
+                      opacity: discProgress,
+                      child: Transform.scale(
+                        scale: 0.72 + discProgress * 0.28,
+                        child: _DiscHole(
+                          key: const ValueKey('album-disc-hole'),
+                          size: holeSize,
+                          discSize: widget.size,
                         ),
                       ),
-                  ],
-                ),
-              ),
+                    ),
+                  ),
+              ],
             ),
           ),
         );
