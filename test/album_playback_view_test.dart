@@ -111,6 +111,98 @@ void main() {
     expect(nextTrackCount, 0);
   });
 
+  testWidgets('escape closes album playback without leaking to parent focus', (
+    tester,
+  ) async {
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+    var closeCount = 0;
+    var leakedEscapeCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: Focus(
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.escape) {
+                leakedEscapeCount += 1;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: AlbumPlaybackView(
+              album: album,
+              tracks: tracks,
+              currentTrack: tracks[1],
+              playing: false,
+              onClose: () => closeCount += 1,
+              onPrevious: () {},
+              onToggle: () {},
+              onNext: () {},
+              canSwitchPreviousAlbum: false,
+              canSwitchNextAlbum: false,
+              onSwitchPreviousAlbum: null,
+              onSwitchNextAlbum: null,
+              onPlayTrack: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    expect(closeCount, 1);
+    expect(leakedEscapeCount, 0);
+  });
+
+  testWidgets('currently playing track has no selected row background', (
+    tester,
+  ) async {
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: true,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final row = tester.widget<AnimatedContainer>(
+      find.ancestor(
+        of: find.text('Track 2'),
+        matching: find.byType(AnimatedContainer),
+      ),
+    );
+    final decoration = row.decoration as BoxDecoration;
+
+    expect(decoration.color, Colors.white.withValues(alpha: 0));
+    expect(find.byKey(const ValueKey('playing')), findsOneWidget);
+  });
+
   testWidgets('bottom dock centers enlarged controls without metadata', (
     tester,
   ) async {

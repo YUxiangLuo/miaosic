@@ -206,9 +206,7 @@ class _AlbumTrackRowState extends State<_AlbumTrackRow> {
     final secondary = Colors.white.withValues(
       alpha: widget.selected ? 0.78 : 0.52,
     );
-    final backgroundAlpha = widget.selected
-        ? (_hovered ? 0.18 : 0.12)
-        : (_hovered ? 0.07 : 0.0);
+    final backgroundAlpha = widget.selected ? 0.0 : (_hovered ? 0.07 : 0.0);
     return InkWell(
       mouseCursor: SystemMouseCursors.click,
       hoverColor: Colors.transparent,

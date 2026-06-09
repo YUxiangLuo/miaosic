@@ -223,6 +223,11 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
   }
 
   KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.escape) {
+      widget.onClose();
+      return KeyEventResult.handled;
+    }
     if ((event is KeyDownEvent || event is KeyRepeatEvent) &&
         _albumPlaybackConsumedTraversalKeys.contains(event.logicalKey)) {
       _handleAlbumKeySwitch(event.logicalKey);
