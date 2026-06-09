@@ -73,6 +73,42 @@ void main() {
     expect(find.widgetWithIcon(IconButton, Icons.light_mode), findsOneWidget);
   });
 
+  testWidgets('footer actions are centered in the sidebar', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LibrarySidebar(
+            selected: LibraryView.albums,
+            albums: 12,
+            playlists: 4,
+            nowPlaying: null,
+            themeMode: ThemeMode.light,
+            onOpenLibrary: () {},
+            onToggleThemeMode: () {},
+            onOpenSettings: () {},
+            onOpenNowPlaying: null,
+            onSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    final sidebarCenterX = tester
+        .getRect(find.byType(LibrarySidebar))
+        .center
+        .dx;
+    final firstButtonRect = tester.getRect(
+      find.widgetWithIcon(IconButton, Icons.storage),
+    );
+    final lastButtonRect = tester.getRect(
+      find.widgetWithIcon(IconButton, Icons.settings),
+    );
+    final actionGroupCenterX =
+        (firstButtonRect.left + lastButtonRect.right) / 2;
+
+    expect(actionGroupCenterX, closeTo(sidebarCenterX, 0.1));
+  });
+
   testWidgets('footer actions can be disabled during startup', (tester) async {
     await tester.pumpWidget(
       MaterialApp(

@@ -141,6 +141,7 @@ class _SidebarFooterActions extends StatelessWidget {
   Widget build(BuildContext context) {
     final dark = themeMode == ThemeMode.dark;
     return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
       children: [
         _SidebarActionButton(
           tooltip: 'Library settings',
