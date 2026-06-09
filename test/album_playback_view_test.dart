@@ -65,6 +65,77 @@ void main() {
     expect(nextCount, 0);
     expect(playedTrack, isNull);
   });
+
+  testWidgets('large artwork morphs into a disc only while album is playing', (
+    tester,
+  ) async {
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: false,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey('album-morphing-artwork')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('album-disc-sheen')), findsNothing);
+    expect(find.byKey(const ValueKey('album-disc-hole')), findsNothing);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: true,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+
+    expect(
+      find.byKey(const ValueKey('album-morphing-artwork')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('album-disc-sheen')), findsOneWidget);
+    expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
+  });
 }
 
 AlbumSummary _album() {
