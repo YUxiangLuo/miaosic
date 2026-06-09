@@ -27,7 +27,9 @@ Miaosic is intentionally narrow:
 
 - Supported runtime: Linux.
 - Supported library format: `.flac`.
-- Android, iOS, macOS, Windows, and web scaffolding exists but is not maintained.
+- Android, iOS, macOS, Windows, and web directories are Flutter-generated
+  scaffolding only. They are not tested, packaged, or maintained as supported
+  targets.
 
 ## Library Data
 

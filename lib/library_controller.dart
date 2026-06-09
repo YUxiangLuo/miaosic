@@ -422,8 +422,12 @@ class LibraryController extends ChangeNotifier {
       if (completed && pruneWhenComplete && !_disposed && !_scanning) {
         await _pruneUnusedCoverCache(database);
       }
-    } catch (_) {
-      // Background cover indexing is best-effort and must stay invisible.
+    } catch (error, stackTrace) {
+      _debugLogBackgroundTaskFailure(
+        'background cover indexing',
+        error,
+        stackTrace,
+      );
     }
   }
 
@@ -431,9 +435,21 @@ class LibraryController extends ChangeNotifier {
     try {
       final referencedPaths = await database.loadReferencedCoverArtPaths();
       await pruneCoverCacheFiles(referencedPaths);
-    } catch (_) {
-      // Cover pruning is opportunistic and should never affect library use.
+    } catch (error, stackTrace) {
+      _debugLogBackgroundTaskFailure('cover cache pruning', error, stackTrace);
     }
+  }
+
+  void _debugLogBackgroundTaskFailure(
+    String task,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    assert(() {
+      debugPrint('Miaosic $task failed: $error');
+      debugPrintStack(stackTrace: stackTrace, label: 'Miaosic $task');
+      return true;
+    }());
   }
 
   void _setTrackCoverCache(Map<String, String?> cache, {List<Track>? tracks}) {
