@@ -16,6 +16,7 @@ void main() {
     final dbPath = '${dir.path}/miaosic.db';
     final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
     await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.saveThemeMode('dark');
     const lastPlayback = LastPlaybackState(
       kind: LastPlaybackKind.album,
       folderPath: '/music/root',
@@ -48,21 +49,27 @@ void main() {
     );
 
     try {
+      expect(controller.settingsLoaded, isFalse);
       await controller.open();
 
       expect(controller.loading, isFalse);
+      expect(controller.settingsLoaded, isTrue);
       expect(controller.scanning, isFalse);
       expect(controller.musicRoot, '/music/root');
+      expect(controller.themeMode, 'dark');
       expect(controller.tracks.single.path, '/music/root/a.flac');
       expect(controller.lastPlayback?.kind, LastPlaybackKind.album);
       expect(controller.lastPlayback?.folderPath, lastPlayback.folderPath);
       expect(controller.lastPlayback?.trackPath, lastPlayback.trackPath);
       expect(controller.lastPlayback?.playing, isTrue);
       expect(controller.lastPlayback?.shuffled, isFalse);
+      await controller.saveThemeMode('light');
+      expect(controller.themeMode, 'light');
 
       final reopened = await LibraryDatabase.openAtPath(dbPath);
       addTearDown(reopened.close);
       expect((await reopened.loadTracks()).single.path, '/music/root/a.flac');
+      expect(await reopened.loadThemeMode(), 'light');
     } finally {
       controller.dispose();
       await dir.delete(recursive: true);

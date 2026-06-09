@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaosic/library_database.dart';
 import 'package:miaosic/library_diff.dart';
+import 'package:miaosic/llm_settings.dart';
 import 'package:miaosic/models.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -62,6 +63,29 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  test('persists theme mode', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_theme_settings_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+
+    expect(await database.loadThemeMode(), 'light');
+
+    await database.saveThemeMode('dark');
+    expect(await database.loadThemeMode(), 'dark');
+
+    await database.close();
+    final reopened = await LibraryDatabase.openAtPath(dbPath);
+    expect(await reopened.loadThemeMode(), 'dark');
+
+    await reopened.close();
+    await dir.delete(recursive: true);
+  });
+
   test('persists last playback state', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -98,6 +122,40 @@ void main() {
     expect(reloaded?.trackPath, state.trackPath);
     expect(reloaded?.playing, isTrue);
     expect(reloaded?.shuffled, isTrue);
+
+    await reopened.close();
+    await dir.delete(recursive: true);
+  });
+
+  test('persists LLM settings', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_llm_settings_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+
+    final defaults = await database.loadLlmSettings();
+    expect(defaults.format, LlmServiceFormat.openai);
+    expect(defaults.baseUrl, LlmServiceFormat.openai.defaultBaseUrl);
+
+    const settings = LlmSettings(
+      format: LlmServiceFormat.anthropic,
+      baseUrl: 'https://llm.example.com',
+      apiKey: 'sk-test',
+      model: 'claude-compatible',
+    );
+    await database.saveLlmSettings(settings);
+
+    await database.close();
+    final reopened = await LibraryDatabase.openAtPath(dbPath);
+    final loaded = await reopened.loadLlmSettings();
+    expect(loaded.format, LlmServiceFormat.anthropic);
+    expect(loaded.baseUrl, settings.baseUrl);
+    expect(loaded.apiKey, settings.apiKey);
+    expect(loaded.model, settings.model);
 
     await reopened.close();
     await dir.delete(recursive: true);

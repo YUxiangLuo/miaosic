@@ -8,6 +8,8 @@ void main() {
     tester,
   ) async {
     var openLibraryCount = 0;
+    var toggleThemeCount = 0;
+    var openSettingsCount = 0;
     var selectedCount = 0;
 
     await tester.pumpWidget(
@@ -18,7 +20,10 @@ void main() {
             albums: 12,
             playlists: 4,
             nowPlaying: null,
+            themeMode: ThemeMode.light,
             onOpenLibrary: () => openLibraryCount += 1,
+            onToggleThemeMode: () => toggleThemeCount += 1,
+            onOpenSettings: () => openSettingsCount += 1,
             onOpenNowPlaying: null,
             onSelected: (_) => selectedCount += 1,
           ),
@@ -27,22 +32,79 @@ void main() {
     );
 
     expect(find.byTooltip('Library settings'), findsOneWidget);
-    expect(find.widgetWithIcon(IconButton, Icons.brightness_6), findsOneWidget);
+    expect(find.byTooltip('Switch to dark mode'), findsOneWidget);
+    expect(find.widgetWithIcon(IconButton, Icons.dark_mode), findsOneWidget);
     expect(find.widgetWithIcon(IconButton, Icons.settings), findsOneWidget);
 
+    await tester.tap(find.byTooltip('Library settings'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Switch to dark mode'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Settings'));
+    await tester.pump();
+
+    expect(openLibraryCount, 1);
+    expect(toggleThemeCount, 1);
+    expect(openSettingsCount, 1);
+    expect(selectedCount, 0);
+  });
+
+  testWidgets('theme button reflects dark mode', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LibrarySidebar(
+            selected: LibraryView.albums,
+            albums: 12,
+            playlists: 4,
+            nowPlaying: null,
+            themeMode: ThemeMode.dark,
+            onOpenLibrary: () {},
+            onToggleThemeMode: () {},
+            onOpenSettings: () {},
+            onOpenNowPlaying: null,
+            onSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('Switch to light mode'), findsOneWidget);
+    expect(find.widgetWithIcon(IconButton, Icons.light_mode), findsOneWidget);
+  });
+
+  testWidgets('footer actions can be disabled during startup', (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: LibrarySidebar(
+            selected: LibraryView.albums,
+            albums: 12,
+            playlists: 4,
+            nowPlaying: null,
+            themeMode: ThemeMode.light,
+            onOpenLibrary: null,
+            onToggleThemeMode: null,
+            onOpenSettings: null,
+            onOpenNowPlaying: null,
+            onSelected: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    final libraryButton = tester.widget<IconButton>(
+      find.widgetWithIcon(IconButton, Icons.storage),
+    );
     final themeButton = tester.widget<IconButton>(
-      find.widgetWithIcon(IconButton, Icons.brightness_6),
+      find.widgetWithIcon(IconButton, Icons.dark_mode),
     );
     final settingsButton = tester.widget<IconButton>(
       find.widgetWithIcon(IconButton, Icons.settings),
     );
+
+    expect(libraryButton.onPressed, isNull);
     expect(themeButton.onPressed, isNull);
     expect(settingsButton.onPressed, isNull);
-
-    await tester.tap(find.byTooltip('Library settings'));
-    await tester.pump();
-
-    expect(openLibraryCount, 1);
-    expect(selectedCount, 0);
   });
 }

@@ -14,9 +14,17 @@ import 'models.dart';
 import 'playback_controller.dart';
 import 'playlist_views.dart';
 import 'rescan_dialog.dart';
+import 'settings_dialog.dart';
 
 class LibraryScreen extends StatefulWidget {
-  const LibraryScreen({super.key});
+  const LibraryScreen({
+    super.key,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -69,7 +77,39 @@ class _LibraryScreenState extends State<LibraryScreen> {
       return;
     }
     setState(_syncActiveSelectionsWithLibrary);
+    _syncThemeModeWithLibrary();
     unawaited(_restoreLastPlaybackIfReady());
+  }
+
+  void _syncThemeModeWithLibrary() {
+    if (!_library.settingsLoaded) {
+      return;
+    }
+    final loadedMode = _themeModeFromDb(_library.themeMode);
+    if (loadedMode != widget.themeMode) {
+      widget.onThemeModeChanged(loadedMode);
+    }
+  }
+
+  void _handleToggleThemeMode() {
+    if (!_library.settingsLoaded) {
+      return;
+    }
+    final nextMode = widget.themeMode == ThemeMode.dark
+        ? ThemeMode.light
+        : ThemeMode.dark;
+    widget.onThemeModeChanged(nextMode);
+    unawaited(
+      _library.saveThemeMode(_themeModeToDb(nextMode)).catchError((_) {}),
+    );
+  }
+
+  ThemeMode _themeModeFromDb(String value) {
+    return value == 'dark' ? ThemeMode.dark : ThemeMode.light;
+  }
+
+  String _themeModeToDb(ThemeMode mode) {
+    return mode == ThemeMode.dark ? 'dark' : 'light';
   }
 
   void _syncActiveSelectionsWithLibrary() {
@@ -689,6 +729,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   @override
   Widget build(BuildContext context) {
     final activeAlbumPlayback = _activeAlbumPlayback;
+    final settingsLoaded = _library.settingsLoaded;
     final albumPlaybackActive =
         activeAlbumPlayback != null &&
         _playback.isCurrentQueue(activeAlbumPlayback.tracks);
@@ -718,7 +759,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   albums: _library.albums.length,
                   playlists: _playlistCount,
                   nowPlaying: nowPlayingTarget?.sidebarItem,
-                  onOpenLibrary: _openRescanModal,
+                  themeMode: widget.themeMode,
+                  onOpenLibrary: settingsLoaded ? _openRescanModal : null,
+                  onToggleThemeMode: settingsLoaded
+                      ? _handleToggleThemeMode
+                      : null,
+                  onOpenSettings: settingsLoaded ? _openSettingsModal : null,
                   onOpenNowPlaying: nowPlayingTarget == null
                       ? null
                       : () => _openNowPlaying(nowPlayingTarget),
@@ -887,6 +933,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!showingPlaylistList && view == LibraryView.playlists) {
       _restorePlaylistListScrollOffset();
     }
+  }
+
+  void _openSettingsModal() {
+    if (!_library.settingsLoaded) {
+      return;
+    }
+    showDialog<void>(
+      context: context,
+      builder: (context) {
+        return SettingsDialog(
+          llmSettings: _library.llmSettings,
+          onSaveLlmSettings: _library.saveLlmSettings,
+        );
+      },
+    );
   }
 
   void _closeAlbumPlayback() {

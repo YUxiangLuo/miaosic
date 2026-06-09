@@ -33,7 +33,10 @@ class LibrarySidebar extends StatelessWidget {
     required this.albums,
     required this.playlists,
     required this.nowPlaying,
+    required this.themeMode,
     required this.onOpenLibrary,
+    required this.onToggleThemeMode,
+    required this.onOpenSettings,
     required this.onOpenNowPlaying,
     required this.onSelected,
   });
@@ -42,7 +45,10 @@ class LibrarySidebar extends StatelessWidget {
   final int albums;
   final int playlists;
   final SidebarNowPlaying? nowPlaying;
-  final VoidCallback onOpenLibrary;
+  final ThemeMode themeMode;
+  final VoidCallback? onOpenLibrary;
+  final VoidCallback? onToggleThemeMode;
+  final VoidCallback? onOpenSettings;
   final VoidCallback? onOpenNowPlaying;
   final ValueChanged<LibraryView> onSelected;
 
@@ -104,7 +110,12 @@ class LibrarySidebar extends StatelessWidget {
             ],
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 12, 20, 18),
-              child: _SidebarFooterActions(onOpenLibrary: onOpenLibrary),
+              child: _SidebarFooterActions(
+                themeMode: themeMode,
+                onOpenLibrary: onOpenLibrary,
+                onToggleThemeMode: onToggleThemeMode,
+                onOpenSettings: onOpenSettings,
+              ),
             ),
           ],
         ),
@@ -114,12 +125,21 @@ class LibrarySidebar extends StatelessWidget {
 }
 
 class _SidebarFooterActions extends StatelessWidget {
-  const _SidebarFooterActions({required this.onOpenLibrary});
+  const _SidebarFooterActions({
+    required this.themeMode,
+    required this.onOpenLibrary,
+    required this.onToggleThemeMode,
+    required this.onOpenSettings,
+  });
 
-  final VoidCallback onOpenLibrary;
+  final ThemeMode themeMode;
+  final VoidCallback? onOpenLibrary;
+  final VoidCallback? onToggleThemeMode;
+  final VoidCallback? onOpenSettings;
 
   @override
   Widget build(BuildContext context) {
+    final dark = themeMode == ThemeMode.dark;
     return Row(
       children: [
         _SidebarActionButton(
@@ -128,16 +148,16 @@ class _SidebarFooterActions extends StatelessWidget {
           onPressed: onOpenLibrary,
         ),
         const SizedBox(width: 10),
-        const _SidebarActionButton(
-          tooltip: 'Toggle dark mode',
-          icon: Icons.brightness_6,
-          onPressed: null,
+        _SidebarActionButton(
+          tooltip: dark ? 'Switch to light mode' : 'Switch to dark mode',
+          icon: dark ? Icons.light_mode : Icons.dark_mode,
+          onPressed: onToggleThemeMode,
         ),
         const SizedBox(width: 10),
-        const _SidebarActionButton(
+        _SidebarActionButton(
           tooltip: 'Settings',
           icon: Icons.settings,
-          onPressed: null,
+          onPressed: onOpenSettings,
         ),
       ],
     );

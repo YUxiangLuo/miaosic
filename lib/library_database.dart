@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'library_diff.dart';
+import 'llm_settings.dart';
 import 'models.dart';
 
 class LibraryDatabase {
@@ -12,6 +13,8 @@ class LibraryDatabase {
 
   static const musicRootSettingKey = 'music_root';
   static const lastPlaybackSettingKey = 'last_playback';
+  static const llmSettingsSettingKey = 'llm_settings';
+  static const themeModeSettingKey = 'theme_mode';
 
   final Database _db;
   final String path;
@@ -207,6 +210,28 @@ class LibraryDatabase {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  Future<String> loadThemeMode() async {
+    final rows = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [themeModeSettingKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return 'light';
+    }
+    final value = rows.first['value'] as String;
+    return value == 'dark' ? 'dark' : 'light';
+  }
+
+  Future<void> saveThemeMode(String value) async {
+    await _db.insert('settings', {
+      'key': themeModeSettingKey,
+      'value': value == 'dark' ? 'dark' : 'light',
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
   Future<LastPlaybackState?> loadLastPlayback() async {
     final rows = await _db.query(
       'settings',
@@ -233,6 +258,35 @@ class LibraryDatabase {
     await _db.insert('settings', {
       'key': lastPlaybackSettingKey,
       'value': jsonEncode(state.toJson()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<LlmSettings> loadLlmSettings() async {
+    final rows = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [llmSettingsSettingKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return const LlmSettings.defaults();
+    }
+    try {
+      final decoded = jsonDecode(rows.first['value'] as String);
+      if (decoded is! Map) {
+        return const LlmSettings.defaults();
+      }
+      return LlmSettings.fromJson(Map<String, Object?>.from(decoded));
+    } catch (_) {
+      return const LlmSettings.defaults();
+    }
+  }
+
+  Future<void> saveLlmSettings(LlmSettings settings) async {
+    await _db.insert('settings', {
+      'key': llmSettingsSettingKey,
+      'value': jsonEncode(settings.normalized().toJson()),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 

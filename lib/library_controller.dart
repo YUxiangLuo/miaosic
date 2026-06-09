@@ -8,6 +8,7 @@ import 'library_database.dart';
 import 'library_diff.dart';
 import 'library_formatters.dart';
 import 'library_types.dart';
+import 'llm_settings.dart';
 import 'models.dart';
 import 'music_scanner.dart';
 import 'playlist_cover_indexer.dart';
@@ -40,9 +41,12 @@ class LibraryController extends ChangeNotifier {
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
   LastPlaybackState? _lastPlayback;
+  LlmSettings _llmSettings = const LlmSettings.defaults();
   String _musicRoot = defaultMusicRoot;
+  String _themeMode = 'light';
   ScanProgress? _scanProgress;
   bool _loading = true;
+  bool _settingsLoaded = false;
   bool _scanning = false;
   bool _disposed = false;
   String? _error;
@@ -54,9 +58,12 @@ class LibraryController extends ChangeNotifier {
   Map<String, String?> get trackCoverCache => _trackCoverCache;
   Map<String, Object?>? get scanState => _scanState;
   LastPlaybackState? get lastPlayback => _lastPlayback;
+  LlmSettings get llmSettings => _llmSettings;
   String get musicRoot => _musicRoot;
+  String get themeMode => _themeMode;
   ScanProgress? get scanProgress => _scanProgress;
   bool get loading => _loading;
+  bool get settingsLoaded => _settingsLoaded;
   bool get scanning => _scanning;
   String? get error => _error;
   bool get canChangeMusicRoot => _database != null && !_scanning;
@@ -79,10 +86,17 @@ class LibraryController extends ChangeNotifier {
         return;
       }
       _database = database;
-      _musicRoot = await database.loadMusicRoot();
+      final musicRoot = await database.loadMusicRoot();
+      final themeMode = await database.loadThemeMode();
+      final llmSettings = await database.loadLlmSettings();
       if (_disposed) {
         return;
       }
+      _musicRoot = musicRoot;
+      _themeMode = themeMode;
+      _llmSettings = llmSettings;
+      _settingsLoaded = true;
+      _emit();
       await _loadFromDatabase();
       if (_disposed) {
         return;
@@ -232,6 +246,26 @@ class LibraryController extends ChangeNotifier {
     }
     _lastPlayback = state;
     await database.saveLastPlayback(state);
+  }
+
+  Future<void> saveLlmSettings(LlmSettings settings) async {
+    final database = _database;
+    if (database == null || _disposed) {
+      return;
+    }
+    _llmSettings = settings.normalized();
+    await database.saveLlmSettings(_llmSettings);
+    _emit();
+  }
+
+  Future<void> saveThemeMode(String value) async {
+    final database = _database;
+    if (database == null || _disposed) {
+      return;
+    }
+    _themeMode = value == 'dark' ? 'dark' : 'light';
+    _emit();
+    await database.saveThemeMode(_themeMode);
   }
 
   Future<void> _loadFromDatabase() async {
