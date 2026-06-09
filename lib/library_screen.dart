@@ -287,11 +287,6 @@ class _LibraryScreenState extends State<LibraryScreen> {
     return '${state.kind.dbValue}\n${state.folderPath}\n${state.trackPath}\n${state.playing}\n${state.shuffled}';
   }
 
-  void _handleRescanPressed() {
-    _openRescanModal();
-    _library.startRescanDiff();
-  }
-
   void _openRescanModal() {
     if (_rescanDialogOpen) {
       return;
@@ -299,11 +294,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _rescanDialogOpen = true;
     showDialog<void>(
       context: context,
-      barrierDismissible: true,
+      barrierDismissible: false,
       builder: (context) {
         return RescanDialog(
           stateListenable: _library.rescanState,
           trackCoverCacheListenable: _library.trackCoverCacheListenable,
+          musicRoot: _library.musicRoot,
+          canEditMusicRoot: _library.canChangeMusicRoot,
+          onEditMusicRoot: _handleMusicRootPressed,
           onApply: _applyPendingDiff,
           onRescan: () => _library.startRescanDiff(),
           onFullRescan: () => _library.startRescanDiff(full: true),
@@ -312,7 +310,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     ).whenComplete(() => _rescanDialogOpen = false);
   }
 
-  Future<void> _applyPendingDiff() async {
+  Future<bool> _applyPendingDiff() async {
     final diff = await _library.applyPendingDiff(
       confirmLargeDeletion: _confirmLargeDeletion,
     );
@@ -321,6 +319,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         diff.removed.map((change) => change.path),
       );
     }
+    return diff != null;
   }
 
   Future<void> _handleMusicRootPressed() async {
@@ -718,14 +717,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   selected: _view,
                   albums: _library.albums.length,
                   playlists: _playlistCount,
-                  scanState: _library.scanState,
-                  musicRoot: _library.musicRoot,
-                  scanning: _library.scanning,
-                  progress: _library.scanProgress,
-                  error: _library.error,
                   nowPlaying: nowPlayingTarget?.sidebarItem,
-                  onEditMusicRoot: _handleMusicRootPressed,
-                  onRescan: _handleRescanPressed,
+                  onOpenLibrary: _openRescanModal,
                   onOpenNowPlaying: nowPlayingTarget == null
                       ? null
                       : () => _openNowPlaying(nowPlayingTarget),

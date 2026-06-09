@@ -7,11 +7,14 @@ import 'library_formatters.dart';
 import 'library_types.dart';
 import 'library_widgets.dart';
 
-class RescanDialog extends StatelessWidget {
+class RescanDialog extends StatefulWidget {
   const RescanDialog({
     super.key,
     required this.stateListenable,
     required this.trackCoverCacheListenable,
+    required this.musicRoot,
+    required this.canEditMusicRoot,
+    required this.onEditMusicRoot,
     required this.onApply,
     required this.onRescan,
     required this.onFullRescan,
@@ -19,16 +22,32 @@ class RescanDialog extends StatelessWidget {
 
   final ValueListenable<RescanUiState> stateListenable;
   final ValueListenable<Map<String, String?>> trackCoverCacheListenable;
-  final Future<void> Function() onApply;
+  final String musicRoot;
+  final bool canEditMusicRoot;
+  final VoidCallback onEditMusicRoot;
+  final Future<bool> Function() onApply;
   final VoidCallback onRescan;
   final VoidCallback onFullRescan;
 
   @override
+  State<RescanDialog> createState() => _RescanDialogState();
+}
+
+class _RescanDialogState extends State<RescanDialog> {
+  Future<void> _applyAndClose() async {
+    final applied = await widget.onApply();
+    if (mounted && applied) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<RescanUiState>(
-      valueListenable: stateListenable,
+      valueListenable: widget.stateListenable,
       builder: (context, state, _) {
         final busy = state.phase.isBusy;
+        final applying = state.phase == RescanPhase.applying;
         final diff = state.diff;
         final canApply =
             state.phase == RescanPhase.ready &&
@@ -36,7 +55,16 @@ class RescanDialog extends StatelessWidget {
             diff != null &&
             diff.hasChanges;
         return AlertDialog(
-          title: const Text('Rescan library'),
+          title: Row(
+            children: [
+              const Expanded(child: Text('Rescan library')),
+              IconButton(
+                tooltip: 'Close',
+                onPressed: applying ? null : () => Navigator.of(context).pop(),
+                icon: const Icon(Icons.close),
+              ),
+            ],
+          ),
           contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
           content: SizedBox(
             width: 840,
@@ -46,10 +74,16 @@ class RescanDialog extends StatelessWidget {
               children: [
                 _RescanStatus(state: state),
                 const SizedBox(height: 14),
+                _MusicRootPanel(
+                  musicRoot: widget.musicRoot,
+                  canEdit: widget.canEditMusicRoot && !busy,
+                  onEdit: widget.onEditMusicRoot,
+                ),
+                const SizedBox(height: 14),
                 Expanded(
                   child: _RescanBody(
                     state: state,
-                    trackCoverCacheListenable: trackCoverCacheListenable,
+                    trackCoverCacheListenable: widget.trackCoverCacheListenable,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -59,10 +93,9 @@ class RescanDialog extends StatelessWidget {
                   busy: busy,
                   canApply: canApply,
                   phase: state.phase,
-                  onClose: () => Navigator.of(context).pop(),
-                  onRescan: onRescan,
-                  onFullRescan: onFullRescan,
-                  onApply: onApply,
+                  onRescan: widget.onRescan,
+                  onFullRescan: widget.onFullRescan,
+                  onApply: _applyAndClose,
                 ),
               ],
             ),
@@ -78,7 +111,6 @@ class _RescanActions extends StatelessWidget {
     required this.busy,
     required this.canApply,
     required this.phase,
-    required this.onClose,
     required this.onRescan,
     required this.onFullRescan,
     required this.onApply,
@@ -87,26 +119,20 @@ class _RescanActions extends StatelessWidget {
   final bool busy;
   final bool canApply;
   final RescanPhase phase;
-  final VoidCallback onClose;
   final VoidCallback onRescan;
   final VoidCallback onFullRescan;
   final Future<void> Function() onApply;
 
   @override
   Widget build(BuildContext context) {
-    final applying = phase == RescanPhase.applying;
     return Row(
       children: [
-        TextButton(
-          onPressed: applying ? null : onClose,
-          child: const Text('Close'),
-        ),
-        const Spacer(),
         TextButton.icon(
           onPressed: busy ? null : onFullRescan,
           icon: const Icon(Icons.restart_alt, size: 18),
           label: const Text('Full rescan'),
         ),
+        const Spacer(),
         const SizedBox(width: 8),
         FilledButton.tonalIcon(
           onPressed: busy ? null : onRescan,
@@ -123,6 +149,65 @@ class _RescanActions extends StatelessWidget {
           label: const Text('Apply'),
         ),
       ],
+    );
+  }
+}
+
+class _MusicRootPanel extends StatelessWidget {
+  const _MusicRootPanel({
+    required this.musicRoot,
+    required this.canEdit,
+    required this.onEdit,
+  });
+
+  final String musicRoot;
+  final bool canEdit;
+  final VoidCallback onEdit;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border.all(color: scheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 10, 10),
+        child: Row(
+          children: [
+            Icon(Icons.storage, size: 19, color: scheme.primary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text(
+                    'Music folder',
+                    style: TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    musicRoot,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Change music folder',
+              onPressed: canEdit ? onEdit : null,
+              icon: const Icon(Icons.edit, size: 18),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -387,6 +472,13 @@ class _RescanBody extends StatelessWidget {
         icon: Icons.error_outline,
         title: 'Rescan failed',
         subtitle: 'Fix the error and retry the scan',
+      );
+    }
+    if (state.phase == RescanPhase.idle && diff == null) {
+      return const _EmptyReview(
+        icon: Icons.storage,
+        title: 'Ready to rescan',
+        subtitle: 'Press Rescan to compare the library with local files',
       );
     }
     if (diff == null) {
