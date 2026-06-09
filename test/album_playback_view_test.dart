@@ -66,6 +66,64 @@ void main() {
     expect(playedTrack, isNull);
   });
 
+  testWidgets('bottom dock centers enlarged controls without metadata', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 720);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: true,
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Album One'), findsNothing);
+    expect(find.text('Artist · 2026 · 3 tracks'), findsNothing);
+
+    final previous = find.byTooltip('Previous');
+    final pause = find.byTooltip('Pause');
+    final next = find.byTooltip('Next');
+    expect(previous, findsOneWidget);
+    expect(pause, findsOneWidget);
+    expect(next, findsOneWidget);
+
+    expect(tester.getSize(previous).width, closeTo(80.6, 0.5));
+    expect(tester.getSize(pause).width, closeTo(112, 0.1));
+    expect(tester.getSize(next).width, closeTo(80.6, 0.5));
+    expect(tester.getSize(previous).height, closeTo(80.6, 0.5));
+    expect(tester.getSize(pause).height, closeTo(112, 0.1));
+    expect(tester.getSize(next).height, closeTo(80.6, 0.5));
+    expect(tester.getCenter(pause).dx, closeTo(640, 0.1));
+    expect(tester.getCenter(pause).dy, closeTo(636, 0.1));
+  });
+
   testWidgets('large artwork morphs into a disc only while album is playing', (
     tester,
   ) async {

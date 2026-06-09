@@ -213,14 +213,6 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
               viewportConstraints.maxHeight * _albumPlaybackDockHeightFraction,
               _albumPlaybackDockMinHeight,
             );
-            final contentWidth = math.max(
-              0.0,
-              viewportConstraints.maxWidth - 56,
-            );
-            final contentHeight = math.max(
-              0.0,
-              viewportConstraints.maxHeight - dockHeight - 84,
-            );
             return Stack(
               children: [
                 _AlbumPlaybackBackground(
@@ -284,16 +276,12 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                   bottom: 0,
                   height: dockHeight,
                   child: _AlbumPlaybackDock(
-                    album: widget.album,
-                    tracks: widget.tracks,
                     playing: widget.playing,
                     canPrevious: canPrevious,
                     canNext: canNext,
                     onPrevious: widget.onPrevious,
                     onToggle: _handlePlayPauseCommand,
                     onNext: widget.onNext,
-                    mainContentWidth: contentWidth,
-                    mainContentHeight: contentHeight,
                   ),
                 ),
               ],
@@ -416,28 +404,20 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
 
 class _AlbumPlaybackDock extends StatelessWidget {
   const _AlbumPlaybackDock({
-    required this.album,
-    required this.tracks,
     required this.playing,
     required this.canPrevious,
     required this.canNext,
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    required this.mainContentWidth,
-    required this.mainContentHeight,
   });
 
-  final AlbumSummary album;
-  final List<Track> tracks;
   final bool playing;
   final bool canPrevious;
   final bool canNext;
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final double mainContentWidth;
-  final double mainContentHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -459,58 +439,35 @@ class _AlbumPlaybackDock extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(28, 12, 28, 12),
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final compact =
-                      constraints.maxWidth < 760 || constraints.maxHeight < 168;
-                  final dockContentWidth = constraints.maxWidth;
-                  final alignToCover =
-                      mainContentWidth >= 860 && dockContentWidth > 0;
-                  final wideMetrics = alignToCover
-                      ? _wideAlbumMetrics(
-                          availableWidth: mainContentWidth,
-                          availableHeight: mainContentHeight,
-                        )
-                      : null;
-                  final alignedLeftInset = wideMetrics == null
-                      ? 0.0
-                      : math.max(
-                          0.0,
-                          (dockContentWidth - wideMetrics.contentWidth) / 2,
-                        );
-                  final metadataMaxWidth = math.max(
-                    0.0,
-                    dockContentWidth - alignedLeftInset,
+                  final gap = math.min(
+                    24.0,
+                    math.max(14.0, constraints.maxHeight * 0.12),
                   );
-                  final controls = _AlbumPlaybackControls(
-                    playing: playing,
-                    canPrevious: canPrevious,
-                    canNext: canNext,
-                    onPrevious: onPrevious,
-                    onToggle: onToggle,
-                    onNext: onNext,
-                    compact: compact,
+                  final maxPrimaryButtonWidth =
+                      (constraints.maxWidth - gap * 2) / 3;
+                  final primaryButtonSize = math.max(
+                    64.0,
+                    [
+                      constraints.maxHeight * 0.78,
+                      maxPrimaryButtonWidth,
+                      112.0,
+                    ].reduce(math.min),
                   );
-                  return Align(
-                    alignment: alignToCover
-                        ? Alignment.centerLeft
-                        : Alignment.center,
-                    child: Padding(
-                      padding: EdgeInsets.only(left: alignedLeftInset),
-                      child: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: metadataMaxWidth),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _AlbumDockMetadata(
-                              album: album,
-                              tracks: tracks,
-                              compact: compact,
-                            ),
-                            SizedBox(height: compact ? 12 : 20),
-                            controls,
-                          ],
-                        ),
-                      ),
+                  final secondaryButtonSize = math.max(
+                    56.0,
+                    primaryButtonSize * 0.72,
+                  );
+                  return Center(
+                    child: _AlbumPlaybackControls(
+                      playing: playing,
+                      canPrevious: canPrevious,
+                      canNext: canNext,
+                      onPrevious: onPrevious,
+                      onToggle: onToggle,
+                      onNext: onNext,
+                      primaryButtonSize: primaryButtonSize,
+                      secondaryButtonSize: secondaryButtonSize,
+                      gap: gap,
                     ),
                   );
                 },
@@ -519,54 +476,6 @@ class _AlbumPlaybackDock extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-class _AlbumDockMetadata extends StatelessWidget {
-  const _AlbumDockMetadata({
-    required this.album,
-    required this.tracks,
-    required this.compact,
-  });
-
-  final AlbumSummary album;
-  final List<Track> tracks;
-  final bool compact;
-
-  @override
-  Widget build(BuildContext context) {
-    final titleStyle =
-        (compact
-                ? Theme.of(context).textTheme.headlineSmall
-                : Theme.of(context).textTheme.displaySmall)
-            ?.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w900,
-              height: 1.04,
-            );
-    final subtitleStyle = Theme.of(context).textTheme.titleMedium?.copyWith(
-      color: Colors.white.withValues(alpha: 0.74),
-      fontWeight: FontWeight.w700,
-    );
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          album.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: titleStyle,
-        ),
-        const SizedBox(height: 8),
-        Text(
-          _albumSubtitle(album, tracks),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: subtitleStyle,
-        ),
-      ],
     );
   }
 }
@@ -952,7 +861,9 @@ class _AlbumPlaybackControls extends StatelessWidget {
     required this.onPrevious,
     required this.onToggle,
     required this.onNext,
-    this.compact = false,
+    required this.primaryButtonSize,
+    required this.secondaryButtonSize,
+    required this.gap,
   });
 
   final bool playing;
@@ -961,11 +872,12 @@ class _AlbumPlaybackControls extends StatelessWidget {
   final VoidCallback onPrevious;
   final VoidCallback onToggle;
   final VoidCallback onNext;
-  final bool compact;
+  final double primaryButtonSize;
+  final double secondaryButtonSize;
+  final double gap;
 
   @override
   Widget build(BuildContext context) {
-    final gap = compact ? 12.0 : 18.0;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -973,7 +885,8 @@ class _AlbumPlaybackControls extends StatelessWidget {
           tooltip: 'Previous',
           icon: Icons.skip_previous,
           onPressed: canPrevious ? onPrevious : null,
-          compact: compact,
+          size: secondaryButtonSize,
+          iconSize: secondaryButtonSize * 0.44,
         ),
         SizedBox(width: gap),
         _PlaybackIconButton(
@@ -981,14 +894,16 @@ class _AlbumPlaybackControls extends StatelessWidget {
           icon: playing ? Icons.pause : Icons.play_arrow,
           prominent: true,
           onPressed: onToggle,
-          compact: compact,
+          size: primaryButtonSize,
+          iconSize: primaryButtonSize * 0.44,
         ),
         SizedBox(width: gap),
         _PlaybackIconButton(
           tooltip: 'Next',
           icon: Icons.skip_next,
           onPressed: canNext ? onNext : null,
-          compact: compact,
+          size: secondaryButtonSize,
+          iconSize: secondaryButtonSize * 0.44,
         ),
       ],
     );
@@ -1000,25 +915,24 @@ class _PlaybackIconButton extends StatelessWidget {
     required this.tooltip,
     required this.icon,
     required this.onPressed,
+    required this.size,
+    required this.iconSize,
     this.prominent = false,
-    this.compact = false,
   });
 
   final String tooltip;
   final IconData icon;
   final VoidCallback? onPressed;
+  final double size;
+  final double iconSize;
   final bool prominent;
-  final bool compact;
 
   @override
   Widget build(BuildContext context) {
-    final size = compact
-        ? (prominent ? 54.0 : 42.0)
-        : (prominent ? 72.0 : 54.0);
     return IconButton.filled(
       tooltip: tooltip,
       onPressed: onPressed,
-      iconSize: compact ? (prominent ? 28 : 22) : (prominent ? 34 : 26),
+      iconSize: iconSize,
       style: IconButton.styleFrom(
         fixedSize: Size.square(size),
         backgroundColor: Colors.white.withValues(alpha: prominent ? 0.92 : 0.2),
@@ -1514,12 +1428,6 @@ Future<Color> _extractThemeColor(String path) async {
   } catch (_) {
     return _fallbackAlbumColor;
   }
-}
-
-String _albumSubtitle(AlbumSummary album, List<Track> tracks) {
-  final year = album.year;
-  final yearText = year == null ? '' : ' · $year';
-  return '${album.albumArtist}$yearText · ${tracks.length} tracks';
 }
 
 String _trackIndexLabel(int index, Track track) {
