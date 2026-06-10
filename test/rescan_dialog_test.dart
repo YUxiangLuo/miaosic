@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaosic/library_diff.dart';
 import 'package:miaosic/library_types.dart';
@@ -128,6 +129,19 @@ void main() {
 
     expect(find.text('Rescan library'), findsOneWidget);
     expect(find.text('Library is up to date'), findsWidgets);
+  });
+
+  testWidgets('escape closes rescan dialog', (tester) async {
+    final state = ValueNotifier(const RescanUiState(phase: RescanPhase.idle));
+
+    await tester.pumpWidget(_DialogHost(state: state));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Rescan library'), findsNothing);
   });
 }
 

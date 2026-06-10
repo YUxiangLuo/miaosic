@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'artwork_resolver.dart';
 import 'library_diff.dart';
@@ -41,6 +42,10 @@ class _RescanDialogState extends State<RescanDialog> {
     }
   }
 
+  void _close() {
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     return ValueListenableBuilder<RescanUiState>(
@@ -54,50 +59,63 @@ class _RescanDialogState extends State<RescanDialog> {
             !busy &&
             diff != null &&
             diff.hasChanges;
-        return AlertDialog(
-          title: Row(
-            children: [
-              const Expanded(child: Text('Rescan library')),
-              IconButton(
-                tooltip: 'Close',
-                onPressed: applying ? null : () => Navigator.of(context).pop(),
-                icon: const Icon(Icons.close),
-              ),
-            ],
-          ),
-          contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
-          content: SizedBox(
-            width: 840,
-            height: 600,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _RescanStatus(state: state),
-                const SizedBox(height: 14),
-                _MusicRootPanel(
-                  musicRoot: widget.musicRoot,
-                  canEdit: widget.canEditMusicRoot && !busy,
-                  onEdit: widget.onEditMusicRoot,
-                ),
-                const SizedBox(height: 14),
-                Expanded(
-                  child: _RescanBody(
-                    state: state,
-                    trackCoverCacheListenable: widget.trackCoverCacheListenable,
+        return CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.escape): () {
+              if (!applying) {
+                _close();
+              }
+            },
+          },
+          child: Focus(
+            autofocus: true,
+            child: AlertDialog(
+              title: Row(
+                children: [
+                  const Expanded(child: Text('Rescan library')),
+                  IconButton(
+                    tooltip: 'Close',
+                    onPressed: applying ? null : _close,
+                    icon: const Icon(Icons.close),
                   ),
+                ],
+              ),
+              contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+              content: SizedBox(
+                width: 840,
+                height: 600,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _RescanStatus(state: state),
+                    const SizedBox(height: 14),
+                    _MusicRootPanel(
+                      musicRoot: widget.musicRoot,
+                      canEdit: widget.canEditMusicRoot && !busy,
+                      onEdit: widget.onEditMusicRoot,
+                    ),
+                    const SizedBox(height: 14),
+                    Expanded(
+                      child: _RescanBody(
+                        state: state,
+                        trackCoverCacheListenable:
+                            widget.trackCoverCacheListenable,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    const Divider(height: 1),
+                    const SizedBox(height: 12),
+                    _RescanActions(
+                      busy: busy,
+                      canApply: canApply,
+                      phase: state.phase,
+                      onRescan: widget.onRescan,
+                      onFullRescan: widget.onFullRescan,
+                      onApply: _applyAndClose,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 12),
-                const Divider(height: 1),
-                const SizedBox(height: 12),
-                _RescanActions(
-                  busy: busy,
-                  canApply: canApply,
-                  phase: state.phase,
-                  onRescan: widget.onRescan,
-                  onFullRescan: widget.onFullRescan,
-                  onApply: _applyAndClose,
-                ),
-              ],
+              ),
             ),
           ),
         );

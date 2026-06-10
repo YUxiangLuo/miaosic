@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'llm_settings.dart';
 
@@ -80,85 +81,101 @@ class _SettingsDialogState extends State<SettingsDialog> {
     }
   }
 
+  void _close() {
+    if (_saving) {
+      return;
+    }
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Settings'),
-      contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
-      content: SizedBox(
-        width: 520,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'LLM',
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 14),
-            DropdownButtonFormField<LlmServiceFormat>(
-              initialValue: _format,
-              decoration: const InputDecoration(
-                labelText: 'Service format',
-                border: OutlineInputBorder(),
-              ),
-              items: [
-                for (final format in LlmServiceFormat.values)
-                  DropdownMenuItem(value: format, child: Text(format.label)),
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.escape): _close},
+      child: Focus(
+        autofocus: true,
+        child: AlertDialog(
+          title: const Text('Settings'),
+          contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 18),
+          content: SizedBox(
+            width: 520,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'LLM',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<LlmServiceFormat>(
+                  initialValue: _format,
+                  decoration: const InputDecoration(
+                    labelText: 'Service format',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: [
+                    for (final format in LlmServiceFormat.values)
+                      DropdownMenuItem(
+                        value: format,
+                        child: Text(format.label),
+                      ),
+                  ],
+                  onChanged: _saving ? null : _handleFormatChanged,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _baseUrlController,
+                  enabled: !_saving,
+                  decoration: const InputDecoration(
+                    labelText: 'Base URL',
+                    hintText: 'https://api.openai.com/v1',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _apiKeyController,
+                  enabled: !_saving,
+                  obscureText: true,
+                  decoration: const InputDecoration(
+                    labelText: 'API key',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _modelController,
+                  enabled: !_saving,
+                  decoration: const InputDecoration(
+                    labelText: 'Model',
+                    hintText: 'Provider model name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
               ],
-              onChanged: _saving ? null : _handleFormatChanged,
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _baseUrlController,
-              enabled: !_saving,
-              decoration: const InputDecoration(
-                labelText: 'Base URL',
-                hintText: 'https://api.openai.com/v1',
-                border: OutlineInputBorder(),
-              ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: _saving ? null : _close,
+              child: const Text('Cancel'),
             ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _apiKeyController,
-              enabled: !_saving,
-              obscureText: true,
-              decoration: const InputDecoration(
-                labelText: 'API key',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _modelController,
-              enabled: !_saving,
-              decoration: const InputDecoration(
-                labelText: 'Model',
-                hintText: 'Provider model name',
-                border: OutlineInputBorder(),
-              ),
+            FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.save, size: 18),
+              label: const Text('Save'),
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton.icon(
-          onPressed: _saving ? null : _save,
-          icon: _saving
-              ? const SizedBox.square(
-                  dimension: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.save, size: 18),
-          label: const Text('Save'),
-        ),
-      ],
     );
   }
 }
