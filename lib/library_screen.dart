@@ -16,6 +16,10 @@ import 'playlist_views.dart';
 import 'rescan_dialog.dart';
 import 'settings_dialog.dart';
 
+const _albumPlaybackOverlayTransitionDuration = Duration(milliseconds: 240);
+const _albumPlaybackOverlayReverseDuration = Duration(milliseconds: 180);
+const _albumPlaybackOverlaySlideOffset = Offset(0, 0.035);
+
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
@@ -775,53 +779,67 @@ class _LibraryScreenState extends State<LibraryScreen> {
               ],
             ),
           ),
-          if (activeAlbumPlayback != null)
-            Positioned.fill(
-              child: AlbumPlaybackView(
-                album: activeAlbumPlayback.album,
-                tracks: activeAlbumPlayback.tracks,
-                currentTrack: activeAlbumTrack,
-                playing: activeAlbumTrack != null && _playback.playing,
-                nowPlayingAlbum: dockNowPlayingAlbumTarget == null
-                    ? null
-                    : AlbumPlaybackNowPlaying(
-                        coverArtPath:
-                            dockNowPlayingAlbumTarget.album?.coverArtPath,
-                        playing: dockNowPlayingAlbumTarget.sidebarItem.playing,
+          Positioned.fill(
+            child: _AlbumPlaybackOverlayTransition(
+              child: activeAlbumPlayback == null
+                  ? null
+                  : AlbumPlaybackView(
+                      album: activeAlbumPlayback.album,
+                      tracks: activeAlbumPlayback.tracks,
+                      currentTrack: activeAlbumTrack,
+                      playing: activeAlbumTrack != null && _playback.playing,
+                      nowPlayingAlbum: dockNowPlayingAlbumTarget == null
+                          ? null
+                          : AlbumPlaybackNowPlaying(
+                              coverArtPath:
+                                  dockNowPlayingAlbumTarget.album?.coverArtPath,
+                              playing:
+                                  dockNowPlayingAlbumTarget.sidebarItem.playing,
+                            ),
+                      onClose: _closeAlbumPlayback,
+                      onPrevious: () => unawaited(
+                        _playback.skip(-1, activeAlbumPlayback.tracks),
                       ),
-                onClose: _closeAlbumPlayback,
-                onPrevious: () =>
-                    unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
-                onToggle: () => unawaited(
-                  albumPlaybackActive
-                      ? _playback.togglePlayPause(activeAlbumPlayback.tracks)
-                      : _playAlbum(
+                      onToggle: () => unawaited(
+                        albumPlaybackActive
+                            ? _playback.togglePlayPause(
+                                activeAlbumPlayback.tracks,
+                              )
+                            : _playAlbum(
+                                activeAlbumPlayback.album,
+                                activeAlbumPlayback.tracks,
+                              ),
+                      ),
+                      onNext: () => unawaited(
+                        _playback.skip(1, activeAlbumPlayback.tracks),
+                      ),
+                      onOpenNowPlayingAlbum: dockNowPlayingAlbumTarget == null
+                          ? null
+                          : () => _openNowPlaying(dockNowPlayingAlbumTarget!),
+                      canSwitchPreviousAlbum:
+                          _albumPlaybackSwitchTarget(
+                            activeAlbumPlayback.album,
+                            -1,
+                          ) !=
+                          null,
+                      canSwitchNextAlbum:
+                          _albumPlaybackSwitchTarget(
+                            activeAlbumPlayback.album,
+                            1,
+                          ) !=
+                          null,
+                      onSwitchPreviousAlbum: () => _switchAlbumPlayback(-1),
+                      onSwitchNextAlbum: () => _switchAlbumPlayback(1),
+                      onPlayTrack: (track) => unawaited(
+                        _playAlbumFrom(
                           activeAlbumPlayback.album,
                           activeAlbumPlayback.tracks,
+                          track,
                         ),
-                ),
-                onNext: () =>
-                    unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
-                onOpenNowPlayingAlbum: dockNowPlayingAlbumTarget == null
-                    ? null
-                    : () => _openNowPlaying(dockNowPlayingAlbumTarget!),
-                canSwitchPreviousAlbum:
-                    _albumPlaybackSwitchTarget(activeAlbumPlayback.album, -1) !=
-                    null,
-                canSwitchNextAlbum:
-                    _albumPlaybackSwitchTarget(activeAlbumPlayback.album, 1) !=
-                    null,
-                onSwitchPreviousAlbum: () => _switchAlbumPlayback(-1),
-                onSwitchNextAlbum: () => _switchAlbumPlayback(1),
-                onPlayTrack: (track) => unawaited(
-                  _playAlbumFrom(
-                    activeAlbumPlayback.album,
-                    activeAlbumPlayback.tracks,
-                    track,
-                  ),
-                ),
-              ),
+                      ),
+                    ),
             ),
+          ),
         ],
       ),
     );
@@ -1018,6 +1036,47 @@ class _LibraryScreenState extends State<LibraryScreen> {
           .toDouble();
       _playlistListScrollController.jumpTo(target);
     });
+  }
+}
+
+class _AlbumPlaybackOverlayTransition extends StatelessWidget {
+  const _AlbumPlaybackOverlayTransition({required this.child});
+
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: _albumPlaybackOverlayTransitionDuration,
+      reverseDuration: _albumPlaybackOverlayReverseDuration,
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeInCubic,
+      layoutBuilder: (currentChild, previousChildren) {
+        return Stack(
+          fit: StackFit.expand,
+          children: [
+            for (final previousChild in previousChildren)
+              Positioned.fill(child: previousChild),
+            if (currentChild != null) Positioned.fill(child: currentChild),
+          ],
+        );
+      },
+      transitionBuilder: (child, animation) {
+        final offset = Tween<Offset>(
+          begin: _albumPlaybackOverlaySlideOffset,
+          end: Offset.zero,
+        ).animate(animation);
+        final scale = Tween<double>(begin: 0.985, end: 1).animate(animation);
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: offset,
+            child: ScaleTransition(scale: scale, child: child),
+          ),
+        );
+      },
+      child: child,
+    );
   }
 }
 
