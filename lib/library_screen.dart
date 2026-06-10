@@ -16,9 +16,10 @@ import 'playlist_views.dart';
 import 'rescan_dialog.dart';
 import 'settings_dialog.dart';
 
-const _albumPlaybackOverlayTransitionDuration = Duration(milliseconds: 240);
-const _albumPlaybackOverlayReverseDuration = Duration(milliseconds: 180);
+const _albumPlaybackOverlayTransitionDuration = Duration(milliseconds: 180);
+const _albumPlaybackOverlayReverseDuration = Duration(milliseconds: 160);
 const _albumPlaybackOverlaySlideOffset = Offset(0, 0.035);
+const _albumPlaybackOverlayScaleBegin = 0.985;
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -1062,22 +1063,122 @@ class _AlbumPlaybackOverlayTransition extends StatelessWidget {
         );
       },
       transitionBuilder: (child, animation) {
-        final offset = Tween<Offset>(
-          begin: _albumPlaybackOverlaySlideOffset,
-          end: Offset.zero,
-        ).animate(animation);
-        final scale = Tween<double>(begin: 0.985, end: 1).animate(animation);
-        return FadeTransition(
-          opacity: animation,
-          child: SlideTransition(
-            position: offset,
-            child: ScaleTransition(scale: scale, child: child),
-          ),
+        return _AlbumPlaybackOverlayTransitionEffect(
+          animation: animation,
+          child: child,
         );
       },
       child: child,
     );
   }
+}
+
+class _AlbumPlaybackOverlayTransitionEffect extends StatefulWidget {
+  const _AlbumPlaybackOverlayTransitionEffect({
+    required this.animation,
+    required this.child,
+  });
+
+  final Animation<double> animation;
+  final Widget child;
+
+  @override
+  State<_AlbumPlaybackOverlayTransitionEffect> createState() =>
+      _AlbumPlaybackOverlayTransitionEffectState();
+}
+
+class _AlbumPlaybackOverlayTransitionEffectState
+    extends State<_AlbumPlaybackOverlayTransitionEffect> {
+  bool _entryCompleted = false;
+  _AlbumPlaybackOverlayTransform? _exitTransform;
+
+  @override
+  void initState() {
+    super.initState();
+    _entryCompleted = widget.animation.status == AnimationStatus.completed;
+    widget.animation.addStatusListener(_handleAnimationStatus);
+  }
+
+  @override
+  void didUpdateWidget(
+    covariant _AlbumPlaybackOverlayTransitionEffect oldWidget,
+  ) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.animation == widget.animation) {
+      return;
+    }
+    oldWidget.animation.removeStatusListener(_handleAnimationStatus);
+    _entryCompleted = widget.animation.status == AnimationStatus.completed;
+    _exitTransform = null;
+    widget.animation.addStatusListener(_handleAnimationStatus);
+  }
+
+  @override
+  void dispose() {
+    widget.animation.removeStatusListener(_handleAnimationStatus);
+    super.dispose();
+  }
+
+  void _handleAnimationStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _entryCompleted = true;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: widget.animation,
+      child: widget.child,
+      builder: (context, child) {
+        final exiting = widget.animation.status == AnimationStatus.reverse;
+        final progress = widget.animation.value;
+        final transform = exiting
+            ? _exitTransform ??= _entryCompleted
+                  ? const _AlbumPlaybackOverlayTransform.identity()
+                  : _transitionTransform(progress)
+            : _transitionTransform(progress);
+        if (!exiting) {
+          _exitTransform = null;
+        }
+
+        return Opacity(
+          opacity: progress,
+          child: FractionalTranslation(
+            translation: transform.offset,
+            child: Transform.scale(scale: transform.scale, child: child),
+          ),
+        );
+      },
+    );
+  }
+
+  _AlbumPlaybackOverlayTransform _transitionTransform(double progress) {
+    return _AlbumPlaybackOverlayTransform(
+      offset: Offset.lerp(
+        _albumPlaybackOverlaySlideOffset,
+        Offset.zero,
+        progress,
+      )!,
+      scale:
+          _albumPlaybackOverlayScaleBegin +
+          ((1.0 - _albumPlaybackOverlayScaleBegin) * progress),
+    );
+  }
+}
+
+class _AlbumPlaybackOverlayTransform {
+  const _AlbumPlaybackOverlayTransform({
+    required this.offset,
+    required this.scale,
+  });
+
+  const _AlbumPlaybackOverlayTransform.identity()
+    : offset = Offset.zero,
+      scale = 1.0;
+
+  final Offset offset;
+  final double scale;
 }
 
 class _ActiveAlbumPlayback {
