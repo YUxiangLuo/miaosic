@@ -43,7 +43,7 @@ void main() {
     _expectFixtureShape(result);
   });
 
-  test('Rust scanner moves root tracks into OtherTracks playlist', () async {
+  test('Rust scanner keeps root tracks in place', () async {
     if (RustMusicScanner.tryLoad() == null) {
       markTestSkipped('Rust dynamic library is not available');
       return;
@@ -68,19 +68,42 @@ void main() {
     );
 
     final result = await MusicScanner().scan(dir.path);
-    final movedTrack = File('${dir.path}/OtherTracks/Loose.flac');
 
-    expect(await looseTrack.exists(), isFalse);
-    expect(await movedTrack.exists(), isTrue);
+    expect(await looseTrack.exists(), isTrue);
     expect(
-      result.tracks.singleWhere((track) => track.path == movedTrack.path).title,
+      result.tracks.singleWhere((track) => track.path == looseTrack.path).title,
       'Loose',
     );
-    final folder = result.folders.singleWhere(
-      (folder) => folder.name == 'OtherTracks',
+    expect(result.folders.single.path, dir.path);
+  });
+
+  test('Rust scanner rejects root paths that cannot be opened', () async {
+    if (RustMusicScanner.tryLoad() == null) {
+      markTestSkipped('Rust dynamic library is not available');
+      return;
+    }
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_file_root_fixture_',
     );
-    expect(folder.kind, FolderKind.playlist);
-    expect(result.albums, isEmpty);
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    final fileRoot = File('${dir.path}/not_a_directory');
+    await fileRoot.writeAsString('not a directory');
+
+    expect(
+      MusicScanner().scan(fileRoot.path),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('music root cannot be opened'),
+        ),
+      ),
+    );
   });
 
   test('incremental Rust scan reuses unchanged track metadata', () async {
