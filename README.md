@@ -7,10 +7,6 @@ folder, stores the library in SQLite, caches artwork, and plays tracks with
 ## Screenshots
 ![Album](docs/screenshots/Screenshot_20260609_073814.png)
 
-| Albums | Playlists |
-| --- | --- |
-| ![Albums view](docs/screenshots/albums.png) | ![Playlists view](docs/screenshots/playlists.png) |
-
 ## Features
 
 - FLAC library scanning through a Rust FFI scanner.
