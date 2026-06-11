@@ -146,7 +146,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
         '',
       ),
     };
-    for (final device in widget.audioDevices) {
+    for (final device in _userFacingAudioDevices(widget.audioDevices)) {
       final name = device.name.trim();
       if (name.isEmpty) {
         continue;
@@ -166,11 +166,15 @@ class _SettingsDialogState extends State<SettingsDialog> {
     if (device.name == AudioOutputSettings.autoDeviceName) {
       return 'System default';
     }
-    final description = device.description.trim();
-    if (description.isEmpty || description == device.name) {
-      return device.name;
+    final description = _cleanAudioDeviceDescription(device.description);
+    final label = description.isEmpty || description == device.name
+        ? _shortAudioDeviceName(device.name)
+        : description;
+    final backend = _audioBackendLabel(device.name);
+    if (backend == null) {
+      return label;
     }
-    return '$description (${device.name})';
+    return '$label - $backend';
   }
 
   String? get _audioOutputMessage {
@@ -311,4 +315,119 @@ class _SettingsDialogState extends State<SettingsDialog> {
       ),
     );
   }
+}
+
+List<AudioDevice> _userFacingAudioDevices(Iterable<AudioDevice> devices) {
+  final normalized = _dedupeAudioDevices(devices)
+      .where((device) => device.name != AudioOutputSettings.autoDeviceName)
+      .toList(growable: false);
+  final pipewireDevices = normalized
+      .where((device) => _isConcreteBackendDevice(device.name, 'pipewire'))
+      .toList(growable: false);
+  if (pipewireDevices.isNotEmpty) {
+    return pipewireDevices;
+  }
+
+  final pulseDevices = normalized
+      .where((device) => _isConcreteBackendDevice(device.name, 'pulse'))
+      .toList(growable: false);
+  if (pulseDevices.isNotEmpty) {
+    return pulseDevices;
+  }
+
+  final alsaDevices = normalized
+      .where(_isUserFacingAlsaDevice)
+      .toList(growable: false);
+  if (alsaDevices.isNotEmpty) {
+    return alsaDevices;
+  }
+
+  return normalized
+      .where((device) => !_isBackendDefault(device.name))
+      .toList(growable: false);
+}
+
+List<AudioDevice> _dedupeAudioDevices(Iterable<AudioDevice> devices) {
+  final byName = <String, AudioDevice>{};
+  for (final device in devices) {
+    final name = device.name.trim();
+    if (name.isEmpty) {
+      continue;
+    }
+    byName[name] = AudioDevice(name, device.description.trim());
+  }
+  return byName.values.toList(growable: false);
+}
+
+bool _isConcreteBackendDevice(String name, String backend) {
+  return name.startsWith('$backend/');
+}
+
+bool _isBackendDefault(String name) {
+  return name == 'pipewire' ||
+      name == 'pulse' ||
+      name == 'alsa' ||
+      name == 'jack';
+}
+
+bool _isUserFacingAlsaDevice(AudioDevice device) {
+  final name = device.name;
+  if (!name.startsWith('alsa/')) {
+    return false;
+  }
+  final selector = name.substring('alsa/'.length);
+  if (_hiddenAlsaSelectors.contains(selector)) {
+    return false;
+  }
+  return selector.startsWith('sysdefault') ||
+      selector.startsWith('front:CARD=') ||
+      selector.startsWith('iec958:CARD=') ||
+      selector.startsWith('hdmi:CARD=');
+}
+
+const _hiddenAlsaSelectors = {
+  'default',
+  'dmix',
+  'dsnoop',
+  'jack',
+  'lavrate',
+  'null',
+  'oss',
+  'pipewire',
+  'pulse',
+  'samplerate',
+  'speexrate',
+  'upmix',
+  'usbstream',
+  'vdownmix',
+};
+
+String _cleanAudioDeviceDescription(String description) {
+  return description
+      .trim()
+      .replaceFirst(
+        RegExp(r'\s*\((alsa|jack|pipewire|pulse)\)$', caseSensitive: false),
+        '',
+      )
+      .trim();
+}
+
+String _shortAudioDeviceName(String name) {
+  final slashIndex = name.indexOf('/');
+  if (slashIndex >= 0 && slashIndex + 1 < name.length) {
+    return name.substring(slashIndex + 1);
+  }
+  return name;
+}
+
+String? _audioBackendLabel(String name) {
+  final slashIndex = name.indexOf('/');
+  final backend = slashIndex < 0 ? name : name.substring(0, slashIndex);
+  return switch (backend) {
+    'pipewire' => 'PipeWire',
+    'pulse' => 'PulseAudio',
+    'alsa' => 'ALSA',
+    'jack' => 'JACK',
+    _ => null,
+  };
 }
