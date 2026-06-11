@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'audio_output_settings.dart';
 import 'library_diff.dart';
 import 'llm_settings.dart';
 import 'models.dart';
@@ -15,6 +16,7 @@ class LibraryDatabase {
   static const lastPlaybackSettingKey = 'last_playback';
   static const llmSettingsSettingKey = 'llm_settings';
   static const themeModeSettingKey = 'theme_mode';
+  static const audioOutputSettingsSettingKey = 'audio_output_settings';
 
   final Database _db;
   final String path;
@@ -297,6 +299,35 @@ class LibraryDatabase {
   Future<void> saveLlmSettings(LlmSettings settings) async {
     await _db.insert('settings', {
       'key': llmSettingsSettingKey,
+      'value': jsonEncode(settings.normalized().toJson()),
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<AudioOutputSettings> loadAudioOutputSettings() async {
+    final rows = await _db.query(
+      'settings',
+      columns: ['value'],
+      where: 'key = ?',
+      whereArgs: [audioOutputSettingsSettingKey],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      return const AudioOutputSettings.defaults();
+    }
+    try {
+      final decoded = jsonDecode(rows.first['value'] as String);
+      if (decoded is! Map) {
+        return const AudioOutputSettings.defaults();
+      }
+      return AudioOutputSettings.fromJson(Map<String, Object?>.from(decoded));
+    } catch (_) {
+      return const AudioOutputSettings.defaults();
+    }
+  }
+
+  Future<void> saveAudioOutputSettings(AudioOutputSettings settings) async {
+    await _db.insert('settings', {
+      'key': audioOutputSettingsSettingKey,
       'value': jsonEncode(settings.normalized().toJson()),
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }

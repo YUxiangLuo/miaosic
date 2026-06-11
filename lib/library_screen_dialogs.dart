@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'library_controller.dart';
 import 'library_diff.dart';
 import 'models.dart';
+import 'playback_controller.dart';
 import 'rescan_dialog.dart';
 import 'settings_dialog.dart';
 
@@ -83,13 +84,28 @@ Future<bool> showLargeDeletionConfirmation(
 Future<void> showLibrarySettingsDialog({
   required BuildContext context,
   required LibraryController library,
+  required PlaybackController playback,
 }) {
   return showDialog<void>(
     context: context,
     builder: (context) {
-      return SettingsDialog(
-        llmSettings: library.llmSettings,
-        onSaveLlmSettings: library.saveLlmSettings,
+      return AnimatedBuilder(
+        animation: Listenable.merge([library, playback]),
+        builder: (context, _) {
+          return SettingsDialog(
+            llmSettings: library.llmSettings,
+            onSaveLlmSettings: library.saveLlmSettings,
+            audioOutputSettings: library.audioOutputSettings,
+            audioDevices: playback.audioDevices,
+            activeAudioDevice: playback.audioDevice,
+            audioOutputWarning: playback.audioOutputWarning,
+            audioOutputError: playback.audioOutputError,
+            onSaveAudioOutputSettings: (settings) async {
+              await playback.applyAudioOutputSettings(settings);
+              await library.saveAudioOutputSettings(settings);
+            },
+          );
+        },
       );
     },
   );

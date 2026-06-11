@@ -7,6 +7,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     }
     _mutate(_syncActiveSelectionsWithLibrary);
     _syncThemeModeWithLibrary();
+    _applyAudioOutputSettingsIfReady();
     unawaited(_restoreLastPlaybackIfReady());
   }
 
@@ -30,6 +31,18 @@ extension _LibraryScreenActions on _LibraryScreenState {
     widget.onThemeModeChanged(nextMode);
     unawaited(
       _library.saveThemeMode(themeModeToDb(nextMode)).catchError((_) {}),
+    );
+  }
+
+  void _applyAudioOutputSettingsIfReady() {
+    if (_audioOutputSettingsApplied || !_library.settingsLoaded) {
+      return;
+    }
+    _audioOutputSettingsApplied = true;
+    unawaited(
+      _playback
+          .applyAudioOutputSettings(_library.audioOutputSettings)
+          .catchError((_) {}),
     );
   }
 
@@ -482,7 +495,13 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (!_library.settingsLoaded) {
       return;
     }
-    unawaited(showLibrarySettingsDialog(context: context, library: _library));
+    unawaited(
+      showLibrarySettingsDialog(
+        context: context,
+        library: _library,
+        playback: _playback,
+      ),
+    );
   }
 
   void _closeAlbumPlayback() {

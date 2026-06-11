@@ -47,6 +47,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _lastNowPlayingPlaying = false;
   bool _lastPlaybackRestoreAttempted = false;
   bool _lastPlaybackRestoring = false;
+  bool _audioOutputSettingsApplied = false;
   LibraryView _view = LibraryView.albums;
   String? _activePlaylistOverlayPath;
   bool _rescanDialogOpen = false;

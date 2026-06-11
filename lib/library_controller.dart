@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import 'audio_output_settings.dart';
 import 'cover_cache.dart';
 import 'library_database.dart';
 import 'library_diff.dart';
@@ -42,6 +43,8 @@ class LibraryController extends ChangeNotifier {
   Map<String, Object?>? _scanState;
   LastPlaybackState? _lastPlayback;
   LlmSettings _llmSettings = const LlmSettings.defaults();
+  AudioOutputSettings _audioOutputSettings =
+      const AudioOutputSettings.defaults();
   String _musicRoot = defaultMusicRoot;
   String _themeMode = 'light';
   ScanProgress? _scanProgress;
@@ -59,6 +62,7 @@ class LibraryController extends ChangeNotifier {
   Map<String, Object?>? get scanState => _scanState;
   LastPlaybackState? get lastPlayback => _lastPlayback;
   LlmSettings get llmSettings => _llmSettings;
+  AudioOutputSettings get audioOutputSettings => _audioOutputSettings;
   String get musicRoot => _musicRoot;
   String get themeMode => _themeMode;
   ScanProgress? get scanProgress => _scanProgress;
@@ -89,12 +93,14 @@ class LibraryController extends ChangeNotifier {
       final musicRoot = await database.loadMusicRoot();
       final themeMode = await database.loadThemeMode();
       final llmSettings = await database.loadLlmSettings();
+      final audioOutputSettings = await database.loadAudioOutputSettings();
       if (_disposed) {
         return;
       }
       _musicRoot = musicRoot;
       _themeMode = themeMode;
       _llmSettings = llmSettings;
+      _audioOutputSettings = audioOutputSettings;
       _settingsLoaded = true;
       _emit();
       await _loadFromDatabase();
@@ -318,6 +324,16 @@ class LibraryController extends ChangeNotifier {
     }
     _llmSettings = settings.normalized();
     await database.saveLlmSettings(_llmSettings);
+    _emit();
+  }
+
+  Future<void> saveAudioOutputSettings(AudioOutputSettings settings) async {
+    final database = _database;
+    if (database == null || _disposed) {
+      return;
+    }
+    _audioOutputSettings = settings.normalized();
+    await database.saveAudioOutputSettings(_audioOutputSettings);
     _emit();
   }
 

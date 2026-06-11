@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
+import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_screen.dart';
 import 'package:miaosic/llm_settings.dart';
@@ -172,6 +173,7 @@ class _InjectedLibraryController extends LibraryController {
 
 class _InjectedPlaybackController extends PlaybackController {
   bool disposedByScreen = false;
+  AudioOutputSettings? appliedAudioOutputSettings;
 
   @override
   Track? get currentTrack => null;
@@ -180,7 +182,24 @@ class _InjectedPlaybackController extends PlaybackController {
   bool get playing => false;
 
   @override
+  AudioDevice get audioDevice => const AudioDevice('auto', '');
+
+  @override
+  List<AudioDevice> get audioDevices => const [AudioDevice('auto', '')];
+
+  @override
+  String? get audioOutputWarning => null;
+
+  @override
+  String? get audioOutputError => null;
+
+  @override
   bool isCurrentQueue(List<Track> queue) => false;
+
+  @override
+  Future<void> applyAudioOutputSettings(AudioOutputSettings settings) async {
+    appliedAudioOutputSettings = settings;
+  }
 
   @override
   void dispose() {

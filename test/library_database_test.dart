@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/library_database.dart';
 import 'package:miaosic/library_diff.dart';
 import 'package:miaosic/llm_settings.dart';
@@ -90,6 +91,12 @@ void main() {
 
       await database.saveMusicRoot('/old/root');
       await database.saveThemeMode('dark');
+      await database.saveAudioOutputSettings(
+        const AudioOutputSettings(
+          deviceName: 'pipewire/dac',
+          deviceDescription: 'USB DAC',
+        ),
+      );
       await database.saveLastPlayback(playback);
       await database.replaceLibrary(
         _scanResult([track], rootPath: '/old/root'),
@@ -107,6 +114,10 @@ void main() {
 
       expect(await database.loadMusicRoot(), '/new/root');
       expect(await database.loadThemeMode(), 'dark');
+      expect(
+        (await database.loadAudioOutputSettings()).deviceName,
+        'pipewire/dac',
+      );
       expect(await database.loadTracks(), isEmpty);
       expect(await database.loadFolders(), isEmpty);
       expect(await database.loadAlbums(), isEmpty);
@@ -213,6 +224,36 @@ void main() {
     expect(loaded.baseUrl, settings.baseUrl);
     expect(loaded.apiKey, settings.apiKey);
     expect(loaded.model, settings.model);
+
+    await reopened.close();
+    await dir.delete(recursive: true);
+  });
+
+  test('persists audio output settings', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_audio_output_settings_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+
+    final defaults = await database.loadAudioOutputSettings();
+    expect(defaults.deviceName, AudioOutputSettings.autoDeviceName);
+    expect(defaults.isAuto, isTrue);
+
+    const settings = AudioOutputSettings(
+      deviceName: 'pipewire/alsa_output.usb-dac',
+      deviceDescription: 'USB DAC',
+    );
+    await database.saveAudioOutputSettings(settings);
+
+    await database.close();
+    final reopened = await LibraryDatabase.openAtPath(dbPath);
+    final loaded = await reopened.loadAudioOutputSettings();
+    expect(loaded.deviceName, settings.deviceName);
+    expect(loaded.deviceDescription, settings.deviceDescription);
 
     await reopened.close();
     await dir.delete(recursive: true);

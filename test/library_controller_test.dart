@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_database.dart';
 import 'package:miaosic/library_diff.dart';
@@ -18,6 +19,12 @@ void main() {
     final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
     await seedDatabase.saveMusicRoot('/music/root');
     await seedDatabase.saveThemeMode('dark');
+    await seedDatabase.saveAudioOutputSettings(
+      const AudioOutputSettings(
+        deviceName: 'pipewire/dac',
+        deviceDescription: 'USB DAC',
+      ),
+    );
     const lastPlayback = LastPlaybackState(
       kind: LastPlaybackKind.album,
       folderPath: '/music/root',
@@ -58,6 +65,8 @@ void main() {
       expect(controller.scanning, isFalse);
       expect(controller.musicRoot, '/music/root');
       expect(controller.themeMode, 'dark');
+      expect(controller.audioOutputSettings.deviceName, 'pipewire/dac');
+      expect(controller.audioOutputSettings.deviceDescription, 'USB DAC');
       expect(controller.tracks.single.path, '/music/root/a.flac');
       expect(controller.rescanState.value.mode, LibraryScanMode.direct);
       expect(controller.rescanState.value.phase, RescanPhase.done);
