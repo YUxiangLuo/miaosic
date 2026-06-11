@@ -12,6 +12,7 @@ import 'library_sidebar.dart';
 import 'library_types.dart';
 import 'models.dart';
 import 'playback_controller.dart';
+import 'playlist_playback_view.dart';
 import 'playlist_views.dart';
 import 'rescan_dialog.dart';
 import 'settings_dialog.dart';
@@ -46,7 +47,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _lastPlaybackRestoreAttempted = false;
   bool _lastPlaybackRestoring = false;
   LibraryView _view = LibraryView.albums;
-  String? _selectedPlaylistPath;
+  String? _activePlaylistOverlayPath;
   double _albumGridScrollOffset = 0;
   double _playlistListScrollOffset = 0;
   bool _rescanDialogOpen = false;
@@ -116,9 +117,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final folders = _library.folders;
     final albums = _library.albums;
     final tracks = _library.tracks;
-    if (_selectedPlaylistPath != null &&
-        !folders.any((folder) => folder.path == _selectedPlaylistPath)) {
-      _selectedPlaylistPath = null;
+    final activePlaylistOverlayPath = _activePlaylistOverlayPath;
+    if (activePlaylistOverlayPath != null &&
+        _playlistFolderForPath(activePlaylistOverlayPath) == null) {
+      _activePlaylistOverlayPath = null;
     }
 
     final currentTrackPaths = tracks.map((track) => track.path).toSet();
@@ -221,6 +223,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     setState(() {
       _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
       _activePlaylistPlayback = null;
+      _activePlaylistOverlayPath = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     });
@@ -390,7 +393,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         previousTrackPaths.difference(currentTrackPaths),
       );
       setState(() {
-        _selectedPlaylistPath = null;
+        _activePlaylistOverlayPath = null;
       });
     }
   }
@@ -514,6 +517,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     _saveAlbumGridScrollOffset();
     setState(() {
       _activeAlbumPlayback = _ActiveAlbumPlayback(album: album, tracks: tracks);
+      _activePlaylistOverlayPath = null;
       final currentAlbumTrack = _currentTrackForAlbum(_activeAlbumPlayback!);
       final showingCurrentAlbum = _playback.isCurrentQueue(tracks);
       _lastPlaybackPath = showingCurrentAlbum ? currentAlbumTrack?.path : null;
@@ -722,6 +726,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             tracks: tracks,
           );
           _activePlaylistPlayback = null;
+          _activePlaylistOverlayPath = null;
           _lastPlaybackPath = _playback.currentTrack?.path;
           _lastPlaybackPlaying = _playback.playing;
         });
@@ -730,21 +735,29 @@ class _LibraryScreenState extends State<LibraryScreen> {
         if (folder == null) {
           return;
         }
-        if (_view == LibraryView.playlists && _selectedPlaylistPath == null) {
-          _savePlaylistListScrollOffset();
-        }
-        _saveAlbumGridScrollOffset();
-        setState(() {
-          _view = LibraryView.playlists;
-          _selectedPlaylistPath = folder.path;
-          _activeAlbumPlayback = null;
-        });
+        _openPlaylistPlayback(folder);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final activeAlbumPlayback = _activeAlbumPlayback;
+    final activePlaylistOverlayFolder = _activePlaylistOverlayFolder;
+    final activePlaylistOverlayTracks = activePlaylistOverlayFolder == null
+        ? const <Track>[]
+        : _tracksByFolder[activePlaylistOverlayFolder.path] ?? const <Track>[];
+    final activePlaylistPlayback = _activePlaylistPlayback;
+    final activePlaylistPlaybackTrack = activePlaylistPlayback == null
+        ? null
+        : _currentTrackForPlaylist(activePlaylistPlayback);
+    final playlistOverlayPlaybackActive =
+        activePlaylistOverlayFolder != null &&
+        activePlaylistPlayback != null &&
+        activePlaylistPlayback.folderPath == activePlaylistOverlayFolder.path &&
+        activePlaylistPlaybackTrack != null;
+    final activePlaylistTrack = playlistOverlayPlaybackActive
+        ? activePlaylistPlaybackTrack
+        : null;
     final settingsLoaded = _library.settingsLoaded;
     final albumPlaybackActive =
         activeAlbumPlayback != null &&
@@ -767,7 +780,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       body: Stack(
         children: [
           ExcludeFocus(
-            excluding: activeAlbumPlayback != null,
+            excluding:
+                activeAlbumPlayback != null ||
+                activePlaylistOverlayFolder != null,
             child: Row(
               children: [
                 LibrarySidebar(
@@ -838,6 +853,59 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ),
+          if (activeAlbumPlayback == null &&
+              activePlaylistOverlayFolder != null)
+            Positioned.fill(
+              child: PlaylistPlaybackView(
+                folder: activePlaylistOverlayFolder,
+                tracks: activePlaylistOverlayTracks,
+                trackCoverCache: _library.trackCoverCache,
+                currentTrack: activePlaylistTrack,
+                playbackActive: playlistOverlayPlaybackActive,
+                playing: playlistOverlayPlaybackActive && _playback.playing,
+                onClose: _closePlaylistPlayback,
+                onPlayAll: activePlaylistOverlayTracks.isEmpty
+                    ? null
+                    : () => unawaited(
+                        _playPlaylist(
+                          activePlaylistOverlayFolder,
+                          activePlaylistOverlayTracks,
+                        ),
+                      ),
+                onShuffleAll: activePlaylistOverlayTracks.isEmpty
+                    ? null
+                    : () => unawaited(
+                        _playPlaylistShuffled(
+                          activePlaylistOverlayFolder,
+                          activePlaylistOverlayTracks,
+                        ),
+                      ),
+                onPrevious: playlistOverlayPlaybackActive
+                    ? () => unawaited(
+                        _playback.skip(-1, activePlaylistPlayback.tracks),
+                      )
+                    : null,
+                onTogglePlayback: playlistOverlayPlaybackActive
+                    ? () => unawaited(
+                        _playback.togglePlayPause(
+                          activePlaylistPlayback.tracks,
+                        ),
+                      )
+                    : null,
+                onNext: playlistOverlayPlaybackActive
+                    ? () => unawaited(
+                        _playback.skip(1, activePlaylistPlayback.tracks),
+                      )
+                    : null,
+                onPlayTrack: (track) => unawaited(
+                  _playPlaylist(
+                    activePlaylistOverlayFolder,
+                    activePlaylistOverlayTracks,
+                    startTrack: track,
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
@@ -852,7 +920,8 @@ class _LibraryScreenState extends State<LibraryScreen> {
         albums: _library.albums,
         tracksByFolder: _tracksByFolder,
         scrollController: _albumGridScrollController,
-        keyboardShortcutsEnabled: _activeAlbumPlayback == null,
+        keyboardShortcutsEnabled:
+            _activeAlbumPlayback == null && _activePlaylistOverlayPath == null,
         onOpen: _openAlbumPlayback,
       ),
       LibraryView.playlists => _buildPlaylistsContent(),
@@ -860,74 +929,38 @@ class _LibraryScreenState extends State<LibraryScreen> {
   }
 
   Widget _buildPlaylistsContent() {
-    final selectedPath = _selectedPlaylistPath;
-    final selectedFolder = selectedPath == null
-        ? null
-        : _library.folders
-              .where(
-                (folder) =>
-                    folder.kind == FolderKind.playlist &&
-                    folder.path == selectedPath,
-              )
-              .firstOrNull;
-    if (selectedFolder != null) {
-      final tracks = _tracksByFolder[selectedFolder.path] ?? const <Track>[];
-      final activePlaylistPlayback = _activePlaylistPlayback;
-      final playlistPlaybackActive =
-          activePlaylistPlayback?.folderPath == selectedFolder.path &&
-          _currentTrackForPlaylist(activePlaylistPlayback!) != null;
-      return PlaylistDetail(
-        folder: selectedFolder,
-        tracks: tracks,
-        trackCoverCache: _library.trackCoverCache,
-        playbackActive: playlistPlaybackActive,
-        playing: playlistPlaybackActive && _playback.playing,
-        onBack: () {
-          setState(() => _selectedPlaylistPath = null);
-          _restorePlaylistListScrollOffset();
-        },
-        onPlayAll: tracks.isEmpty
-            ? null
-            : () => unawaited(_playPlaylist(selectedFolder, tracks)),
-        onShuffleAll: tracks.isEmpty
-            ? null
-            : () => unawaited(_playPlaylistShuffled(selectedFolder, tracks)),
-        onPrevious: playlistPlaybackActive
-            ? () => unawaited(_playback.skip(-1, activePlaylistPlayback.tracks))
-            : null,
-        onTogglePlayback: playlistPlaybackActive
-            ? () => unawaited(
-                _playback.togglePlayPause(activePlaylistPlayback.tracks),
-              )
-            : null,
-        onNext: playlistPlaybackActive
-            ? () => unawaited(_playback.skip(1, activePlaylistPlayback.tracks))
-            : null,
-        onPlayTrack: (track) =>
-            unawaited(_playPlaylist(selectedFolder, tracks, startTrack: track)),
-      );
-    }
-
     return PlaylistList(
       folders: _playlistFolders,
       tracksByFolder: _tracksByFolder,
       trackCoverCache: _library.trackCoverCache,
       scrollController: _playlistListScrollController,
-      onOpen: _selectPlaylist,
+      keyboardShortcutsEnabled:
+          _activeAlbumPlayback == null && _activePlaylistOverlayPath == null,
+      onOpen: _openPlaylistPlayback,
     );
   }
 
-  void _selectPlaylist(FolderSummary folder) {
-    _savePlaylistListScrollOffset();
-    setState(() => _selectedPlaylistPath = folder.path);
+  FolderSummary? get _activePlaylistOverlayFolder {
+    final path = _activePlaylistOverlayPath;
+    if (path == null) {
+      return null;
+    }
+    return _playlistFolderForPath(path);
+  }
+
+  void _openPlaylistPlayback(FolderSummary folder) {
+    if (_view == LibraryView.playlists) {
+      _savePlaylistListScrollOffset();
+    }
+    setState(() {
+      _activePlaylistOverlayPath = folder.path;
+      _activeAlbumPlayback = null;
+    });
   }
 
   void _selectLibraryView(LibraryView view) {
     final currentView = _view;
-    final showingPlaylistList =
-        currentView == LibraryView.playlists && _selectedPlaylistPath == null;
-    if (currentView == view &&
-        (currentView == LibraryView.albums || showingPlaylistList)) {
+    if (currentView == view) {
       return;
     }
 
@@ -936,17 +969,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
     if (currentView == LibraryView.playlists &&
         view != LibraryView.playlists &&
-        _selectedPlaylistPath == null) {
+        _activePlaylistOverlayPath == null) {
       _savePlaylistListScrollOffset();
     }
-    setState(() {
-      _view = view;
-      _selectedPlaylistPath = null;
-    });
+    setState(() => _view = view);
     if (currentView != LibraryView.albums && view == LibraryView.albums) {
       _restoreAlbumGridScrollOffset();
     }
-    if (!showingPlaylistList && view == LibraryView.playlists) {
+    if (view == LibraryView.playlists && _activePlaylistOverlayPath == null) {
       _restorePlaylistListScrollOffset();
     }
   }
@@ -969,6 +999,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
   void _closeAlbumPlayback() {
     setState(() => _activeAlbumPlayback = null);
     _restoreAlbumGridScrollOffset();
+  }
+
+  void _closePlaylistPlayback() {
+    setState(() => _activePlaylistOverlayPath = null);
+    _restorePlaylistListScrollOffset();
   }
 
   Track? _currentTrackForAlbum(_ActiveAlbumPlayback albumPlayback) {
@@ -1024,7 +1059,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted ||
           _view != LibraryView.playlists ||
-          _selectedPlaylistPath != null ||
+          _activePlaylistOverlayPath != null ||
           !_playlistListScrollController.hasClients) {
         return;
       }

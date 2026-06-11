@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/playlist_views.dart';
@@ -32,6 +33,7 @@ void main() {
                         tracksByFolder: tracksByFolder,
                         trackCoverCache: const {},
                         scrollController: scrollController,
+                        keyboardShortcutsEnabled: true,
                         onOpen: (_) {},
                       )
                     : const SizedBox.shrink(),
@@ -51,6 +53,129 @@ void main() {
     await tester.pump();
 
     expect(scrollController.offset, closeTo(180, 0.1));
+  });
+
+  testWidgets('playlist row opens playback overlay entry', (tester) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final folders = _folders(2);
+    final tracksByFolder = {
+      for (final folder in folders)
+        folder.path: [
+          _track(folderPath: folder.path, title: 'Track One'),
+          _track(folderPath: folder.path, title: 'Track Two'),
+        ],
+    };
+    FolderSummary? opened;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 420,
+            child: PlaylistList(
+              folders: folders,
+              tracksByFolder: tracksByFolder,
+              trackCoverCache: const {},
+              scrollController: scrollController,
+              keyboardShortcutsEnabled: true,
+              onOpen: (folder) => opened = folder,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Playlist 0'), findsOneWidget);
+    expect(find.text('Track One · Artist'), findsWidgets);
+
+    await tester.tap(find.text('Playlist 0'));
+    await tester.pump();
+
+    expect(opened?.path, folders.first.path);
+  });
+
+  testWidgets('playlist row fits in a narrow layout', (tester) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final folders = _folders(1);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 360,
+            height: 260,
+            child: PlaylistList(
+              folders: folders,
+              tracksByFolder: {
+                folders.single.path: [
+                  _track(
+                    folderPath: folders.single.path,
+                    title: 'A Very Long Playlist Track Title',
+                  ),
+                ],
+              },
+              trackCoverCache: const {},
+              scrollController: scrollController,
+              keyboardShortcutsEnabled: true,
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('space and shift space page through the playlist list', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final folders = _folders(24);
+    final tracksByFolder = {
+      for (final folder in folders)
+        folder.path: [_track(folderPath: folder.path)],
+    };
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 360,
+            child: PlaylistList(
+              folders: folders,
+              tracksByFolder: tracksByFolder,
+              trackCoverCache: const {},
+              scrollController: scrollController,
+              keyboardShortcutsEnabled: true,
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(scrollController.offset, 0);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+
+    final pageDownOffset = scrollController.offset;
+    expect(pageDownOffset, greaterThan(0));
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+    await tester.pumpAndSettle();
+
+    expect(scrollController.offset, lessThan(pageDownOffset));
   });
 }
 
@@ -72,11 +197,11 @@ List<FolderSummary> _folders(int count) {
   ];
 }
 
-Track _track({required String folderPath}) {
+Track _track({required String folderPath, String title = 'Track One'}) {
   return Track(
     path: '$folderPath/01.flac',
     folderPath: folderPath,
-    title: 'Track One',
+    title: title,
     artist: 'Artist',
     album: 'Album One',
     albumArtist: 'Artist',
