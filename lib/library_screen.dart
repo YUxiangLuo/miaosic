@@ -335,20 +335,27 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (_rescanDialogOpen) {
       return;
     }
+    _library.prepareRescanDialog();
     _rescanDialogOpen = true;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (context) {
-        return RescanDialog(
-          stateListenable: _library.rescanState,
-          trackCoverCacheListenable: _library.trackCoverCacheListenable,
-          musicRoot: _library.musicRoot,
-          canEditMusicRoot: _library.canChangeMusicRoot,
-          onEditMusicRoot: _handleMusicRootPressed,
-          onApply: _applyPendingDiff,
-          onRescan: () => _library.startRescanDiff(),
-          onFullRescan: () => _library.startRescanDiff(full: true),
+        return AnimatedBuilder(
+          animation: _library,
+          builder: (context, _) {
+            return RescanDialog(
+              stateListenable: _library.rescanState,
+              trackCoverCacheListenable: _library.trackCoverCacheListenable,
+              musicRoot: _library.musicRoot,
+              canEditMusicRoot: _library.canChangeMusicRoot,
+              onEditMusicRoot: _handleMusicRootPressed,
+              onApply: _applyPendingDiff,
+              onScanLibrary: () => unawaited(_library.scanLibrary()),
+              onRescan: () => _library.startRescanDiff(),
+              onFullRescan: () => _library.startRescanDiff(full: true),
+            );
+          },
         );
       },
     ).whenComplete(() => _rescanDialogOpen = false);
@@ -375,8 +382,17 @@ class _LibraryScreenState extends State<LibraryScreen> {
     if (!mounted || nextRoot == null || nextRoot == _library.musicRoot) {
       return;
     }
+    final previousTrackPaths = _library.tracks
+        .map((track) => track.path)
+        .toSet();
     final changed = await _library.changeMusicRoot(nextRoot);
     if (mounted && changed) {
+      final currentTrackPaths = _library.tracks
+          .map((track) => track.path)
+          .toSet();
+      await _playback.stopIfCurrentRemoved(
+        previousTrackPaths.difference(currentTrackPaths),
+      );
       setState(() {
         _selectedPlaylistPath = null;
       });
@@ -412,7 +428,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
               FilledButton(
                 onPressed: () =>
                     _submitMusicRootDialog(context, controller.text),
-                child: const Text('Save and scan'),
+                child: const Text('Save and rescan'),
               ),
             ],
           );

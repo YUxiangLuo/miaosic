@@ -114,46 +114,11 @@ class LibraryController extends ChangeNotifier {
     if (database == null || _scanning || _disposed) {
       return;
     }
-
-    _coverIndexer.cancel();
-    _scanning = true;
-    _loading = false;
-    _error = null;
-    _scanProgress = ScanProgress(
-      filesSeen: 0,
-      tracksParsed: 0,
-      currentPath: _musicRoot,
+    await _replaceLibraryWithScan(
+      database,
+      message: 'Scanning music folder',
+      errorMessage: 'Music folder scan failed',
     );
-    _emit();
-
-    try {
-      final result = await _scanner.scan(
-        _musicRoot,
-        onProgress: (progress) {
-          if (_disposed) {
-            return;
-          }
-          _scanProgress = progress;
-          _emit();
-        },
-      );
-      if (_disposed) {
-        return;
-      }
-      await database.replaceLibrary(result);
-      if (_disposed) {
-        return;
-      }
-      await _loadFromDatabase();
-    } catch (error) {
-      _setError(error.toString());
-    } finally {
-      if (!_disposed) {
-        _scanning = false;
-        _scanProgress = null;
-        _emit();
-      }
-    }
   }
 
   void startRescanDiff({bool full = false}) {
@@ -165,12 +130,26 @@ class LibraryController extends ChangeNotifier {
     });
   }
 
+  void prepareRescanDialog() {
+    final state = rescanState.value;
+    if (state.mode == LibraryScanMode.direct &&
+        state.phase == RescanPhase.done &&
+        _tracks.isNotEmpty) {
+      rescanState.value = const RescanUiState(phase: RescanPhase.idle);
+    }
+  }
+
   Future<LibraryDiff?> applyPendingDiff({
     required LargeDeletionConfirmation confirmLargeDeletion,
   }) async {
     final database = _database;
-    final diff = rescanState.value.diff;
-    if (database == null || diff == null || !diff.hasChanges || _disposed) {
+    final state = rescanState.value;
+    final diff = state.diff;
+    if (database == null ||
+        state.mode != LibraryScanMode.diff ||
+        diff == null ||
+        !diff.hasChanges ||
+        _disposed) {
       return null;
     }
 
@@ -227,16 +206,100 @@ class LibraryController extends ChangeNotifier {
       return false;
     }
 
-    await database.saveMusicRoot(nextRoot);
+    await database.saveMusicRootAndClearLibrary(nextRoot);
     if (_disposed) {
       return false;
     }
-    _coverIndexer.cancel();
     _musicRoot = nextRoot;
     _error = null;
+    _clearLoadedLibraryState(clearLastPlayback: true);
     _emit();
-    await scanLibrary();
+
+    await _replaceLibraryWithScan(
+      database,
+      message: 'Scanning new music folder',
+      errorMessage: 'Music folder scan failed',
+    );
     return true;
+  }
+
+  Future<bool> _replaceLibraryWithScan(
+    LibraryDatabase database, {
+    required String message,
+    required String errorMessage,
+  }) async {
+    _coverIndexer.cancel();
+    _scanning = true;
+    _loading = false;
+    _error = null;
+    _scanProgress = ScanProgress(
+      filesSeen: 0,
+      tracksParsed: 0,
+      currentPath: _musicRoot,
+    );
+    rescanState.value = RescanUiState(
+      mode: LibraryScanMode.direct,
+      phase: RescanPhase.scanning,
+      message: message,
+      progress: _scanProgress,
+    );
+    _emit();
+
+    try {
+      final result = await _scanner.scan(
+        _musicRoot,
+        onProgress: (progress) {
+          if (_disposed) {
+            return;
+          }
+          _scanProgress = progress;
+          rescanState.value = RescanUiState(
+            mode: LibraryScanMode.direct,
+            phase: RescanPhase.scanning,
+            message: message,
+            progress: progress,
+          );
+          _emit();
+        },
+      );
+      if (_disposed) {
+        return false;
+      }
+      await database.replaceLibrary(result);
+      if (_disposed) {
+        return false;
+      }
+      await _loadFromDatabase();
+      if (_disposed) {
+        return false;
+      }
+      rescanState.value = const RescanUiState(
+        mode: LibraryScanMode.direct,
+        phase: RescanPhase.done,
+        message: 'Library refreshed',
+      );
+      _emit();
+      return true;
+    } catch (error) {
+      if (!_disposed) {
+        final message = error.toString();
+        _error = message;
+        rescanState.value = RescanUiState(
+          mode: LibraryScanMode.direct,
+          phase: RescanPhase.error,
+          message: errorMessage,
+          error: message,
+        );
+        _emit();
+      }
+      return false;
+    } finally {
+      if (!_disposed) {
+        _scanning = false;
+        _scanProgress = null;
+        _emit();
+      }
+    }
   }
 
   Future<void> saveLastPlayback(LastPlaybackState state) async {
@@ -498,6 +561,17 @@ class LibraryController extends ChangeNotifier {
     if (!_disposed) {
       trackCoverCacheListenable.value = nextCache;
     }
+  }
+
+  void _clearLoadedLibraryState({required bool clearLastPlayback}) {
+    _tracks = const [];
+    _folders = const [];
+    _albums = const [];
+    _scanState = null;
+    if (clearLastPlayback) {
+      _lastPlayback = null;
+    }
+    _setTrackCoverCache(const {});
   }
 
   void _setError(String error, {bool? loading}) {
