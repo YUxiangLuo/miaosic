@@ -62,6 +62,7 @@ add_dependencies(${BINARY_NAME} flutter_assemble)
 
 # Build the Rust scanner core and bundle it beside the other native libraries.
 set(MUSIC_CORE_DIR "${CMAKE_SOURCE_DIR}/../native/music_core")
+file(GLOB MUSIC_CORE_SOURCES CONFIGURE_DEPENDS "${MUSIC_CORE_DIR}/src/*.rs")
 if(CMAKE_BUILD_TYPE MATCHES "Debug")
   set(MUSIC_CORE_CARGO_ARGS "")
   set(MUSIC_CORE_LIBRARY "${MUSIC_CORE_DIR}/target/debug/libmusic_core.so")
@@ -73,7 +74,7 @@ endif()
 add_custom_command(
   OUTPUT "${MUSIC_CORE_LIBRARY}"
   COMMAND cargo build --manifest-path "${MUSIC_CORE_DIR}/Cargo.toml" ${MUSIC_CORE_CARGO_ARGS}
-  DEPENDS "${MUSIC_CORE_DIR}/Cargo.toml" "${MUSIC_CORE_DIR}/src/lib.rs"
+  DEPENDS "${MUSIC_CORE_DIR}/Cargo.toml" ${MUSIC_CORE_SOURCES}
   WORKING_DIRECTORY "${MUSIC_CORE_DIR}"
   COMMENT "Building Rust music_core"
   VERBATIM

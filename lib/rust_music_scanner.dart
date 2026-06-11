@@ -1,11 +1,10 @@
 import 'dart:convert';
 import 'dart:ffi';
-import 'dart:io';
 
 import 'package:ffi/ffi.dart';
-import 'package:path/path.dart' as p;
 
 import 'models.dart';
+import 'rust_library.dart';
 
 typedef _ScanLibraryNative =
     Pointer<Utf8> Function(Pointer<Utf8> rootPath, Pointer<Utf8> coverCacheDir);
@@ -83,7 +82,7 @@ class RustMusicScanner {
       _scanLibraryIncrementalWithProgress != null;
 
   static RustMusicScanner? tryLoad() {
-    for (final candidate in _libraryCandidates()) {
+    for (final candidate in musicCoreLibraryCandidates()) {
       try {
         return RustMusicScanner._(DynamicLibrary.open(candidate));
       } catch (_) {
@@ -265,45 +264,6 @@ class RustMusicScanner {
     } catch (_) {
       return null;
     }
-  }
-
-  static List<String> _libraryCandidates() {
-    if (!Platform.isLinux) {
-      return const [];
-    }
-
-    final executableDir = p.dirname(Platform.resolvedExecutable);
-    final cwd = Directory.current.path;
-    return [
-      'libmusic_core.so',
-      p.join(executableDir, 'lib', 'libmusic_core.so'),
-      p.join(
-        cwd,
-        'native',
-        'music_core',
-        'target',
-        'debug',
-        'libmusic_core.so',
-      ),
-      p.join(
-        cwd,
-        'native',
-        'music_core',
-        'target',
-        'release',
-        'libmusic_core.so',
-      ),
-      p.join(
-        cwd,
-        'build',
-        'linux',
-        'x64',
-        'debug',
-        'bundle',
-        'lib',
-        'libmusic_core.so',
-      ),
-    ];
   }
 }
 

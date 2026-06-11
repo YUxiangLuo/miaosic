@@ -9,6 +9,8 @@ use std::path::{Path, PathBuf};
 use std::time::Instant;
 use walkdir::WalkDir;
 
+mod playback;
+
 const MAX_COVER_BYTES: usize = 5 * 1024 * 1024;
 const PROGRESS_INTERVAL: u64 = 25;
 type ProgressCallback =
