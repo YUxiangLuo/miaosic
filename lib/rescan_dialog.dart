@@ -555,6 +555,13 @@ class _RescanBody extends StatelessWidget {
         subtitle: 'Press Rescan to compare the library with local files',
       );
     }
+    if (state.phase == RescanPhase.done && diff == null) {
+      return const _EmptyReview(
+        icon: Icons.check_circle_outline,
+        title: 'Library refreshed',
+        subtitle: 'Press Rescan to compare the library again',
+      );
+    }
     if (diff == null) {
       return const _EmptyReview(
         icon: Icons.sync,

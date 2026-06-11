@@ -131,6 +131,30 @@ void main() {
     expect(find.text('Library is up to date'), findsWidgets);
   });
 
+  testWidgets('applied diff done state does not show stale review', (
+    tester,
+  ) async {
+    final state = ValueNotifier(
+      const RescanUiState(
+        phase: RescanPhase.done,
+        message: 'Library refreshed',
+      ),
+    );
+
+    await tester.pumpWidget(_DialogHost(state: state));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Library refreshed'), findsWidgets);
+    expect(find.text('Scanning library'), findsNothing);
+    expect(find.textContaining('Added'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Apply'), findsOneWidget);
+    final applyButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Apply'),
+    );
+    expect(applyButton.onPressed, isNull);
+  });
+
   testWidgets('direct scan mode hides diff actions', (tester) async {
     final state = ValueNotifier(
       const RescanUiState(

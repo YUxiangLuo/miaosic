@@ -132,8 +132,8 @@ class LibraryController extends ChangeNotifier {
 
   void prepareRescanDialog() {
     final state = rescanState.value;
-    if (state.mode == LibraryScanMode.direct &&
-        state.phase == RescanPhase.done &&
+    if (state.phase == RescanPhase.done &&
+        state.diff == null &&
         _tracks.isNotEmpty) {
       rescanState.value = const RescanUiState(phase: RescanPhase.idle);
     }
@@ -176,7 +176,7 @@ class LibraryController extends ChangeNotifier {
       if (_disposed) {
         return null;
       }
-      rescanState.value = rescanState.value.copyWith(
+      rescanState.value = const RescanUiState(
         phase: RescanPhase.done,
         message: 'Library refreshed',
       );

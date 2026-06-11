@@ -136,6 +136,56 @@ void main() {
     }
   });
 
+  test('applying pending diff clears the applied diff state', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_apply_diff_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final track = _track('/music/root/a.flac');
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.replaceLibrary(_scanResult([track]));
+    await seedDatabase.close();
+
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: _FakeMusicScanner((
+        rootPath, {
+        onProgress,
+        previousTracks,
+      }) async {
+        fail('open should load the seeded library without scanning');
+      }),
+      coverIndexer: _NoopTrackCoverIndexer(),
+    );
+
+    try {
+      await controller.open();
+      final diff = _diff(hasChanges: true);
+      controller.rescanState.value = RescanUiState(
+        phase: RescanPhase.ready,
+        diff: diff,
+      );
+
+      final applied = await controller.applyPendingDiff(
+        confirmLargeDeletion: (_) async => true,
+      );
+
+      expect(applied, same(diff));
+      expect(controller.rescanState.value.mode, LibraryScanMode.diff);
+      expect(controller.rescanState.value.phase, RescanPhase.done);
+      expect(controller.rescanState.value.message, 'Library refreshed');
+      expect(controller.rescanState.value.diff, isNull);
+
+      controller.prepareRescanDialog();
+      expect(controller.rescanState.value.phase, RescanPhase.idle);
+      expect(controller.rescanState.value.diff, isNull);
+    } finally {
+      controller.dispose();
+      await dir.delete(recursive: true);
+    }
+  });
+
   test(
     'changing music root scans immediately and clears pending diff',
     () async {
