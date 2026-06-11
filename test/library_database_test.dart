@@ -63,6 +63,63 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  test(
+    'changing music root clears library state but keeps preferences',
+    () async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+
+      final dir = await Directory.systemTemp.createTemp(
+        'miaosic_root_clear_test_',
+      );
+      final dbPath = '${dir.path}/miaosic.db';
+      final database = await LibraryDatabase.openAtPath(dbPath);
+      final track = _track(
+        '/old/root/a.flac',
+        size: 10,
+        modified: 1,
+        cover: '/cache/folder.jpg',
+      );
+      const playback = LastPlaybackState(
+        kind: LastPlaybackKind.album,
+        folderPath: '/old/root',
+        trackPath: '/old/root/a.flac',
+        playing: true,
+        shuffled: false,
+      );
+
+      await database.saveMusicRoot('/old/root');
+      await database.saveThemeMode('dark');
+      await database.saveLastPlayback(playback);
+      await database.replaceLibrary(
+        _scanResult([track], rootPath: '/old/root'),
+      );
+      await database.saveTrackCoverCache([
+        TrackCoverCacheEntry(
+          path: track.path,
+          sizeBytes: track.sizeBytes,
+          modifiedMs: track.modifiedMs,
+          coverArtPath: '/cache/track.jpg',
+        ),
+      ]);
+
+      await database.saveMusicRootAndClearLibrary('/new/root');
+
+      expect(await database.loadMusicRoot(), '/new/root');
+      expect(await database.loadThemeMode(), 'dark');
+      expect(await database.loadTracks(), isEmpty);
+      expect(await database.loadFolders(), isEmpty);
+      expect(await database.loadAlbums(), isEmpty);
+      expect(await database.loadScanState(), isNull);
+      expect(await database.loadLastPlayback(), isNull);
+      expect(await database.loadTrackCoverCache([track]), isEmpty);
+      expect(await database.loadReferencedCoverArtPaths(), isEmpty);
+
+      await database.close();
+      await dir.delete(recursive: true);
+    },
+  );
+
   test('persists theme mode', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -421,9 +478,13 @@ Future<Set<String>> _tables(Database db) async {
   return rows.map((row) => row['name'] as String).toSet();
 }
 
-ScanResult _scanResult(List<Track> tracks, {Duration elapsed = Duration.zero}) {
+ScanResult _scanResult(
+  List<Track> tracks, {
+  Duration elapsed = Duration.zero,
+  String rootPath = '/music',
+}) {
   return ScanResult(
-    rootPath: '/music',
+    rootPath: rootPath,
     engine: 'test',
     tracks: tracks,
     folders: const [],

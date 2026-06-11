@@ -17,6 +17,7 @@ class RescanDialog extends StatefulWidget {
     required this.canEditMusicRoot,
     required this.onEditMusicRoot,
     required this.onApply,
+    required this.onScanLibrary,
     required this.onRescan,
     required this.onFullRescan,
   });
@@ -27,6 +28,7 @@ class RescanDialog extends StatefulWidget {
   final bool canEditMusicRoot;
   final VoidCallback onEditMusicRoot;
   final Future<bool> Function() onApply;
+  final VoidCallback onScanLibrary;
   final VoidCallback onRescan;
   final VoidCallback onFullRescan;
 
@@ -53,8 +55,10 @@ class _RescanDialogState extends State<RescanDialog> {
       builder: (context, state, _) {
         final busy = state.phase.isBusy;
         final applying = state.phase == RescanPhase.applying;
+        final mode = state.mode;
         final diff = state.diff;
         final canApply =
+            mode == LibraryScanMode.diff &&
             state.phase == RescanPhase.ready &&
             !busy &&
             diff != null &&
@@ -72,7 +76,7 @@ class _RescanDialogState extends State<RescanDialog> {
             child: AlertDialog(
               title: Row(
                 children: [
-                  const Expanded(child: Text('Rescan library')),
+                  Expanded(child: Text(_dialogTitle(mode))),
                   IconButton(
                     tooltip: 'Close',
                     onPressed: applying ? null : _close,
@@ -97,6 +101,7 @@ class _RescanDialogState extends State<RescanDialog> {
                     const SizedBox(height: 14),
                     Expanded(
                       child: _RescanBody(
+                        mode: mode,
                         state: state,
                         trackCoverCacheListenable:
                             widget.trackCoverCacheListenable,
@@ -106,9 +111,11 @@ class _RescanDialogState extends State<RescanDialog> {
                     const Divider(height: 1),
                     const SizedBox(height: 12),
                     _RescanActions(
+                      mode: mode,
                       busy: busy,
                       canApply: canApply,
                       phase: state.phase,
+                      onScanLibrary: widget.onScanLibrary,
                       onRescan: widget.onRescan,
                       onFullRescan: widget.onFullRescan,
                       onApply: _applyAndClose,
@@ -122,27 +129,54 @@ class _RescanDialogState extends State<RescanDialog> {
       },
     );
   }
+
+  String _dialogTitle(LibraryScanMode mode) {
+    return switch (mode) {
+      LibraryScanMode.direct => 'Scan library',
+      LibraryScanMode.diff => 'Rescan library',
+    };
+  }
 }
 
 class _RescanActions extends StatelessWidget {
   const _RescanActions({
+    required this.mode,
     required this.busy,
     required this.canApply,
     required this.phase,
+    required this.onScanLibrary,
     required this.onRescan,
     required this.onFullRescan,
     required this.onApply,
   });
 
+  final LibraryScanMode mode;
   final bool busy;
   final bool canApply;
   final RescanPhase phase;
+  final VoidCallback onScanLibrary;
   final VoidCallback onRescan;
   final VoidCallback onFullRescan;
   final Future<void> Function() onApply;
 
   @override
   Widget build(BuildContext context) {
+    if (mode == LibraryScanMode.direct) {
+      return Row(
+        children: [
+          const Spacer(),
+          FilledButton.tonalIcon(
+            onPressed: busy ? null : onScanLibrary,
+            icon: Icon(
+              phase == RescanPhase.error ? Icons.refresh : Icons.sync,
+              size: 18,
+            ),
+            label: Text(_directScanActionLabel(phase)),
+          ),
+        ],
+      );
+    }
+
     return Row(
       children: [
         TextButton.icon(
@@ -168,6 +202,14 @@ class _RescanActions extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  String _directScanActionLabel(RescanPhase phase) {
+    return switch (phase) {
+      RescanPhase.error => 'Retry scan',
+      RescanPhase.done => 'Scan again',
+      _ => 'Scan',
+    };
   }
 }
 
@@ -278,7 +320,7 @@ class _RescanStatus extends StatelessWidget {
                     children: [
                       Text(
                         state.message.isEmpty
-                            ? _phaseLabel(state.phase)
+                            ? _phaseLabel(state.mode, state.phase)
                             : state.message,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -303,7 +345,7 @@ class _RescanStatus extends StatelessWidget {
               const SizedBox(height: 12),
               const LinearProgressIndicator(value: null, minHeight: 3),
             ],
-            if (diff != null) ...[
+            if (state.mode == LibraryScanMode.diff && diff != null) ...[
               const SizedBox(height: 14),
               _DiffStats(diff: diff),
             ],
@@ -336,16 +378,25 @@ class _RescanStatus extends StatelessWidget {
     };
   }
 
-  String _phaseLabel(RescanPhase phase) {
-    return switch (phase) {
-      RescanPhase.idle => 'Ready to rescan',
-      RescanPhase.loadingDatabase => 'Loading current library snapshot',
-      RescanPhase.scanning => 'Scanning local files',
-      RescanPhase.diffing => 'Comparing scan with database',
-      RescanPhase.ready => 'Review changes before applying',
-      RescanPhase.applying => 'Applying library changes',
-      RescanPhase.done => 'Library refreshed',
-      RescanPhase.error => 'Rescan failed',
+  String _phaseLabel(LibraryScanMode mode, RescanPhase phase) {
+    return switch (mode) {
+      LibraryScanMode.direct => switch (phase) {
+        RescanPhase.idle => 'Ready to scan library',
+        RescanPhase.scanning => 'Scanning music folder',
+        RescanPhase.done => 'Library refreshed',
+        RescanPhase.error => 'Scan failed',
+        _ => 'Scanning music folder',
+      },
+      LibraryScanMode.diff => switch (phase) {
+        RescanPhase.idle => 'Ready to rescan',
+        RescanPhase.loadingDatabase => 'Loading current library snapshot',
+        RescanPhase.scanning => 'Scanning local files',
+        RescanPhase.diffing => 'Comparing scan with database',
+        RescanPhase.ready => 'Review changes before applying',
+        RescanPhase.applying => 'Applying library changes',
+        RescanPhase.done => 'Library refreshed',
+        RescanPhase.error => 'Rescan failed',
+      },
     };
   }
 }
@@ -475,16 +526,21 @@ class _ErrorBanner extends StatelessWidget {
 
 class _RescanBody extends StatelessWidget {
   const _RescanBody({
+    required this.mode,
     required this.state,
     required this.trackCoverCacheListenable,
   });
 
+  final LibraryScanMode mode;
   final RescanUiState state;
   final ValueListenable<Map<String, String?>> trackCoverCacheListenable;
 
   @override
   Widget build(BuildContext context) {
     final diff = state.diff;
+    if (mode == LibraryScanMode.direct) {
+      return _buildDirectScanBody();
+    }
     if (state.phase == RescanPhase.error) {
       return const _EmptyReview(
         icon: Icons.error_outline,
@@ -497,6 +553,13 @@ class _RescanBody extends StatelessWidget {
         icon: Icons.storage,
         title: 'Ready to rescan',
         subtitle: 'Press Rescan to compare the library with local files',
+      );
+    }
+    if (state.phase == RescanPhase.done && diff == null) {
+      return const _EmptyReview(
+        icon: Icons.check_circle_outline,
+        title: 'Library refreshed',
+        subtitle: 'Press Rescan to compare the library again',
       );
     }
     if (diff == null) {
@@ -519,6 +582,31 @@ class _RescanBody extends StatelessWidget {
         return _ChangeReview(diff: diff, trackCoverCache: trackCoverCache);
       },
     );
+  }
+
+  Widget _buildDirectScanBody() {
+    return switch (state.phase) {
+      RescanPhase.error => const _EmptyReview(
+        icon: Icons.error_outline,
+        title: 'Scan failed',
+        subtitle: 'Fix the music folder and retry the scan',
+      ),
+      RescanPhase.done => const _EmptyReview(
+        icon: Icons.check_circle_outline,
+        title: 'Library refreshed',
+        subtitle: 'The selected music folder has been scanned',
+      ),
+      RescanPhase.idle => const _EmptyReview(
+        icon: Icons.storage,
+        title: 'Ready to scan',
+        subtitle: 'Press Scan to build the local library',
+      ),
+      _ => const _EmptyReview(
+        icon: Icons.sync,
+        title: 'Scanning library',
+        subtitle: 'The library will update automatically when scanning ends',
+      ),
+    };
   }
 }
 

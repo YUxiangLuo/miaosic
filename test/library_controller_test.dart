@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_database.dart';
+import 'package:miaosic/library_diff.dart';
 import 'package:miaosic/library_types.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/music_scanner.dart';
@@ -58,6 +59,8 @@ void main() {
       expect(controller.musicRoot, '/music/root');
       expect(controller.themeMode, 'dark');
       expect(controller.tracks.single.path, '/music/root/a.flac');
+      expect(controller.rescanState.value.mode, LibraryScanMode.direct);
+      expect(controller.rescanState.value.phase, RescanPhase.done);
       expect(controller.lastPlayback?.kind, LastPlaybackKind.album);
       expect(controller.lastPlayback?.folderPath, lastPlayback.folderPath);
       expect(controller.lastPlayback?.trackPath, lastPlayback.trackPath);
@@ -132,6 +135,236 @@ void main() {
       await dir.delete(recursive: true);
     }
   });
+
+  test('applying pending diff clears the applied diff state', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_apply_diff_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final track = _track('/music/root/a.flac');
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.replaceLibrary(_scanResult([track]));
+    await seedDatabase.close();
+
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: _FakeMusicScanner((
+        rootPath, {
+        onProgress,
+        previousTracks,
+      }) async {
+        fail('open should load the seeded library without scanning');
+      }),
+      coverIndexer: _NoopTrackCoverIndexer(),
+    );
+
+    try {
+      await controller.open();
+      final diff = _diff(hasChanges: true);
+      controller.rescanState.value = RescanUiState(
+        phase: RescanPhase.ready,
+        diff: diff,
+      );
+
+      final applied = await controller.applyPendingDiff(
+        confirmLargeDeletion: (_) async => true,
+      );
+
+      expect(applied, same(diff));
+      expect(controller.rescanState.value.mode, LibraryScanMode.diff);
+      expect(controller.rescanState.value.phase, RescanPhase.done);
+      expect(controller.rescanState.value.message, 'Library refreshed');
+      expect(controller.rescanState.value.diff, isNull);
+
+      controller.prepareRescanDialog();
+      expect(controller.rescanState.value.phase, RescanPhase.idle);
+      expect(controller.rescanState.value.diff, isNull);
+    } finally {
+      controller.dispose();
+      await dir.delete(recursive: true);
+    }
+  });
+
+  test(
+    'changing music root scans immediately and clears pending diff',
+    () async {
+      final dir = await Directory.systemTemp.createTemp(
+        'miaosic_controller_change_root_test_',
+      );
+      final oldRoot = Directory('${dir.path}/old');
+      final newRoot = Directory('${dir.path}/new');
+      await oldRoot.create();
+      await newRoot.create();
+      final dbPath = '${dir.path}/miaosic.db';
+      final oldTrack = _track('${oldRoot.path}/old.flac');
+      final newTrack = _track('${newRoot.path}/new.flac');
+      const oldPlayback = LastPlaybackState(
+        kind: LastPlaybackKind.album,
+        folderPath: '/old/album',
+        trackPath: '/old/album/old.flac',
+        playing: true,
+        shuffled: false,
+      );
+
+      final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+      await seedDatabase.saveMusicRoot(oldRoot.path);
+      await seedDatabase.saveLastPlayback(oldPlayback);
+      await seedDatabase.replaceLibrary(
+        _scanResult([oldTrack], rootPath: oldRoot.path),
+      );
+      await seedDatabase.saveTrackCoverCache([
+        TrackCoverCacheEntry(
+          path: oldTrack.path,
+          sizeBytes: oldTrack.sizeBytes,
+          modifiedMs: oldTrack.modifiedMs,
+          coverArtPath: '/cache/old.jpg',
+        ),
+      ]);
+      await seedDatabase.close();
+
+      late final LibraryController controller;
+      controller = LibraryController(
+        openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+        scanner: _FakeMusicScanner((
+          rootPath, {
+          onProgress,
+          previousTracks,
+        }) async {
+          if (rootPath == oldRoot.path) {
+            return _scanResult([oldTrack], rootPath: oldRoot.path);
+          }
+          expect(rootPath, newRoot.path);
+          expect(previousTracks, isNull);
+          expect(controller.tracks, isEmpty);
+          expect(controller.folders, isEmpty);
+          expect(controller.albums, isEmpty);
+          expect(controller.lastPlayback, isNull);
+          expect(controller.trackCoverCache, isEmpty);
+          onProgress?.call(
+            ScanProgress(
+              filesSeen: 1,
+              tracksParsed: 1,
+              currentPath: newTrack.path,
+            ),
+          );
+          expect(controller.rescanState.value.mode, LibraryScanMode.direct);
+          expect(controller.rescanState.value.phase, RescanPhase.scanning);
+          expect(controller.rescanState.value.diff, isNull);
+          return _scanResult([newTrack], rootPath: newRoot.path);
+        }),
+        coverIndexer: _NoopTrackCoverIndexer(),
+      );
+
+      try {
+        await controller.open();
+        expect(controller.tracks.single.path, oldTrack.path);
+        expect(controller.lastPlayback?.trackPath, oldPlayback.trackPath);
+        controller.rescanState.value = RescanUiState(
+          phase: RescanPhase.ready,
+          diff: _diff(hasChanges: true, rootPath: oldRoot.path),
+        );
+
+        final changed = await controller.changeMusicRoot(newRoot.path);
+
+        expect(changed, isTrue);
+        expect(controller.musicRoot, newRoot.path);
+        expect(controller.tracks.single.path, newTrack.path);
+        expect(controller.rescanState.value.mode, LibraryScanMode.direct);
+        expect(controller.rescanState.value.phase, RescanPhase.done);
+        expect(controller.rescanState.value.diff, isNull);
+        expect(controller.rescanState.value.progress, isNull);
+        expect(controller.scanning, isFalse);
+
+        final applied = await controller.applyPendingDiff(
+          confirmLargeDeletion: (_) async => true,
+        );
+        expect(applied, isNull);
+
+        controller.prepareRescanDialog();
+        expect(controller.rescanState.value.mode, LibraryScanMode.diff);
+        expect(controller.rescanState.value.phase, RescanPhase.idle);
+
+        final reopened = await LibraryDatabase.openAtPath(dbPath);
+        addTearDown(reopened.close);
+        expect(await reopened.loadMusicRoot(), newRoot.path);
+        expect((await reopened.loadTracks()).single.path, newTrack.path);
+        expect(await reopened.loadLastPlayback(), isNull);
+        expect(await reopened.loadTrackCoverCache([oldTrack]), isEmpty);
+      } finally {
+        controller.dispose();
+        await dir.delete(recursive: true);
+      }
+    },
+  );
+
+  test('changing music root still succeeds when the new scan fails', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_change_root_failure_test_',
+    );
+    final oldRoot = Directory('${dir.path}/old');
+    final newRoot = Directory('${dir.path}/new');
+    await oldRoot.create();
+    await newRoot.create();
+    final dbPath = '${dir.path}/miaosic.db';
+    final oldTrack = _track('${oldRoot.path}/old.flac');
+
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    await seedDatabase.saveMusicRoot(oldRoot.path);
+    await seedDatabase.saveLastPlayback(
+      LastPlaybackState(
+        kind: LastPlaybackKind.album,
+        folderPath: oldRoot.path,
+        trackPath: oldTrack.path,
+        playing: true,
+        shuffled: false,
+      ),
+    );
+    await seedDatabase.replaceLibrary(
+      _scanResult([oldTrack], rootPath: oldRoot.path),
+    );
+    await seedDatabase.close();
+
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: _FakeMusicScanner((
+        rootPath, {
+        onProgress,
+        previousTracks,
+      }) async {
+        if (rootPath == oldRoot.path) {
+          return _scanResult([oldTrack], rootPath: oldRoot.path);
+        }
+        expect(rootPath, newRoot.path);
+        expect(previousTracks, isNull);
+        throw StateError('scan failed');
+      }),
+      coverIndexer: _NoopTrackCoverIndexer(),
+    );
+
+    try {
+      await controller.open();
+
+      final changed = await controller.changeMusicRoot(newRoot.path);
+
+      expect(changed, isTrue);
+      expect(controller.musicRoot, newRoot.path);
+      expect(controller.tracks, isEmpty);
+      expect(controller.lastPlayback, isNull);
+      expect(controller.rescanState.value.mode, LibraryScanMode.direct);
+      expect(controller.rescanState.value.phase, RescanPhase.error);
+      expect(controller.error, contains('scan failed'));
+
+      final reopened = await LibraryDatabase.openAtPath(dbPath);
+      addTearDown(reopened.close);
+      expect(await reopened.loadMusicRoot(), newRoot.path);
+      expect(await reopened.loadTracks(), isEmpty);
+      expect(await reopened.loadLastPlayback(), isNull);
+    } finally {
+      controller.dispose();
+      await dir.delete(recursive: true);
+    }
+  });
 }
 
 typedef _ScanHandler =
@@ -178,15 +411,36 @@ class _NoopTrackCoverIndexer extends TrackCoverIndexer {
 ScanResult _scanResult(
   List<Track> tracks, {
   List<FolderSummary> folders = const [],
+  String rootPath = '/music/root',
 }) {
   return ScanResult(
-    rootPath: '/music/root',
+    rootPath: rootPath,
     engine: 'test',
     tracks: tracks,
     folders: folders,
     albums: const [],
     elapsed: Duration.zero,
     coversCached: 0,
+  );
+}
+
+LibraryDiff _diff({required bool hasChanges, String rootPath = '/music/root'}) {
+  final track = _track('$rootPath/diff.flac');
+  return LibraryDiff(
+    added: hasChanges
+        ? [
+            TrackChange(
+              path: track.path,
+              oldTrack: null,
+              newTrack: track,
+              reason: TrackChangeReason.added,
+            ),
+          ]
+        : const [],
+    removed: const [],
+    modified: const [],
+    unchangedCount: hasChanges ? 0 : 1,
+    result: _scanResult([if (hasChanges) track], rootPath: rootPath),
   );
 }
 

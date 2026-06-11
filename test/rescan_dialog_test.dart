@@ -131,6 +131,61 @@ void main() {
     expect(find.text('Library is up to date'), findsWidgets);
   });
 
+  testWidgets('applied diff done state does not show stale review', (
+    tester,
+  ) async {
+    final state = ValueNotifier(
+      const RescanUiState(
+        phase: RescanPhase.done,
+        message: 'Library refreshed',
+      ),
+    );
+
+    await tester.pumpWidget(_DialogHost(state: state));
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Library refreshed'), findsWidgets);
+    expect(find.text('Scanning library'), findsNothing);
+    expect(find.textContaining('Added'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Apply'), findsOneWidget);
+    final applyButton = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Apply'),
+    );
+    expect(applyButton.onPressed, isNull);
+  });
+
+  testWidgets('direct scan mode hides diff actions', (tester) async {
+    final state = ValueNotifier(
+      const RescanUiState(
+        mode: LibraryScanMode.direct,
+        phase: RescanPhase.error,
+        message: 'Music folder scan failed',
+        error: 'missing folder',
+      ),
+    );
+    var scanCount = 0;
+
+    await tester.pumpWidget(
+      _DialogHost(state: state, onScanLibrary: () => scanCount += 1),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Scan library'), findsOneWidget);
+    expect(find.text('Rescan library'), findsNothing);
+    expect(find.text('Scan failed'), findsOneWidget);
+    expect(find.text('missing folder'), findsOneWidget);
+    expect(find.widgetWithText(TextButton, 'Full rescan'), findsNothing);
+    expect(find.widgetWithText(FilledButton, 'Apply'), findsNothing);
+    expect(find.text('Retry scan'), findsOneWidget);
+
+    await tester.tap(find.text('Retry scan'));
+    await tester.pump();
+
+    expect(scanCount, 1);
+  });
+
   testWidgets('escape closes rescan dialog', (tester) async {
     final state = ValueNotifier(const RescanUiState(phase: RescanPhase.idle));
 
@@ -149,6 +204,7 @@ class _DialogHost extends StatelessWidget {
   const _DialogHost({
     required this.state,
     this.onApply,
+    this.onScanLibrary,
     this.onEditMusicRoot,
     this.onRescan,
     this.onFullRescan,
@@ -156,6 +212,7 @@ class _DialogHost extends StatelessWidget {
 
   final ValueNotifier<RescanUiState> state;
   final Future<bool> Function()? onApply;
+  final VoidCallback? onScanLibrary;
   final VoidCallback? onEditMusicRoot;
   final VoidCallback? onRescan;
   final VoidCallback? onFullRescan;
@@ -180,6 +237,7 @@ class _DialogHost extends StatelessWidget {
                         canEditMusicRoot: true,
                         onEditMusicRoot: onEditMusicRoot ?? () {},
                         onApply: onApply ?? () async => true,
+                        onScanLibrary: onScanLibrary ?? () {},
                         onRescan: onRescan ?? () {},
                         onFullRescan: onFullRescan ?? () {},
                       );

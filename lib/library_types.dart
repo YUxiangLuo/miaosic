@@ -31,8 +31,11 @@ enum RescanPhase {
   }
 }
 
+enum LibraryScanMode { direct, diff }
+
 class RescanUiState {
   const RescanUiState({
+    this.mode = LibraryScanMode.diff,
     required this.phase,
     this.message = '',
     this.progress,
@@ -40,6 +43,7 @@ class RescanUiState {
     this.error,
   });
 
+  final LibraryScanMode mode;
   final RescanPhase phase;
   final String message;
   final ScanProgress? progress;
@@ -47,6 +51,7 @@ class RescanUiState {
   final String? error;
 
   RescanUiState copyWith({
+    LibraryScanMode? mode,
     RescanPhase? phase,
     String? message,
     ScanProgress? progress,
@@ -54,6 +59,7 @@ class RescanUiState {
     String? error,
   }) {
     return RescanUiState(
+      mode: mode ?? this.mode,
       phase: phase ?? this.phase,
       message: message ?? this.message,
       progress: progress,
