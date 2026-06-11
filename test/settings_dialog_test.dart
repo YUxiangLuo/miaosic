@@ -6,6 +6,12 @@ import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/llm_settings.dart';
 import 'package:miaosic/settings_dialog.dart';
 
+const _systemAudioSettings = AudioOutputSettings(
+  mode: AudioOutputMode.systemServer,
+  deviceName: AudioOutputSettings.autoDeviceName,
+  deviceDescription: '',
+);
+
 void main() {
   testWidgets('saves Anthropic-compatible LLM settings', (tester) async {
     LlmSettings? saved;
@@ -29,6 +35,7 @@ void main() {
                             const AudioOutputSettings.defaults(),
                         audioDevices: const [AudioDevice('auto', '')],
                         activeAudioDevice: const AudioDevice('auto', ''),
+                        audioParams: const AudioParams(),
                         onSaveAudioOutputSettings: (_) async {},
                       );
                     },
@@ -85,6 +92,7 @@ void main() {
                             const AudioOutputSettings.defaults(),
                         audioDevices: const [AudioDevice('auto', '')],
                         activeAudioDevice: const AudioDevice('auto', ''),
+                        audioParams: const AudioParams(),
                         onSaveAudioOutputSettings: (_) async {},
                       );
                     },
@@ -123,13 +131,13 @@ void main() {
                       return SettingsDialog(
                         llmSettings: const LlmSettings.defaults(),
                         onSaveLlmSettings: (_) async {},
-                        audioOutputSettings:
-                            const AudioOutputSettings.defaults(),
+                        audioOutputSettings: _systemAudioSettings,
                         audioDevices: const [
                           AudioDevice('auto', ''),
                           AudioDevice('pipewire/dac', 'USB DAC'),
                         ],
                         activeAudioDevice: const AudioDevice('auto', ''),
+                        audioParams: const AudioParams(),
                         onSaveAudioOutputSettings: (settings) async {
                           savedAudio = settings;
                         },
@@ -175,13 +183,13 @@ void main() {
                       return SettingsDialog(
                         llmSettings: const LlmSettings.defaults(),
                         onSaveLlmSettings: (_) async {},
-                        audioOutputSettings:
-                            const AudioOutputSettings.defaults(),
+                        audioOutputSettings: _systemAudioSettings,
                         audioDevices: const [
                           AudioDevice('auto', ''),
                           AudioDevice('pipewire/dac', 'USB DAC'),
                         ],
                         activeAudioDevice: const AudioDevice('auto', ''),
+                        audioParams: const AudioParams(),
                         onSaveAudioOutputSettings: (_) async {
                           throw StateError('switch failed');
                         },
@@ -227,8 +235,7 @@ void main() {
                       return SettingsDialog(
                         llmSettings: const LlmSettings.defaults(),
                         onSaveLlmSettings: (_) async {},
-                        audioOutputSettings:
-                            const AudioOutputSettings.defaults(),
+                        audioOutputSettings: _systemAudioSettings,
                         audioDevices: const [
                           AudioDevice('auto', ''),
                           AudioDevice('pipewire', 'Default (pipewire)'),
@@ -252,6 +259,7 @@ void main() {
                           ),
                         ],
                         activeAudioDevice: const AudioDevice('auto', ''),
+                        audioParams: const AudioParams(),
                         onSaveAudioOutputSettings: (_) async {},
                       );
                     },
@@ -275,5 +283,97 @@ void main() {
     expect(find.textContaining('PulseAudio'), findsNothing);
     expect(find.textContaining('ALSA'), findsNothing);
     expect(find.textContaining('Rate Converter'), findsNothing);
+  });
+
+  testWidgets('direct DAC mode filters ALSA plugin devices', (tester) async {
+    AudioOutputSettings? savedAudio;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) {
+            return Scaffold(
+              body: FilledButton(
+                onPressed: () {
+                  showDialog<void>(
+                    context: context,
+                    builder: (context) {
+                      return SettingsDialog(
+                        llmSettings: const LlmSettings.defaults(),
+                        onSaveLlmSettings: (_) async {},
+                        audioOutputSettings:
+                            const AudioOutputSettings.defaults(),
+                        audioDevices: const [
+                          AudioDevice('auto', ''),
+                          AudioDevice('pipewire/alsa_output.usb-dac', 'DAC'),
+                          AudioDevice('alsa', 'Default (alsa)'),
+                          AudioDevice(
+                            'alsa/lavrate',
+                            'Rate Converter Plugin Using Libav/FFmpeg Library',
+                          ),
+                          AudioDevice(
+                            'alsa/upmix',
+                            'Plugin for channel upmix (4,6,8)',
+                          ),
+                          AudioDevice(
+                            'alsa/sysdefault:CARD=OTG',
+                            'E1x2 OTG, USB Audio/Default Audio Device',
+                          ),
+                          AudioDevice(
+                            'alsa/front:CARD=OTG,DEV=0',
+                            'E1x2 OTG, USB Audio/Front output',
+                          ),
+                        ],
+                        activeAudioDevice: const AudioDevice('auto', ''),
+                        audioParams: const AudioParams(
+                          format: 's32',
+                          sampleRate: 96000,
+                          hrChannels: 'stereo',
+                        ),
+                        onSaveAudioOutputSettings: (settings) async {
+                          savedAudio = settings;
+                        },
+                      );
+                    },
+                  );
+                },
+                child: const Text('Open'),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Audiophile output'), findsOneWidget);
+    expect(find.text('Direct ALSA DAC'), findsOneWidget);
+    expect(find.text('Output: s32 / 96000 Hz / stereo'), findsOneWidget);
+
+    await tester.tap(find.text('No direct DAC selected').first);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('PipeWire'), findsNothing);
+    expect(find.textContaining('Rate Converter'), findsNothing);
+    expect(find.textContaining('upmix'), findsNothing);
+    expect(
+      find.text('E1x2 OTG, USB Audio/Default Audio Device - ALSA'),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.text('E1x2 OTG, USB Audio/Default Audio Device - ALSA').last,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(savedAudio?.mode, AudioOutputMode.directAlsa);
+    expect(savedAudio?.deviceName, 'alsa/sysdefault:CARD=OTG');
+    expect(savedAudio?.lockVolumeTo100, isTrue);
+    expect(savedAudio?.disableReplayGain, isTrue);
+    expect(savedAudio?.preferGapless, isTrue);
   });
 }

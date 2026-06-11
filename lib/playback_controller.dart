@@ -6,8 +6,18 @@ import 'package:media_kit/media_kit.dart' hide Track;
 import 'audio_output_settings.dart';
 import 'models.dart';
 
+typedef MpvPropertySetter =
+    Future<void> Function(String property, String value);
+typedef MpvPropertyGetter = Future<String> Function(String property);
+
 class PlaybackController extends ChangeNotifier {
-  PlaybackController({Player? player}) : _player = player ?? Player() {
+  PlaybackController({
+    Player? player,
+    MpvPropertySetter? setMpvProperty,
+    MpvPropertyGetter? getMpvProperty,
+  }) : _player = player ?? Player(),
+       _setMpvPropertyOverride = setMpvProperty,
+       _getMpvPropertyOverride = getMpvProperty {
     _playingSub = _player.stream.playing.listen((playing) {
       _playing = playing;
       notifyListeners();
@@ -25,6 +35,10 @@ class PlaybackController extends ChangeNotifier {
       _duration = duration;
       notifyListeners();
     });
+    _audioParamsSub = _player.stream.audioParams.listen((params) {
+      _audioParams = params;
+      notifyListeners();
+    });
     _audioDeviceSub = _player.stream.audioDevice.listen((device) {
       _audioDevice = device;
       notifyListeners();
@@ -37,6 +51,7 @@ class PlaybackController extends ChangeNotifier {
     });
     _audioDevice = _player.state.audioDevice;
     _audioDevices = _normalizeAudioDevices(_player.state.audioDevices);
+    _audioParams = _player.state.audioParams;
   }
 
   static const _autoDevice = AudioDevice(
@@ -45,11 +60,14 @@ class PlaybackController extends ChangeNotifier {
   );
 
   final Player _player;
+  final MpvPropertySetter? _setMpvPropertyOverride;
+  final MpvPropertyGetter? _getMpvPropertyOverride;
 
   late final StreamSubscription<bool> _playingSub;
   late final StreamSubscription<bool> _completedSub;
   late final StreamSubscription<Duration> _positionSub;
   late final StreamSubscription<Duration> _durationSub;
+  late final StreamSubscription<AudioParams> _audioParamsSub;
   late final StreamSubscription<AudioDevice> _audioDeviceSub;
   late final StreamSubscription<List<AudioDevice>> _audioDevicesSub;
 
@@ -59,12 +77,14 @@ class PlaybackController extends ChangeNotifier {
   bool _playing = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  AudioParams _audioParams = const AudioParams();
   AudioDevice _audioDevice = _autoDevice;
   List<AudioDevice> _audioDevices = const [_autoDevice];
   AudioOutputSettings _preferredAudioOutputSettings =
       const AudioOutputSettings.defaults();
   String? _audioOutputWarning;
   String? _audioOutputError;
+  final Map<String, String> _forcedMpvPropertyRestoreValues = {};
   bool _restoringPreferredAudioDevice = false;
   bool _disposed = false;
 
@@ -72,6 +92,7 @@ class PlaybackController extends ChangeNotifier {
   bool get playing => _playing;
   Duration get position => _position;
   Duration get duration => _duration;
+  AudioParams get audioParams => _audioParams;
   AudioDevice get audioDevice => _audioDevice;
   List<AudioDevice> get audioDevices => _audioDevices;
   AudioOutputSettings get preferredAudioOutputSettings =>
@@ -185,7 +206,11 @@ class PlaybackController extends ChangeNotifier {
 
     try {
       await _player.setAudioDevice(target);
+      final propertyWarning = await _applyExperimentalAudioProperties(
+        normalized,
+      );
       _syncAudioOutputWarning();
+      _setAudioPropertyWarningIfRelevant(propertyWarning);
       _restorePreferredAudioDeviceIfAvailable();
       notifyListeners();
     } catch (error) {
@@ -198,7 +223,12 @@ class PlaybackController extends ChangeNotifier {
   }
 
   Future<void> setAudioOutputDevice(AudioDevice device) {
-    return applyAudioOutputSettings(AudioOutputSettings.fromDevice(device));
+    return applyAudioOutputSettings(
+      AudioOutputSettings.fromDevice(
+        device,
+        base: _preferredAudioOutputSettings,
+      ),
+    );
   }
 
   Future<void> stopIfCurrentRemoved(Iterable<String> removedPaths) async {
@@ -245,7 +275,6 @@ class PlaybackController extends ChangeNotifier {
   void _restorePreferredAudioDeviceIfAvailable() {
     if (_restoringPreferredAudioDevice ||
         _preferredAudioOutputSettings.isAuto ||
-        _audioOutputWarning != null ||
         _audioDevice.name == _preferredAudioOutputSettings.deviceName) {
       return;
     }
@@ -263,6 +292,17 @@ class PlaybackController extends ChangeNotifier {
             if (_disposed) {
               return;
             }
+            unawaited(
+              _applyExperimentalAudioProperties(
+                _preferredAudioOutputSettings,
+              ).then((warning) {
+                if (_disposed) {
+                  return;
+                }
+                _setAudioPropertyWarningIfRelevant(warning);
+                notifyListeners();
+              }),
+            );
             _audioDevice = target;
             _audioOutputError = null;
             _syncAudioOutputWarning();
@@ -293,6 +333,124 @@ class PlaybackController extends ChangeNotifier {
         'Saved audio device is not currently available. Using system default.';
   }
 
+  Future<String?> _applyExperimentalAudioProperties(
+    AudioOutputSettings settings,
+  ) async {
+    final failures = <String>[];
+    Future<bool> setProperty(String property, String value) async {
+      try {
+        await _setNativeMpvProperty(property, value);
+        return true;
+      } catch (error) {
+        failures.add('$property: $error');
+        return false;
+      }
+    }
+
+    await _applyManagedMpvProperty(
+      property: 'volume',
+      enabled: settings.lockVolumeTo100,
+      enabledValue: '100',
+      defaultRestoreValue: '100',
+      setProperty: setProperty,
+    );
+    await _applyManagedMpvProperty(
+      property: 'replaygain',
+      enabled: settings.disableReplayGain,
+      enabledValue: 'no',
+      defaultRestoreValue: 'no',
+      setProperty: setProperty,
+    );
+    await _applyManagedMpvProperty(
+      property: 'gapless-audio',
+      enabled: settings.preferGapless,
+      enabledValue: 'yes',
+      defaultRestoreValue: 'weak',
+      setProperty: setProperty,
+    );
+
+    if (failures.isEmpty) {
+      return null;
+    }
+    return 'Some audiophile options were not applied: ${failures.join('; ')}';
+  }
+
+  void _setAudioPropertyWarningIfRelevant(String? warning) {
+    if (warning != null && _audioOutputWarning == null) {
+      _audioOutputWarning = warning;
+    }
+  }
+
+  Future<void> _applyManagedMpvProperty({
+    required String property,
+    required bool enabled,
+    required String enabledValue,
+    required String defaultRestoreValue,
+    required Future<bool> Function(String property, String value) setProperty,
+  }) async {
+    if (enabled) {
+      final hadRestoreValue = _forcedMpvPropertyRestoreValues.containsKey(
+        property,
+      );
+      if (!hadRestoreValue) {
+        final currentValue = await _getNativeMpvPropertyOrDefault(
+          property,
+          defaultRestoreValue,
+        );
+        _forcedMpvPropertyRestoreValues[property] = currentValue;
+      }
+      final applied = await setProperty(property, enabledValue);
+      if (!applied && !hadRestoreValue) {
+        _forcedMpvPropertyRestoreValues.remove(property);
+      }
+      return;
+    }
+
+    final restoreValue = _forcedMpvPropertyRestoreValues[property];
+    if (restoreValue == null) {
+      return;
+    }
+    final restored = await setProperty(property, restoreValue);
+    if (restored) {
+      _forcedMpvPropertyRestoreValues.remove(property);
+    }
+  }
+
+  Future<void> _setNativeMpvProperty(String property, String value) async {
+    final override = _setMpvPropertyOverride;
+    if (override != null) {
+      await override(property, value);
+      return;
+    }
+    final platform = _player.platform;
+    if (platform is NativePlayer) {
+      await platform.setProperty(property, value);
+      return;
+    }
+    throw UnsupportedError('native mpv properties are not available');
+  }
+
+  Future<String> _getNativeMpvPropertyOrDefault(
+    String property,
+    String defaultValue,
+  ) async {
+    try {
+      final override = _getMpvPropertyOverride;
+      if (override != null) {
+        final value = await override(property);
+        return value.trim().isEmpty ? defaultValue : value;
+      }
+      final platform = _player.platform;
+      if (platform is NativePlayer) {
+        final value = await platform.getProperty(property);
+        return value.trim().isEmpty ? defaultValue : value;
+      }
+    } catch (_) {
+      // Best effort: restoration still resets to mpv's documented default.
+    }
+    return defaultValue;
+  }
+
   static List<AudioDevice> _normalizeAudioDevices(List<AudioDevice> devices) {
     final byName = <String, AudioDevice>{_autoDevice.name: _autoDevice};
     for (final device in devices) {
@@ -312,6 +470,7 @@ class PlaybackController extends ChangeNotifier {
     unawaited(_completedSub.cancel());
     unawaited(_positionSub.cancel());
     unawaited(_durationSub.cancel());
+    unawaited(_audioParamsSub.cancel());
     unawaited(_audioDeviceSub.cancel());
     unawaited(_audioDevicesSub.cancel());
     unawaited(_player.dispose());

@@ -242,10 +242,16 @@ void main() {
     final defaults = await database.loadAudioOutputSettings();
     expect(defaults.deviceName, AudioOutputSettings.autoDeviceName);
     expect(defaults.isAuto, isTrue);
+    expect(defaults.mode, AudioOutputMode.directAlsa);
+    expect(defaults.lockVolumeTo100, isTrue);
 
     const settings = AudioOutputSettings(
-      deviceName: 'pipewire/alsa_output.usb-dac',
+      mode: AudioOutputMode.directAlsa,
+      deviceName: 'alsa/sysdefault:CARD=OTG',
       deviceDescription: 'USB DAC',
+      lockVolumeTo100: true,
+      disableReplayGain: false,
+      preferGapless: true,
     );
     await database.saveAudioOutputSettings(settings);
 
@@ -254,6 +260,10 @@ void main() {
     final loaded = await reopened.loadAudioOutputSettings();
     expect(loaded.deviceName, settings.deviceName);
     expect(loaded.deviceDescription, settings.deviceDescription);
+    expect(loaded.mode, AudioOutputMode.directAlsa);
+    expect(loaded.lockVolumeTo100, isTrue);
+    expect(loaded.disableReplayGain, isFalse);
+    expect(loaded.preferGapless, isTrue);
 
     await reopened.close();
     await dir.delete(recursive: true);

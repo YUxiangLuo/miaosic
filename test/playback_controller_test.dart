@@ -75,6 +75,138 @@ void main() {
     expect(controller.audioOutputError, isNull);
   });
 
+  test('applies direct ALSA audiophile mpv properties', () async {
+    final appliedProperties = <String, String>{};
+    final platform = _FakePlatformPlayer(
+      devices: const [
+        AudioDevice('auto', ''),
+        AudioDevice('alsa/sysdefault:CARD=OTG', 'USB DAC'),
+      ],
+    );
+    final controller = PlaybackController(
+      player: Player(platformPlayer: platform),
+      setMpvProperty: (property, value) async {
+        appliedProperties[property] = value;
+      },
+    );
+    addTearDown(controller.dispose);
+
+    await controller.applyAudioOutputSettings(
+      const AudioOutputSettings(
+        mode: AudioOutputMode.directAlsa,
+        deviceName: 'alsa/sysdefault:CARD=OTG',
+        deviceDescription: 'USB DAC',
+        lockVolumeTo100: true,
+        disableReplayGain: true,
+        preferGapless: true,
+      ),
+    );
+
+    expect(platform.selectedDevices.last.name, 'alsa/sysdefault:CARD=OTG');
+    expect(appliedProperties, {
+      'volume': '100',
+      'replaygain': 'no',
+      'gapless-audio': 'yes',
+    });
+    expect(controller.audioOutputWarning, isNull);
+  });
+
+  test(
+    'restores audiophile mpv properties when toggles are disabled',
+    () async {
+      final mpvProperties = <String, String>{
+        'volume': '37',
+        'replaygain': 'track',
+        'gapless-audio': 'weak',
+      };
+      final platform = _FakePlatformPlayer(
+        devices: const [
+          AudioDevice('auto', ''),
+          AudioDevice('alsa/sysdefault:CARD=OTG', 'USB DAC'),
+        ],
+      );
+      final controller = PlaybackController(
+        player: Player(platformPlayer: platform),
+        getMpvProperty: (property) async => mpvProperties[property] ?? '',
+        setMpvProperty: (property, value) async {
+          mpvProperties[property] = value;
+        },
+      );
+      addTearDown(controller.dispose);
+
+      await controller.applyAudioOutputSettings(
+        const AudioOutputSettings(
+          mode: AudioOutputMode.directAlsa,
+          deviceName: 'alsa/sysdefault:CARD=OTG',
+          deviceDescription: 'USB DAC',
+          lockVolumeTo100: true,
+          disableReplayGain: true,
+          preferGapless: true,
+        ),
+      );
+
+      expect(mpvProperties, {
+        'volume': '100',
+        'replaygain': 'no',
+        'gapless-audio': 'yes',
+      });
+
+      await controller.applyAudioOutputSettings(
+        const AudioOutputSettings(
+          mode: AudioOutputMode.directAlsa,
+          deviceName: 'alsa/sysdefault:CARD=OTG',
+          deviceDescription: 'USB DAC',
+          lockVolumeTo100: false,
+          disableReplayGain: false,
+          preferGapless: false,
+        ),
+      );
+
+      expect(mpvProperties, {
+        'volume': '37',
+        'replaygain': 'track',
+        'gapless-audio': 'weak',
+      });
+      expect(controller.audioOutputWarning, isNull);
+    },
+  );
+
+  test(
+    'reports mpv property failures without blocking device selection',
+    () async {
+      final platform = _FakePlatformPlayer(
+        devices: const [
+          AudioDevice('auto', ''),
+          AudioDevice('alsa/sysdefault:CARD=OTG', 'USB DAC'),
+        ],
+      );
+      final controller = PlaybackController(
+        player: Player(platformPlayer: platform),
+        setMpvProperty: (property, value) async {
+          if (property == 'replaygain') {
+            throw StateError('unsupported');
+          }
+        },
+      );
+      addTearDown(controller.dispose);
+
+      await controller.applyAudioOutputSettings(
+        const AudioOutputSettings(
+          mode: AudioOutputMode.directAlsa,
+          deviceName: 'alsa/sysdefault:CARD=OTG',
+          deviceDescription: 'USB DAC',
+          lockVolumeTo100: true,
+          disableReplayGain: true,
+          preferGapless: false,
+        ),
+      );
+
+      expect(platform.selectedDevices.last.name, 'alsa/sysdefault:CARD=OTG');
+      expect(controller.audioOutputWarning, contains('replaygain'));
+      expect(controller.audioOutputError, isNull);
+    },
+  );
+
   test(
     'falls back to system default when preferred device is missing',
     () async {

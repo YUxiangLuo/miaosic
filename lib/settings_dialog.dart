@@ -16,6 +16,7 @@ class SettingsDialog extends StatefulWidget {
     required this.onSaveAudioOutputSettings,
     this.audioOutputWarning,
     this.audioOutputError,
+    required this.audioParams,
   });
 
   final LlmSettings llmSettings;
@@ -27,6 +28,7 @@ class SettingsDialog extends StatefulWidget {
   onSaveAudioOutputSettings;
   final String? audioOutputWarning;
   final String? audioOutputError;
+  final AudioParams audioParams;
 
   @override
   State<SettingsDialog> createState() => _SettingsDialogState();
@@ -37,7 +39,11 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late final TextEditingController _baseUrlController;
   late final TextEditingController _apiKeyController;
   late final TextEditingController _modelController;
+  late AudioOutputMode _audioMode;
   late String _audioDeviceName;
+  late bool _lockVolumeTo100;
+  late bool _disableReplayGain;
+  late bool _preferGapless;
 
   bool _saving = false;
   String? _saveError;
@@ -50,7 +56,12 @@ class _SettingsDialogState extends State<SettingsDialog> {
     _baseUrlController = TextEditingController(text: settings.baseUrl);
     _apiKeyController = TextEditingController(text: settings.apiKey);
     _modelController = TextEditingController(text: settings.model);
-    _audioDeviceName = widget.audioOutputSettings.normalized().deviceName;
+    final audioSettings = widget.audioOutputSettings.normalized();
+    _audioMode = audioSettings.mode;
+    _audioDeviceName = audioSettings.deviceName;
+    _lockVolumeTo100 = audioSettings.lockVolumeTo100;
+    _disableReplayGain = audioSettings.disableReplayGain;
+    _preferGapless = audioSettings.preferGapless;
   }
 
   @override
@@ -124,18 +135,51 @@ class _SettingsDialogState extends State<SettingsDialog> {
     });
   }
 
+  void _handleAudioModeChanged(AudioOutputMode? mode) {
+    if (mode == null || mode == _audioMode) {
+      return;
+    }
+    setState(() {
+      _audioMode = mode;
+      _audioDeviceName = AudioOutputSettings.autoDeviceName;
+      _saveError = null;
+    });
+  }
+
   AudioOutputSettings _selectedAudioOutputSettings() {
     if (_audioDeviceName == AudioOutputSettings.autoDeviceName) {
-      return const AudioOutputSettings.defaults();
+      return AudioOutputSettings(
+        mode: _audioMode,
+        deviceName: AudioOutputSettings.autoDeviceName,
+        deviceDescription: '',
+        lockVolumeTo100: _lockVolumeTo100,
+        disableReplayGain: _disableReplayGain,
+        preferGapless: _preferGapless,
+      ).normalized();
     }
     for (final device in _audioDeviceOptions) {
       if (device.name == _audioDeviceName) {
-        return AudioOutputSettings.fromDevice(device);
+        return AudioOutputSettings.fromDevice(
+          device,
+          mode: _audioMode,
+          base: AudioOutputSettings(
+            mode: _audioMode,
+            deviceName: _audioDeviceName,
+            deviceDescription: device.description,
+            lockVolumeTo100: _lockVolumeTo100,
+            disableReplayGain: _disableReplayGain,
+            preferGapless: _preferGapless,
+          ),
+        );
       }
     }
     return AudioOutputSettings(
+      mode: _audioMode,
       deviceName: _audioDeviceName,
       deviceDescription: widget.audioOutputSettings.deviceDescription,
+      lockVolumeTo100: _lockVolumeTo100,
+      disableReplayGain: _disableReplayGain,
+      preferGapless: _preferGapless,
     ).normalized();
   }
 
@@ -146,7 +190,10 @@ class _SettingsDialogState extends State<SettingsDialog> {
         '',
       ),
     };
-    for (final device in _userFacingAudioDevices(widget.audioDevices)) {
+    for (final device in _userFacingAudioDevices(
+      widget.audioDevices,
+      mode: _audioMode,
+    )) {
       final name = device.name.trim();
       if (name.isEmpty) {
         continue;
@@ -164,7 +211,9 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   String _audioDeviceLabel(AudioDevice device) {
     if (device.name == AudioOutputSettings.autoDeviceName) {
-      return 'System default';
+      return _audioMode == AudioOutputMode.directAlsa
+          ? 'No direct DAC selected'
+          : 'System default';
     }
     final description = _cleanAudioDeviceDescription(device.description);
     final label = description.isEmpty || description == device.name
@@ -179,6 +228,31 @@ class _SettingsDialogState extends State<SettingsDialog> {
 
   String? get _audioOutputMessage {
     return _saveError ?? widget.audioOutputError ?? widget.audioOutputWarning;
+  }
+
+  String get _audiophileOptionsSummary {
+    final enabled = [
+      _lockVolumeTo100,
+      _disableReplayGain,
+      _preferGapless,
+    ].where((option) => option).length;
+    return '$enabled of 3 enabled';
+  }
+
+  String get _audioParamsLabel {
+    final params = widget.audioParams;
+    final parts = <String>[
+      if (params.format != null && params.format!.isNotEmpty) params.format!,
+      if (params.sampleRate != null) '${params.sampleRate} Hz',
+      if (params.hrChannels != null && params.hrChannels!.isNotEmpty)
+        params.hrChannels!
+      else if (params.channels != null && params.channels!.isNotEmpty)
+        params.channels!,
+    ];
+    if (parts.isEmpty) {
+      return 'Output: waiting for playback';
+    }
+    return 'Output: ${parts.join(' / ')}';
   }
 
   @override
@@ -199,17 +273,36 @@ class _SettingsDialogState extends State<SettingsDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Audio output',
+                    'Audiophile output',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                       fontWeight: FontWeight.w900,
                     ),
                   ),
                   const SizedBox(height: 14),
+                  DropdownButtonFormField<AudioOutputMode>(
+                    initialValue: _audioMode,
+                    decoration: const InputDecoration(
+                      labelText: 'Output path',
+                      border: OutlineInputBorder(),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: AudioOutputMode.directAlsa,
+                        child: Text('Direct ALSA DAC'),
+                      ),
+                      DropdownMenuItem(
+                        value: AudioOutputMode.systemServer,
+                        child: Text('System audio server'),
+                      ),
+                    ],
+                    onChanged: _saving ? null : _handleAudioModeChanged,
+                  ),
+                  const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
                     initialValue: _audioDeviceName,
                     isExpanded: true,
                     decoration: const InputDecoration(
-                      labelText: 'Output device',
+                      labelText: 'Device',
                       border: OutlineInputBorder(),
                     ),
                     items: [
@@ -228,6 +321,56 @@ class _SettingsDialogState extends State<SettingsDialog> {
                   Text(
                     'Current: ${_audioDeviceLabel(widget.activeAudioDevice)}',
                     style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    _audioParamsLabel,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(height: 4),
+                  ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    title: const Text('Audiophile options'),
+                    subtitle: Text(_audiophileOptionsSummary),
+                    children: [
+                      SwitchListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        value: _lockVolumeTo100,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Lock volume at 100'),
+                        onChanged: _saving
+                            ? null
+                            : (value) {
+                                setState(() => _lockVolumeTo100 = value);
+                              },
+                      ),
+                      SwitchListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        value: _disableReplayGain,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Disable ReplayGain'),
+                        onChanged: _saving
+                            ? null
+                            : (value) {
+                                setState(() => _disableReplayGain = value);
+                              },
+                      ),
+                      SwitchListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        value: _preferGapless,
+                        contentPadding: EdgeInsets.zero,
+                        title: const Text('Prefer gapless'),
+                        onChanged: _saving
+                            ? null
+                            : (value) {
+                                setState(() => _preferGapless = value);
+                              },
+                      ),
+                    ],
                   ),
                   if (audioOutputMessage != null) ...[
                     const SizedBox(height: 8),
@@ -317,10 +460,17 @@ class _SettingsDialogState extends State<SettingsDialog> {
   }
 }
 
-List<AudioDevice> _userFacingAudioDevices(Iterable<AudioDevice> devices) {
+List<AudioDevice> _userFacingAudioDevices(
+  Iterable<AudioDevice> devices, {
+  required AudioOutputMode mode,
+}) {
   final normalized = _dedupeAudioDevices(devices)
       .where((device) => device.name != AudioOutputSettings.autoDeviceName)
       .toList(growable: false);
+  if (mode == AudioOutputMode.directAlsa) {
+    return normalized.where(_isUserFacingAlsaDevice).toList(growable: false);
+  }
+
   final pipewireDevices = normalized
       .where((device) => _isConcreteBackendDevice(device.name, 'pipewire'))
       .toList(growable: false);

@@ -98,6 +98,7 @@ Future<void> showLibrarySettingsDialog({
             audioOutputSettings: library.audioOutputSettings,
             audioDevices: playback.audioDevices,
             activeAudioDevice: playback.audioDevice,
+            audioParams: playback.audioParams,
             audioOutputWarning: playback.audioOutputWarning,
             audioOutputError: playback.audioOutputError,
             onSaveAudioOutputSettings: (settings) async {

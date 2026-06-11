@@ -182,6 +182,9 @@ class _InjectedPlaybackController extends PlaybackController {
   bool get playing => false;
 
   @override
+  AudioParams get audioParams => const AudioParams();
+
+  @override
   AudioDevice get audioDevice => const AudioDevice('auto', '');
 
   @override
