@@ -1,37 +1,19 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
-import 'package:media_kit/media_kit.dart' hide Track;
 
 import 'models.dart';
+import 'rust_audio_player.dart';
 
 class PlaybackController extends ChangeNotifier {
   PlaybackController() {
-    _playingSub = _player.stream.playing.listen((playing) {
-      _playing = playing;
-      notifyListeners();
-    });
-    _completedSub = _player.stream.completed.listen((completed) {
-      if (completed) {
-        unawaited(playNextFromQueue());
-      }
-    });
-    _positionSub = _player.stream.position.listen((position) {
-      _position = position;
-      notifyListeners();
-    });
-    _durationSub = _player.stream.duration.listen((duration) {
-      _duration = duration;
-      notifyListeners();
+    _pollTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
+      unawaited(_pollState());
     });
   }
 
-  final Player _player = Player();
-
-  late final StreamSubscription<bool> _playingSub;
-  late final StreamSubscription<bool> _completedSub;
-  late final StreamSubscription<Duration> _positionSub;
-  late final StreamSubscription<Duration> _durationSub;
+  final RustAudioPlayer? _player = RustAudioPlayer.tryLoad();
+  late final Timer _pollTimer;
 
   Track? _currentTrack;
   List<Track> _queue = const [];
@@ -39,6 +21,10 @@ class PlaybackController extends ChangeNotifier {
   bool _playing = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
+  int _completedSeq = 0;
+  bool _polling = false;
+  bool _reportedBackendUnavailable = false;
+  String? _lastPollError;
 
   Track? get currentTrack => _currentTrack;
   bool get playing => _playing;
@@ -95,11 +81,15 @@ class PlaybackController extends ChangeNotifier {
       }
       return;
     }
-    if (_playing) {
-      await _player.pause();
-    } else {
-      await _player.play();
+    final toggled = _playing
+        ? _runPlaybackOperation('pause', (player) => player.pause())
+        : _runPlaybackOperation('play', (player) => player.play());
+    if (!toggled) {
+      return;
     }
+    _playing = !_playing;
+    notifyListeners();
+    await _pollState();
   }
 
   Future<void> skip(int delta, List<Track> defaultQueue) async {
@@ -138,7 +128,18 @@ class PlaybackController extends ChangeNotifier {
     await _playQueueAt(_queue, index, play: true);
   }
 
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) async {
+    final didSeek = _runPlaybackOperation(
+      'seek',
+      (player) => player.seek(position),
+    );
+    if (!didSeek) {
+      return;
+    }
+    _position = position;
+    notifyListeners();
+    await _pollState();
+  }
 
   Future<void> stopIfCurrentRemoved(Iterable<String> removedPaths) async {
     final current = _currentTrack;
@@ -148,10 +149,11 @@ class PlaybackController extends ChangeNotifier {
     _queue = const [];
     _queueIndex = -1;
     _currentTrack = null;
+    _playing = false;
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
-    await _player.stop();
+    _runPlaybackOperation('stop', (player) => player.stop());
   }
 
   Future<void> _playQueueAt(
@@ -163,19 +165,106 @@ class PlaybackController extends ChangeNotifier {
     _queue = queue;
     _queueIndex = index;
     _currentTrack = track;
+    _playing = false;
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
-    await _player.open(Media(track.path), play: play);
+
+    final opened = _runPlaybackOperation(
+      'open',
+      (player) => player.open(track.path, play: play),
+    );
+    if (!opened) {
+      return;
+    }
+    await _pollState(resetCompletionBaseline: true);
+  }
+
+  Future<void> _pollState({bool resetCompletionBaseline = false}) async {
+    final player = _player;
+    if (player == null || _polling) {
+      return;
+    }
+    _polling = true;
+    var shouldAdvance = false;
+    try {
+      final state = player.state();
+      _lastPollError = null;
+      final previousCompletedSeq = _completedSeq;
+      _completedSeq = state.completedSeq;
+      shouldAdvance =
+          !resetCompletionBaseline &&
+          _currentTrack != null &&
+          state.completedSeq > previousCompletedSeq;
+      _applyState(state);
+    } catch (error, stackTrace) {
+      final message = error.toString();
+      if (_lastPollError != message) {
+        _lastPollError = message;
+        debugPrint('Rust playback state poll failed: $error');
+        debugPrintStack(stackTrace: stackTrace);
+      }
+    } finally {
+      _polling = false;
+    }
+    if (shouldAdvance) {
+      await playNextFromQueue();
+    }
+  }
+
+  void _applyState(RustPlaybackState state) {
+    final changed =
+        _playing != state.playing ||
+        _position != state.position ||
+        _duration != state.duration;
+    _playing = state.playing;
+    _position = state.position;
+    _duration = state.duration;
+    if (changed) {
+      notifyListeners();
+    }
+  }
+
+  bool _runPlaybackOperation(
+    String operation,
+    void Function(RustAudioPlayer player) action,
+  ) {
+    final player = _backend;
+    if (player == null) {
+      return false;
+    }
+    try {
+      action(player);
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint('Rust playback $operation failed: $error');
+      debugPrintStack(stackTrace: stackTrace);
+      return false;
+    }
+  }
+
+  RustAudioPlayer? get _backend {
+    final player = _player;
+    if (player == null && !_reportedBackendUnavailable) {
+      _reportedBackendUnavailable = true;
+      debugPrint(
+        'Rust playback backend is unavailable. Build native/music_core first.',
+      );
+    }
+    return player;
   }
 
   @override
   void dispose() {
-    unawaited(_playingSub.cancel());
-    unawaited(_completedSub.cancel());
-    unawaited(_positionSub.cancel());
-    unawaited(_durationSub.cancel());
-    unawaited(_player.dispose());
+    _pollTimer.cancel();
+    final player = _player;
+    if (player != null) {
+      try {
+        player.stop();
+      } catch (_) {
+        // The app is tearing down; there is no user-visible recovery here.
+      }
+    }
     super.dispose();
   }
 }
