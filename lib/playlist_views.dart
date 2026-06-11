@@ -1,19 +1,21 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'artwork_resolver.dart';
 import 'library_widgets.dart';
 import 'models.dart';
-import 'track_views.dart';
 
-class PlaylistList extends StatelessWidget {
+const _playlistListPageScrollFraction = 0.88;
+const _playlistListScrollDuration = Duration(milliseconds: 260);
+
+class PlaylistList extends StatefulWidget {
   const PlaylistList({
     super.key,
     required this.folders,
     required this.tracksByFolder,
     required this.trackCoverCache,
     required this.scrollController,
+    required this.keyboardShortcutsEnabled,
     required this.onOpen,
   });
 
@@ -21,257 +23,119 @@ class PlaylistList extends StatelessWidget {
   final Map<String, List<Track>> tracksByFolder;
   final Map<String, String?> trackCoverCache;
   final ScrollController scrollController;
+  final bool keyboardShortcutsEnabled;
   final ValueChanged<FolderSummary> onOpen;
 
   @override
+  State<PlaylistList> createState() => _PlaylistListState();
+}
+
+class _PlaylistListState extends State<PlaylistList> {
+  late final FocusNode _shortcutFocusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _shortcutFocusNode = FocusNode(debugLabel: 'PlaylistListShortcuts');
+    _scheduleShortcutFocusRequest();
+  }
+
+  @override
+  void didUpdateWidget(covariant PlaylistList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!oldWidget.keyboardShortcutsEnabled &&
+        widget.keyboardShortcutsEnabled) {
+      _scheduleShortcutFocusRequest();
+    }
+  }
+
+  @override
+  void dispose() {
+    _shortcutFocusNode.dispose();
+    super.dispose();
+  }
+
+  void _scheduleShortcutFocusRequest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !widget.keyboardShortcutsEnabled) {
+        return;
+      }
+      _shortcutFocusNode.requestFocus();
+    });
+  }
+
+  void _scrollPage(int direction) {
+    if (!widget.scrollController.hasClients) {
+      return;
+    }
+    final position = widget.scrollController.position;
+    final target =
+        position.pixels +
+        position.viewportDimension *
+            _playlistListPageScrollFraction *
+            direction;
+    final clamped = target
+        .clamp(position.minScrollExtent, position.maxScrollExtent)
+        .toDouble();
+    if ((clamped - position.pixels).abs() < 1) {
+      return;
+    }
+    widget.scrollController.animateTo(
+      clamped,
+      duration: _playlistListScrollDuration,
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    if (folders.isEmpty) {
+    if (widget.folders.isEmpty) {
       return const EmptyState(message: 'No playlist folders detected');
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        const horizontalPadding = 22.0;
-        const spacing = 14.0;
-        final availableWidth = math.max(
-          1.0,
-          constraints.maxWidth - horizontalPadding * 2,
-        );
-        final columns = math.min(
-          4,
-          math.max(1, (availableWidth / 440).floor()),
-        );
-        final cardWidth = math.max(
-          1.0,
-          (availableWidth - spacing * (columns - 1)) / columns,
-        );
-        const cardHeight = 220.0;
-        return GridView.builder(
-          key: const PageStorageKey<String>('playlist-list'),
-          controller: scrollController,
-          padding: const EdgeInsets.fromLTRB(
-            horizontalPadding,
-            16,
-            horizontalPadding,
-            22,
-          ),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: spacing,
-            mainAxisSpacing: spacing,
-            childAspectRatio: cardWidth / cardHeight,
-          ),
-          itemCount: folders.length,
-          itemBuilder: (context, index) {
-            final folder = folders[index];
-            final tracks = tracksByFolder[folder.path] ?? const <Track>[];
-            return _PlaylistRow(
+    const horizontalPadding = 22.0;
+    final list = ListView.separated(
+      key: const PageStorageKey<String>('playlist-list'),
+      controller: widget.scrollController,
+      padding: const EdgeInsets.fromLTRB(
+        horizontalPadding,
+        16,
+        horizontalPadding,
+        22,
+      ),
+      itemCount: widget.folders.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final folder = widget.folders[index];
+        final tracks = widget.tracksByFolder[folder.path] ?? const <Track>[];
+        return Align(
+          alignment: Alignment.topCenter,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 1320),
+            child: _PlaylistRow(
               folder: folder,
               tracks: tracks,
-              trackCoverCache: trackCoverCache,
-              onOpen: () => onOpen(folder),
-            );
-          },
+              trackCoverCache: widget.trackCoverCache,
+              onOpen: () => widget.onOpen(folder),
+            ),
+          ),
         );
       },
     );
-  }
-}
 
-class PlaylistDetail extends StatelessWidget {
-  const PlaylistDetail({
-    super.key,
-    required this.folder,
-    required this.tracks,
-    required this.trackCoverCache,
-    required this.playbackActive,
-    required this.playing,
-    required this.onBack,
-    required this.onPlayAll,
-    required this.onShuffleAll,
-    required this.onPrevious,
-    required this.onTogglePlayback,
-    required this.onNext,
-    required this.onPlayTrack,
-  });
-
-  final FolderSummary folder;
-  final List<Track> tracks;
-  final Map<String, String?> trackCoverCache;
-  final bool playbackActive;
-  final bool playing;
-  final VoidCallback onBack;
-  final VoidCallback? onPlayAll;
-  final VoidCallback? onShuffleAll;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onTogglePlayback;
-  final VoidCallback? onNext;
-  final ValueChanged<Track> onPlayTrack;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return Column(
-      children: [
-        Container(
-          padding: const EdgeInsets.fromLTRB(22, 18, 22, 18),
-          decoration: BoxDecoration(
-            color: scheme.surface,
-            border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
-          ),
-          child: Row(
-            children: [
-              IconButton(
-                tooltip: 'Back to playlists',
-                onPressed: onBack,
-                constraints: const BoxConstraints.tightFor(
-                  width: 38,
-                  height: 38,
-                ),
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.arrow_back),
-              ),
-              const SizedBox(width: 10),
-              Artwork(
-                path: folder.coverArtPath,
-                size: 76,
-                icon: Icons.queue_music,
-              ),
-              const SizedBox(width: 18),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Flexible(
-                          fit: FlexFit.loose,
-                          child: Text(
-                            folder.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context).textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w900),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        _PlaylistHeaderControls(
-                          playbackActive: playbackActive,
-                          playing: playing,
-                          onPlayAll: onPlayAll,
-                          onShuffleAll: onShuffleAll,
-                          onPrevious: onPrevious,
-                          onTogglePlayback: onTogglePlayback,
-                          onNext: onNext,
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 16,
-                      runSpacing: 8,
-                      children: [
-                        _PlaylistMetric(
-                          icon: Icons.music_note,
-                          label: '${folder.trackCount} tracks',
-                        ),
-                        _PlaylistMetric(
-                          icon: Icons.album,
-                          label: '${folder.albumCount} albums',
-                        ),
-                        _PlaylistMetric(
-                          icon: Icons.person,
-                          label: '${folder.artistCount} artists',
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: PlaylistTrackList(
-            tracks: tracks,
-            trackCoverCache: trackCoverCache,
-            onPlay: onPlayTrack,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PlaylistHeaderControls extends StatelessWidget {
-  const _PlaylistHeaderControls({
-    required this.playbackActive,
-    required this.playing,
-    required this.onPlayAll,
-    required this.onShuffleAll,
-    required this.onPrevious,
-    required this.onTogglePlayback,
-    required this.onNext,
-  });
-
-  final bool playbackActive;
-  final bool playing;
-  final VoidCallback? onPlayAll;
-  final VoidCallback? onShuffleAll;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onTogglePlayback;
-  final VoidCallback? onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!playbackActive) {
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          FilledButton.icon(
-            onPressed: onPlayAll,
-            icon: const Icon(Icons.play_arrow),
-            label: const Text('Play'),
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: onShuffleAll,
-            icon: const Icon(Icons.shuffle),
-            label: const Text('Shuffle'),
-          ),
-        ],
-      );
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: 'Previous',
-          onPressed: onPrevious,
-          icon: const Icon(Icons.skip_previous),
-        ),
-        const SizedBox(width: 4),
-        FilledButton.icon(
-          onPressed: onTogglePlayback,
-          icon: Icon(playing ? Icons.pause : Icons.play_arrow),
-          label: Text(playing ? 'Pause' : 'Play'),
-        ),
-        const SizedBox(width: 4),
-        IconButton(
-          tooltip: 'Next',
-          onPressed: onNext,
-          icon: const Icon(Icons.skip_next),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: onShuffleAll,
-          icon: const Icon(Icons.shuffle),
-          label: const Text('Shuffle'),
-        ),
-      ],
+    return CallbackShortcuts(
+      bindings: widget.keyboardShortcutsEnabled
+          ? <ShortcutActivator, VoidCallback>{
+              const SingleActivator(LogicalKeyboardKey.space): () =>
+                  _scrollPage(1),
+              const SingleActivator(
+                LogicalKeyboardKey.space,
+                shift: true,
+              ): () =>
+                  _scrollPage(-1),
+            }
+          : const <ShortcutActivator, VoidCallback>{},
+      child: Focus(focusNode: _shortcutFocusNode, child: list),
     );
   }
 }
@@ -293,58 +157,108 @@ class _PlaylistRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     final coverPaths = _playlistCoverPaths();
-    return InkWell(
-      onTap: onOpen,
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: scheme.surface,
-          border: Border.all(color: scheme.outlineVariant),
-        ),
-        child: _buildContent(context, scheme, coverPaths),
-      ),
+    const radius = 8.0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxWidth < 700;
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(radius),
+            onTap: onOpen,
+            child: Ink(
+              decoration: BoxDecoration(
+                color: scheme.surface,
+                borderRadius: BorderRadius.circular(radius),
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.82),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: scheme.shadow.withValues(alpha: 0.05),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: compact ? 126 : 120),
+                child: Padding(
+                  padding: EdgeInsets.all(compact ? 12 : 14),
+                  child: _buildContent(
+                    context,
+                    scheme,
+                    coverPaths,
+                    compact: compact,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
   Widget _buildContent(
     BuildContext context,
     ColorScheme scheme,
-    List<String> coverPaths,
-  ) {
+    List<String> coverPaths, {
+    required bool compact,
+  }) {
     final previewTracks = tracks.take(3).toList(growable: false);
+    final coverSize = compact ? 82.0 : 92.0;
+    final titleBlock = _PlaylistTitleBlock(
+      folder: folder,
+      metrics: _playlistMetrics(),
+    );
+    final preview = _PlaylistPreviewList(tracks: previewTracks);
+    final openIndicator = Icon(
+      Icons.chevron_right_rounded,
+      color: scheme.onSurfaceVariant.withValues(alpha: 0.78),
+    );
+
+    if (compact) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _PlaylistCoverCollage(coverPaths: coverPaths, size: coverSize),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [titleBlock, const SizedBox(height: 10), preview],
+            ),
+          ),
+          const SizedBox(width: 6),
+          Padding(
+            padding: const EdgeInsets.only(top: 29),
+            child: openIndicator,
+          ),
+        ],
+      );
+    }
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+      crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        _PlaylistCoverCollage(coverPaths: coverPaths),
+        _PlaylistCoverCollage(coverPaths: coverPaths, size: coverSize),
         const SizedBox(width: 16),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                folder.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 8),
-              Wrap(spacing: 16, runSpacing: 8, children: _playlistMetrics()),
-              const Spacer(),
-              if (previewTracks.isNotEmpty) ...[
-                for (final track in previewTracks)
-                  _PlaylistPreviewTrack(track: track),
-              ] else
-                Text(
-                  'No tracks found',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: scheme.onSurfaceVariant,
-                  ),
-                ),
-            ],
+        Expanded(flex: 5, child: titleBlock),
+        const SizedBox(width: 18),
+        SizedBox(
+          height: 76,
+          child: VerticalDivider(
+            width: 1,
+            thickness: 1,
+            color: scheme.outlineVariant.withValues(alpha: 0.72),
           ),
         ),
+        const SizedBox(width: 18),
+        Expanded(flex: 4, child: preview),
+        const SizedBox(width: 12),
+        openIndicator,
       ],
     );
   }
@@ -382,17 +296,46 @@ class _PlaylistRow extends StatelessWidget {
   }
 }
 
+class _PlaylistTitleBlock extends StatelessWidget {
+  const _PlaylistTitleBlock({required this.folder, required this.metrics});
+
+  final FolderSummary folder;
+  final List<Widget> metrics;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          folder.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 10),
+        Wrap(spacing: 14, runSpacing: 6, children: metrics),
+      ],
+    );
+  }
+}
+
 class _PlaylistCoverCollage extends StatelessWidget {
-  const _PlaylistCoverCollage({required this.coverPaths});
+  const _PlaylistCoverCollage({required this.coverPaths, required this.size});
 
   final List<String> coverPaths;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final paths = coverPaths.take(4).toList(growable: false);
     return SizedBox.square(
-      dimension: 188,
+      dimension: size,
       child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
         child: paths.length <= 1
             ? Artwork(
                 path: paths.isEmpty ? null : paths.first,
@@ -476,16 +419,47 @@ class _PlaylistPreviewTrack extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.only(top: 4),
-      child: Text(
-        '${track.title} · ${track.artist}',
+    final textStyle = Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: scheme.onSurfaceVariant,
+      fontWeight: FontWeight.w600,
+    );
+    return Text(
+      '${track.title} · ${track.artist}',
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: textStyle,
+    );
+  }
+}
+
+class _PlaylistPreviewList extends StatelessWidget {
+  const _PlaylistPreviewList({required this.tracks});
+
+  final List<Track> tracks;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    if (tracks.isEmpty) {
+      return Text(
+        'No tracks found',
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: Theme.of(
           context,
         ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
-      ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (var index = 0; index < tracks.length; index += 1) ...[
+          if (index > 0) const SizedBox(height: 5),
+          _PlaylistPreviewTrack(track: tracks[index]),
+        ],
+      ],
     );
   }
 }
@@ -504,11 +478,15 @@ class _PlaylistMetric extends StatelessWidget {
       children: [
         Icon(icon, size: 15, color: scheme.onSurfaceVariant),
         const SizedBox(width: 5),
-        Text(
-          label,
-          style: Theme.of(
-            context,
-          ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant),
+          ),
         ),
       ],
     );
