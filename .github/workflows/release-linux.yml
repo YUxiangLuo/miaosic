@@ -62,6 +62,7 @@ jobs:
             cmake \
             libgtk-3-dev \
             liblzma-dev \
+            libmpv-dev \
             libsqlite3-dev \
             ninja-build \
             pkg-config
