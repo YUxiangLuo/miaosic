@@ -51,6 +51,8 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
 
       - name: Install Linux build dependencies
         run: |
@@ -67,8 +69,23 @@ jobs:
       - name: Get Flutter dependencies
         run: flutter pub get
 
-      - name: Run tests
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib test tool
+
+      - name: Analyze Flutter project
+        run: flutter analyze
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path native/music_core/Cargo.toml --check
+
+      - name: Run Flutter tests
         run: flutter test
+
+      - name: Run Rust tests
+        run: cargo test --manifest-path native/music_core/Cargo.toml
+
+      - name: Reset Linux build cache
+        run: rm -rf build/linux
 
       - name: Build Linux release
         run: flutter build linux --release

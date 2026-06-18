@@ -58,12 +58,22 @@ The release bundle is written to:
 build/linux/x64/release/bundle/
 ```
 
+If Flutter reports a stale CMake cache path after moving or copying the checkout,
+reset the Linux build directory before rebuilding:
+
+```sh
+rm -rf build/linux
+flutter build linux --release
+```
+
 ## Development Checks
 
 ```sh
+dart format --output=none --set-exit-if-changed lib test tool
 flutter analyze
 flutter test
-cargo check --manifest-path native/music_core/Cargo.toml
+cargo fmt --manifest-path native/music_core/Cargo.toml --check
+cargo test --manifest-path native/music_core/Cargo.toml
 flutter build linux --release
 ```
 

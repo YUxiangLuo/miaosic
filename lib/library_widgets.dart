@@ -62,11 +62,7 @@ class _ArtworkPlaceholder extends StatelessWidget {
 }
 
 class TwoLineText extends StatelessWidget {
-  const TwoLineText({
-    super.key,
-    required this.title,
-    required this.subtitle,
-  });
+  const TwoLineText({super.key, required this.title, required this.subtitle});
 
   final String title;
   final String subtitle;
