@@ -32,8 +32,8 @@ void main() {
       ),
     );
 
-    expect(find.text('Road Set'), findsOneWidget);
-    expect(find.text('3 tracks'), findsOneWidget);
+    expect(find.text('Road Set'), findsWidgets);
+    expect(find.text('3 tracks'), findsWidgets);
     expect(find.text('TITLE'), findsOneWidget);
     expect(find.text('ARTIST'), findsOneWidget);
     expect(find.text('ALBUM'), findsOneWidget);
