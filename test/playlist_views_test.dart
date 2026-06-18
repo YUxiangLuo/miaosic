@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -88,12 +89,80 @@ void main() {
     );
 
     expect(find.text('Playlist 0'), findsOneWidget);
-    expect(find.text('Track One · Artist'), findsWidgets);
+    expect(find.text('PLAYLIST'), findsWidgets);
+    expect(find.text('Track One'), findsWidgets);
+    expect(find.byType(ListView), findsOneWidget);
 
     await tester.tap(find.text('Playlist 0'));
     await tester.pump();
 
     expect(opened?.path, folders.first.path);
+  });
+
+  testWidgets('playlist list resumes space paging after focus token changes', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    final otherFocusNode = FocusNode();
+    addTearDown(scrollController.dispose);
+    addTearDown(otherFocusNode.dispose);
+    final folders = _folders(24);
+    final tracksByFolder = {
+      for (final folder in folders)
+        folder.path: [_track(folderPath: folder.path)],
+    };
+    var focusRequestToken = 0;
+    late StateSetter updateState;
+
+    await tester.pumpWidget(
+      StatefulBuilder(
+        builder: (context, setState) {
+          updateState = setState;
+          return MaterialApp(
+            home: Scaffold(
+              body: Column(
+                children: [
+                  SizedBox(
+                    width: 900,
+                    height: 360,
+                    child: PlaylistList(
+                      folders: folders,
+                      tracksByFolder: tracksByFolder,
+                      trackCoverCache: const {},
+                      scrollController: scrollController,
+                      keyboardShortcutsEnabled: true,
+                      focusRequestToken: focusRequestToken,
+                      onOpen: (_) {},
+                    ),
+                  ),
+                  Focus(
+                    focusNode: otherFocusNode,
+                    child: const SizedBox(width: 1, height: 1),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    await tester.pump();
+    otherFocusNode.requestFocus();
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+
+    expect(scrollController.offset, 0);
+
+    updateState(() => focusRequestToken += 1);
+    await tester.pump();
+    await tester.pump();
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pumpAndSettle();
+
+    expect(scrollController.offset, greaterThan(0));
   });
 
   testWidgets('playlist row fits in a narrow layout', (tester) async {
@@ -129,6 +198,96 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('mouse wheel scrolls the playlist list horizontally', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final folders = _folders(24);
+    final tracksByFolder = {
+      for (final folder in folders)
+        folder.path: [_track(folderPath: folder.path)],
+    };
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 360,
+            child: PlaylistList(
+              folders: folders,
+              tracksByFolder: tracksByFolder,
+              trackCoverCache: const {},
+              scrollController: scrollController,
+              keyboardShortcutsEnabled: true,
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(scrollController.offset, 0);
+
+    await tester.sendEventToBinding(
+      PointerScrollEvent(
+        position: tester.getCenter(find.byType(PlaylistList)),
+        scrollDelta: const Offset(0, 160),
+      ),
+    );
+    await tester.pump();
+
+    expect(scrollController.offset, greaterThan(0));
+  });
+
+  testWidgets('playlist indicator jumps to a selected playlist', (
+    tester,
+  ) async {
+    final scrollController = ScrollController();
+    addTearDown(scrollController.dispose);
+    final folders = _folders(12);
+    final tracksByFolder = {
+      for (final folder in folders)
+        folder.path: [_track(folderPath: folder.path)],
+    };
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SizedBox(
+            width: 900,
+            height: 420,
+            child: PlaylistList(
+              folders: folders,
+              tracksByFolder: tracksByFolder,
+              trackCoverCache: const {},
+              scrollController: scrollController,
+              keyboardShortcutsEnabled: true,
+              onOpen: (_) {},
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(scrollController.offset, 0);
+    final indicatorFinder = find.byKey(
+      const ValueKey<String>('playlist-indicator-5'),
+    );
+    expect(indicatorFinder, findsOneWidget);
+    final indicatorSize = tester.getSize(indicatorFinder);
+    expect(indicatorSize.width, greaterThanOrEqualTo(40));
+    expect(indicatorSize.height, greaterThanOrEqualTo(40));
+
+    await tester.tap(indicatorFinder);
+    await tester.pumpAndSettle();
+
+    expect(scrollController.offset, greaterThan(0));
   });
 
   testWidgets('space and shift space page through the playlist list', (

@@ -22,6 +22,7 @@ class AlbumGrid extends StatefulWidget {
     required this.scrollController,
     required this.keyboardShortcutsEnabled,
     required this.onOpen,
+    this.focusRequestToken,
   });
 
   final List<AlbumSummary> albums;
@@ -29,6 +30,7 @@ class AlbumGrid extends StatefulWidget {
   final ScrollController scrollController;
   final bool keyboardShortcutsEnabled;
   final void Function(AlbumSummary album, List<Track> tracks) onOpen;
+  final Object? focusRequestToken;
 
   @override
   State<AlbumGrid> createState() => _AlbumGridState();
@@ -60,8 +62,9 @@ class _AlbumGridState extends State<AlbumGrid> {
         oldWidget.scrollController != widget.scrollController) {
       _scheduleJumpButtonUpdate();
     }
-    if (!oldWidget.keyboardShortcutsEnabled &&
-        widget.keyboardShortcutsEnabled) {
+    if (widget.keyboardShortcutsEnabled &&
+        (!oldWidget.keyboardShortcutsEnabled ||
+            oldWidget.focusRequestToken != widget.focusRequestToken)) {
       _scheduleShortcutFocusRequest();
     }
   }

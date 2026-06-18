@@ -41,6 +41,8 @@ class LibraryController extends ChangeNotifier {
   List<AlbumSummary> _albums = const [];
   List<Track> _favoriteTracks = const [];
   Set<String> _favoriteTrackPaths = const {};
+  List<FolderSummary> _playlistFolders = const [];
+  Map<String, List<Track>> _tracksByFolder = const {};
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
   LastPlaybackState? _lastPlayback;
@@ -78,15 +80,13 @@ class LibraryController extends ChangeNotifier {
   bool get canRestoreLastPlayback =>
       !_loading && !_scanning && !_scanRootChanged;
 
-  List<FolderSummary> get playlistFolders =>
-      _folders.where((folder) => folder.kind == FolderKind.playlist).toList();
+  List<FolderSummary> get playlistFolders => _playlistFolders;
 
-  int get playlistCount =>
-      _folders.where((folder) => folder.kind == FolderKind.playlist).length;
+  int get playlistCount => _playlistFolders.length;
 
   int get favoriteCount => _favoriteTracks.length;
 
-  Map<String, List<Track>> get tracksByFolder => tracksByFolderMap(_tracks);
+  Map<String, List<Track>> get tracksByFolder => _tracksByFolder;
 
   Future<void> open() async {
     try {
@@ -403,6 +403,7 @@ class LibraryController extends ChangeNotifier {
     _albums = albums;
     _favoriteTracks = favoriteTracks;
     _favoriteTrackPaths = favoriteTracks.map((track) => track.path).toSet();
+    _refreshDerivedLibraryState();
     _setTrackCoverCache(trackCoverCache, tracks: tracks);
     _scanState = scanState;
     _lastPlayback = lastPlayback;
@@ -476,6 +477,7 @@ class LibraryController extends ChangeNotifier {
         }
         _folders = await database.loadFolders();
         _albums = await database.loadAlbums();
+        _refreshFolderDerivedState();
         _scanState = await database.loadScanState();
         if (_disposed) {
           return;
@@ -602,6 +604,21 @@ class LibraryController extends ChangeNotifier {
     }());
   }
 
+  void _refreshDerivedLibraryState() {
+    _refreshTrackDerivedState();
+    _refreshFolderDerivedState();
+  }
+
+  void _refreshTrackDerivedState() {
+    _tracksByFolder = tracksByFolderMap(_tracks);
+  }
+
+  void _refreshFolderDerivedState() {
+    _playlistFolders = _folders
+        .where((folder) => folder.kind == FolderKind.playlist)
+        .toList(growable: false);
+  }
+
   void _setTrackCoverCache(Map<String, String?> cache, {List<Track>? tracks}) {
     final trackList = tracks;
     final nextCache = trackList == null
@@ -622,6 +639,7 @@ class LibraryController extends ChangeNotifier {
     _albums = const [];
     _favoriteTracks = const [];
     _favoriteTrackPaths = const {};
+    _refreshDerivedLibraryState();
     _scanState = null;
     if (clearLastPlayback) {
       _lastPlayback = null;

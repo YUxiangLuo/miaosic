@@ -68,6 +68,13 @@ void main() {
       expect(controller.audioOutputSettings.deviceName, 'pipewire/dac');
       expect(controller.audioOutputSettings.deviceDescription, 'USB DAC');
       expect(controller.tracks.single.path, '/music/root/a.flac');
+      final cachedTracksByFolder = controller.tracksByFolder;
+      final cachedPlaylistFolders = controller.playlistFolders;
+      expect(
+        cachedTracksByFolder['/music/root']?.single.path,
+        '/music/root/a.flac',
+      );
+      expect(cachedPlaylistFolders, isEmpty);
       expect(controller.rescanState.value.mode, LibraryScanMode.direct);
       expect(controller.rescanState.value.phase, RescanPhase.done);
       expect(controller.lastPlayback?.kind, LastPlaybackKind.album);
@@ -77,10 +84,14 @@ void main() {
       expect(controller.lastPlayback?.shuffled, isFalse);
       await controller.saveThemeMode('light');
       expect(controller.themeMode, 'light');
+      expect(controller.tracksByFolder, same(cachedTracksByFolder));
+      expect(controller.playlistFolders, same(cachedPlaylistFolders));
 
       await controller.toggleFavoriteTrack(controller.tracks.single);
       expect(controller.favoriteTrackPaths, {'/music/root/a.flac'});
       expect(controller.favoriteTracks.single.path, '/music/root/a.flac');
+      expect(controller.tracksByFolder, same(cachedTracksByFolder));
+      expect(controller.playlistFolders, same(cachedPlaylistFolders));
 
       final reopened = await LibraryDatabase.openAtPath(dbPath);
       addTearDown(reopened.close);
