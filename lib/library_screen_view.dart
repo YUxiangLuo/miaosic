@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'album_playback_view.dart';
 import 'album_views.dart';
+import 'favorite_views.dart';
 import 'library_screen_models.dart';
 import 'library_sidebar.dart';
 import 'library_types.dart';
@@ -17,6 +18,10 @@ class LibraryScreenView extends StatelessWidget {
     required this.albums,
     required this.playlistFolders,
     required this.playlistCount,
+    required this.favoriteTracks,
+    required this.favoriteCount,
+    required this.favoriteTrackPaths,
+    required this.favoritesPlaybackActive,
     required this.tracksByFolder,
     required this.trackCoverCache,
     required this.themeMode,
@@ -29,6 +34,7 @@ class LibraryScreenView extends StatelessWidget {
     required this.activePlaylistOverlayTracks,
     required this.activePlaylistTrack,
     required this.playlistOverlayPlaybackActive,
+    required this.playbackCurrentTrack,
     required this.playbackPlaying,
     required this.albumGridScrollController,
     required this.playlistListScrollController,
@@ -48,6 +54,12 @@ class LibraryScreenView extends StatelessWidget {
     required this.onSwitchPreviousAlbum,
     required this.onSwitchNextAlbum,
     required this.onPlayAlbumTrack,
+    required this.onToggleFavoriteTrack,
+    required this.onFavoritePlayAll,
+    required this.onFavoriteShuffleAll,
+    required this.onFavoritePrevious,
+    required this.onFavoriteTogglePlayback,
+    required this.onFavoriteNext,
     required this.onOpenPlaylistPlayback,
     required this.onClosePlaylistPlayback,
     required this.onPlaylistPlayAll,
@@ -56,6 +68,7 @@ class LibraryScreenView extends StatelessWidget {
     required this.onPlaylistTogglePlayback,
     required this.onPlaylistNext,
     required this.onPlayPlaylistTrack,
+    required this.onPlayFavoriteTrack,
   });
 
   final LibraryView selectedView;
@@ -63,6 +76,10 @@ class LibraryScreenView extends StatelessWidget {
   final List<AlbumSummary> albums;
   final List<FolderSummary> playlistFolders;
   final int playlistCount;
+  final List<Track> favoriteTracks;
+  final int favoriteCount;
+  final Set<String> favoriteTrackPaths;
+  final bool favoritesPlaybackActive;
   final Map<String, List<Track>> tracksByFolder;
   final Map<String, String?> trackCoverCache;
   final ThemeMode themeMode;
@@ -75,6 +92,7 @@ class LibraryScreenView extends StatelessWidget {
   final List<Track> activePlaylistOverlayTracks;
   final Track? activePlaylistTrack;
   final bool playlistOverlayPlaybackActive;
+  final Track? playbackCurrentTrack;
   final bool playbackPlaying;
   final ScrollController albumGridScrollController;
   final ScrollController playlistListScrollController;
@@ -94,6 +112,12 @@ class LibraryScreenView extends StatelessWidget {
   final VoidCallback? onSwitchPreviousAlbum;
   final VoidCallback? onSwitchNextAlbum;
   final ValueChanged<Track> onPlayAlbumTrack;
+  final ValueChanged<Track> onToggleFavoriteTrack;
+  final VoidCallback? onFavoritePlayAll;
+  final VoidCallback? onFavoriteShuffleAll;
+  final VoidCallback? onFavoritePrevious;
+  final VoidCallback? onFavoriteTogglePlayback;
+  final VoidCallback? onFavoriteNext;
   final ValueChanged<FolderSummary> onOpenPlaylistPlayback;
   final VoidCallback onClosePlaylistPlayback;
   final VoidCallback? onPlaylistPlayAll;
@@ -102,6 +126,7 @@ class LibraryScreenView extends StatelessWidget {
   final VoidCallback? onPlaylistTogglePlayback;
   final VoidCallback? onPlaylistNext;
   final ValueChanged<Track> onPlayPlaylistTrack;
+  final ValueChanged<Track> onPlayFavoriteTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -120,6 +145,7 @@ class LibraryScreenView extends StatelessWidget {
                   selected: selectedView,
                   albums: albums.length,
                   playlists: playlistCount,
+                  favorites: favoriteCount,
                   nowPlaying: nowPlayingTarget?.sidebarItem,
                   themeMode: themeMode,
                   onOpenLibrary: onOpenLibrary,
@@ -158,7 +184,9 @@ class LibraryScreenView extends StatelessWidget {
                 canSwitchNextAlbum: canSwitchNextAlbum,
                 onSwitchPreviousAlbum: onSwitchPreviousAlbum,
                 onSwitchNextAlbum: onSwitchNextAlbum,
+                favoriteTrackPaths: favoriteTrackPaths,
                 onPlayTrack: onPlayAlbumTrack,
+                onToggleFavoriteTrack: onToggleFavoriteTrack,
               ),
             ),
           if (activeAlbumPlayback == null &&
@@ -177,7 +205,9 @@ class LibraryScreenView extends StatelessWidget {
                 onPrevious: onPlaylistPrevious,
                 onTogglePlayback: onPlaylistTogglePlayback,
                 onNext: onPlaylistNext,
+                favoriteTrackPaths: favoriteTrackPaths,
                 onPlayTrack: onPlayPlaylistTrack,
+                onToggleFavoriteTrack: onToggleFavoriteTrack,
               ),
             ),
         ],
@@ -206,6 +236,20 @@ class LibraryScreenView extends StatelessWidget {
         keyboardShortcutsEnabled:
             activeAlbumPlayback == null && activePlaylistOverlayFolder == null,
         onOpen: onOpenPlaylistPlayback,
+      ),
+      LibraryView.favorites => FavoriteTrackList(
+        tracks: favoriteTracks,
+        trackCoverCache: trackCoverCache,
+        currentTrack: playbackCurrentTrack,
+        playbackActive: favoritesPlaybackActive,
+        playing: playbackPlaying,
+        onPlayAll: onFavoritePlayAll,
+        onShuffleAll: onFavoriteShuffleAll,
+        onPrevious: onFavoritePrevious,
+        onTogglePlayback: onFavoriteTogglePlayback,
+        onNext: onFavoriteNext,
+        onPlayTrack: onPlayFavoriteTrack,
+        onToggleFavorite: onToggleFavoriteTrack,
       ),
     };
   }

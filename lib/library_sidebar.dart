@@ -32,6 +32,7 @@ class LibrarySidebar extends StatelessWidget {
     required this.selected,
     required this.albums,
     required this.playlists,
+    required this.favorites,
     required this.nowPlaying,
     required this.themeMode,
     required this.onOpenLibrary,
@@ -44,6 +45,7 @@ class LibrarySidebar extends StatelessWidget {
   final LibraryView selected;
   final int albums;
   final int playlists;
+  final int favorites;
   final SidebarNowPlaying? nowPlaying;
   final ThemeMode themeMode;
   final VoidCallback? onOpenLibrary;
@@ -95,6 +97,7 @@ class LibrarySidebar extends StatelessWidget {
                 count: switch (view) {
                   LibraryView.albums => albums,
                   LibraryView.playlists => playlists,
+                  LibraryView.favorites => favorites,
                 },
                 onTap: () => onSelected(view),
               ),

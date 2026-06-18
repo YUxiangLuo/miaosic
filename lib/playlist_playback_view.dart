@@ -29,7 +29,9 @@ class PlaylistPlaybackView extends StatelessWidget {
     required this.onPrevious,
     required this.onTogglePlayback,
     required this.onNext,
+    this.favoriteTrackPaths = const {},
     required this.onPlayTrack,
+    this.onToggleFavoriteTrack,
   });
 
   final FolderSummary folder;
@@ -44,7 +46,9 @@ class PlaylistPlaybackView extends StatelessWidget {
   final VoidCallback? onPrevious;
   final VoidCallback? onTogglePlayback;
   final VoidCallback? onNext;
+  final Set<String> favoriteTrackPaths;
   final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track>? onToggleFavoriteTrack;
 
   KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
     if (event is KeyDownEvent &&
@@ -104,7 +108,9 @@ class PlaylistPlaybackView extends StatelessWidget {
                           trackCoverCache: trackCoverCache,
                           currentTrack: currentTrack,
                           playing: playing,
+                          favoriteTrackPaths: favoriteTrackPaths,
                           onPlayTrack: onPlayTrack,
+                          onToggleFavoriteTrack: onToggleFavoriteTrack,
                         ),
                 ),
               ],
@@ -409,14 +415,18 @@ class _PlaylistPlaybackTable extends StatelessWidget {
     required this.trackCoverCache,
     required this.currentTrack,
     required this.playing,
+    required this.favoriteTrackPaths,
     required this.onPlayTrack,
+    required this.onToggleFavoriteTrack,
   });
 
   final List<Track> tracks;
   final Map<String, String?> trackCoverCache;
   final Track? currentTrack;
   final bool playing;
+  final Set<String> favoriteTrackPaths;
   final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track>? onToggleFavoriteTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -446,7 +456,11 @@ class _PlaylistPlaybackTable extends StatelessWidget {
                     playing: selected && playing,
                     showArtist: showArtist,
                     showAlbum: showAlbum,
+                    favorite: favoriteTrackPaths.contains(track.path),
                     onTap: () => onPlayTrack(track),
+                    onToggleFavorite: onToggleFavoriteTrack == null
+                        ? null
+                        : () => onToggleFavoriteTrack!(track),
                   );
                 },
               ),
@@ -495,6 +509,8 @@ class _PlaylistTableHeader extends StatelessWidget {
             width: 68,
             child: Text('TIME', textAlign: TextAlign.right, style: style),
           ),
+          const SizedBox(width: 8),
+          const SizedBox(width: 44),
         ],
       ),
     );
@@ -510,7 +526,9 @@ class _PlaylistTableRow extends StatelessWidget {
     required this.playing,
     required this.showArtist,
     required this.showAlbum,
+    required this.favorite,
     required this.onTap,
+    required this.onToggleFavorite,
   });
 
   final int index;
@@ -520,7 +538,9 @@ class _PlaylistTableRow extends StatelessWidget {
   final bool playing;
   final bool showArtist;
   final bool showAlbum;
+  final bool favorite;
   final VoidCallback onTap;
+  final VoidCallback? onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
@@ -608,6 +628,18 @@ class _PlaylistTableRow extends StatelessWidget {
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
+              if (onToggleFavorite == null)
+                const SizedBox(width: 44)
+              else
+                IconButton(
+                  tooltip: favorite
+                      ? 'Remove from favorites'
+                      : 'Add to favorites',
+                  onPressed: onToggleFavorite,
+                  icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
+                  color: favorite ? Colors.redAccent : secondary,
+                ),
             ],
           ),
         ),

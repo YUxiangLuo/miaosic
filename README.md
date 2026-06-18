@@ -10,7 +10,7 @@ folder, stores the library in SQLite, caches artwork, and plays tracks with
 ## Features
 
 - FLAC library scanning through a Rust FFI scanner.
-- Album and playlist-folder browsing.
+- Album, playlist-folder, and favorite-track browsing.
 - SQLite-backed local library state.
 - Incremental rescan for fast refreshes after the first scan.
 - Full rescan when metadata needs to be force-refreshed.
@@ -36,9 +36,9 @@ $HOME/Music
 ```
 
 The music root can be changed from the Library panel. The selected folder,
-scanned library, and scan state are stored locally in the platform application
-support directory. Cover files are cached under `covers/` in the same app data
-area.
+scanned library, favorite tracks, and scan state are stored locally in the
+platform application support directory. Cover files are cached under `covers/`
+in the same app data area.
 
 ## Run
 

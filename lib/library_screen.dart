@@ -40,6 +40,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   LibraryActiveAlbumPlayback? _activeAlbumPlayback;
   LibraryActivePlaylistPlayback? _activePlaylistPlayback;
+  LibraryActiveFavoritesPlayback? _activeFavoritesPlayback;
   String? _lastPlaybackPath;
   String? _lastNowPlayingPath;
   String? _lastPersistedPlaybackKey;
@@ -101,6 +102,21 @@ class _LibraryScreenState extends State<LibraryScreen> {
     final activePlaylistTrack = playlistOverlayPlaybackActive
         ? activePlaylistPlaybackTrack
         : null;
+    final activeFavoritesPlayback = _activeFavoritesPlayback;
+    final activeFavoritesPlaybackTrack = activeFavoritesPlayback == null
+        ? null
+        : _currentTrackForFavorites(activeFavoritesPlayback);
+    final favoritesPlaybackActive =
+        activeFavoritesPlayback != null &&
+        _playback.isCurrentQueue(activeFavoritesPlayback.queue) &&
+        activeFavoritesPlaybackTrack != null;
+    final favoritesPlaybackQueue =
+        activeFavoritesPlayback?.queue ?? const <Track>[];
+    final favoritesPlaybackIndex = activeFavoritesPlaybackTrack == null
+        ? -1
+        : favoritesPlaybackQueue.indexWhere(
+            (track) => track.path == activeFavoritesPlaybackTrack.path,
+          );
     final settingsLoaded = _library.settingsLoaded;
     final albumPlaybackActive =
         activeAlbumPlayback != null &&
@@ -126,6 +142,10 @@ class _LibraryScreenState extends State<LibraryScreen> {
       albums: _library.albums,
       playlistFolders: _playlistFolders,
       playlistCount: _playlistCount,
+      favoriteTracks: _library.favoriteTracks,
+      favoriteCount: _library.favoriteCount,
+      favoriteTrackPaths: _library.favoriteTrackPaths,
+      favoritesPlaybackActive: favoritesPlaybackActive,
       tracksByFolder: _tracksByFolder,
       trackCoverCache: _library.trackCoverCache,
       themeMode: widget.themeMode,
@@ -138,6 +158,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       activePlaylistOverlayTracks: activePlaylistOverlayTracks,
       activePlaylistTrack: activePlaylistTrack,
       playlistOverlayPlaybackActive: playlistOverlayPlaybackActive,
+      playbackCurrentTrack: _playback.currentTrack,
       playbackPlaying: _playback.playing,
       albumGridScrollController: _scrollMemory.albumGridScrollController,
       playlistListScrollController: _scrollMemory.playlistListScrollController,
@@ -188,6 +209,25 @@ class _LibraryScreenState extends State<LibraryScreen> {
           _playAlbumFrom(albumPlayback.album, albumPlayback.tracks, track),
         );
       },
+      onToggleFavoriteTrack: _toggleFavoriteTrack,
+      onFavoritePlayAll: _library.favoriteTracks.isEmpty
+          ? null
+          : () => unawaited(_playFavorites(_library.favoriteTracks)),
+      onFavoriteShuffleAll: _library.favoriteTracks.isEmpty
+          ? null
+          : () => unawaited(_playFavoritesShuffled(_library.favoriteTracks)),
+      onFavoritePrevious: favoritesPlaybackActive && favoritesPlaybackIndex > 0
+          ? () => unawaited(_playback.skip(-1, favoritesPlaybackQueue))
+          : null,
+      onFavoriteTogglePlayback: favoritesPlaybackActive
+          ? () => unawaited(_playback.togglePlayPause(favoritesPlaybackQueue))
+          : null,
+      onFavoriteNext:
+          favoritesPlaybackActive &&
+              favoritesPlaybackIndex >= 0 &&
+              favoritesPlaybackIndex < favoritesPlaybackQueue.length - 1
+          ? () => unawaited(_playback.skip(1, favoritesPlaybackQueue))
+          : null,
       onOpenPlaylistPlayback: _openPlaylistPlayback,
       onClosePlaylistPlayback: _closePlaylistPlayback,
       onPlaylistPlayAll:
@@ -229,6 +269,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
         unawaited(_playPlaylist(folder, tracks, startTrack: track));
       },
+      onPlayFavoriteTrack: (track) => unawaited(_playFavoriteTrack(track)),
     );
   }
 }

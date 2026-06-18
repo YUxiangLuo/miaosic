@@ -39,6 +39,8 @@ class LibraryController extends ChangeNotifier {
   List<Track> _tracks = const [];
   List<FolderSummary> _folders = const [];
   List<AlbumSummary> _albums = const [];
+  List<Track> _favoriteTracks = const [];
+  Set<String> _favoriteTrackPaths = const {};
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
   LastPlaybackState? _lastPlayback;
@@ -58,6 +60,8 @@ class LibraryController extends ChangeNotifier {
   List<Track> get tracks => _tracks;
   List<FolderSummary> get folders => _folders;
   List<AlbumSummary> get albums => _albums;
+  List<Track> get favoriteTracks => _favoriteTracks;
+  Set<String> get favoriteTrackPaths => _favoriteTrackPaths;
   Map<String, String?> get trackCoverCache => _trackCoverCache;
   Map<String, Object?>? get scanState => _scanState;
   LastPlaybackState? get lastPlayback => _lastPlayback;
@@ -79,6 +83,8 @@ class LibraryController extends ChangeNotifier {
 
   int get playlistCount =>
       _folders.where((folder) => folder.kind == FolderKind.playlist).length;
+
+  int get favoriteCount => _favoriteTracks.length;
 
   Map<String, List<Track>> get tracksByFolder => tracksByFolderMap(_tracks);
 
@@ -317,6 +323,34 @@ class LibraryController extends ChangeNotifier {
     await database.saveLastPlayback(state);
   }
 
+  Future<void> toggleFavoriteTrack(Track track) async {
+    final database = _database;
+    if (database == null || _disposed) {
+      return;
+    }
+    final nextFavorite = !_favoriteTrackPaths.contains(track.path);
+    await database.setTrackFavorite(track.path, nextFavorite);
+    if (_disposed) {
+      return;
+    }
+    if (nextFavorite) {
+      _favoriteTrackPaths = {..._favoriteTrackPaths, track.path};
+      _favoriteTracks = [
+        track,
+        for (final favorite in _favoriteTracks)
+          if (favorite.path != track.path) favorite,
+      ];
+    } else {
+      _favoriteTrackPaths = _favoriteTrackPaths
+          .where((path) => path != track.path)
+          .toSet();
+      _favoriteTracks = _favoriteTracks
+          .where((favorite) => favorite.path != track.path)
+          .toList(growable: false);
+    }
+    _emit();
+  }
+
   Future<void> saveLlmSettings(LlmSettings settings) async {
     final database = _database;
     if (database == null || _disposed) {
@@ -356,6 +390,7 @@ class LibraryController extends ChangeNotifier {
     final tracks = await database.loadTracks();
     final folders = await database.loadFolders();
     final albums = await database.loadAlbums();
+    final favoriteTracks = await database.loadFavoriteTracks();
     final scanState = await database.loadScanState();
     final lastPlayback = await database.loadLastPlayback();
     final trackCoverCache = await database.loadTrackCoverCache(tracks);
@@ -366,6 +401,8 @@ class LibraryController extends ChangeNotifier {
     _tracks = tracks;
     _folders = folders;
     _albums = albums;
+    _favoriteTracks = favoriteTracks;
+    _favoriteTrackPaths = favoriteTracks.map((track) => track.path).toSet();
     _setTrackCoverCache(trackCoverCache, tracks: tracks);
     _scanState = scanState;
     _lastPlayback = lastPlayback;
@@ -583,6 +620,8 @@ class LibraryController extends ChangeNotifier {
     _tracks = const [];
     _folders = const [];
     _albums = const [];
+    _favoriteTracks = const [];
+    _favoriteTrackPaths = const {};
     _scanState = null;
     if (clearLastPlayback) {
       _lastPlayback = null;

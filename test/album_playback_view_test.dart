@@ -203,6 +203,54 @@ void main() {
     expect(find.byKey(const ValueKey('playing')), findsOneWidget);
   });
 
+  testWidgets('album track rows toggle favorite state', (tester) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(1280, 720);
+    addTearDown(() {
+      tester.view.resetDevicePixelRatio();
+      tester.view.resetPhysicalSize();
+    });
+
+    final album = _album();
+    final tracks = [_track(1), _track(2), _track(3)];
+    Track? toggledTrack;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1280,
+          height: 720,
+          child: AlbumPlaybackView(
+            album: album,
+            tracks: tracks,
+            currentTrack: tracks[1],
+            playing: true,
+            favoriteTrackPaths: {tracks[1].path},
+            onClose: () {},
+            onPrevious: () {},
+            onToggle: () {},
+            onNext: () {},
+            canSwitchPreviousAlbum: false,
+            canSwitchNextAlbum: false,
+            onSwitchPreviousAlbum: null,
+            onSwitchNextAlbum: null,
+            onPlayTrack: (_) {},
+            onToggleFavoriteTrack: (track) => toggledTrack = track,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byTooltip('Remove from favorites'), findsOneWidget);
+    expect(find.byTooltip('Add to favorites'), findsNWidgets(2));
+
+    await tester.tap(find.byTooltip('Remove from favorites'));
+    await tester.pump();
+
+    expect(toggledTrack?.path, tracks[1].path);
+  });
+
   testWidgets('bottom dock centers enlarged controls without metadata', (
     tester,
   ) async {

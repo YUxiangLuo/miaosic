@@ -99,7 +99,9 @@ class AlbumPlaybackView extends StatefulWidget {
     required this.canSwitchNextAlbum,
     required this.onSwitchPreviousAlbum,
     required this.onSwitchNextAlbum,
+    this.favoriteTrackPaths = const {},
     required this.onPlayTrack,
+    this.onToggleFavoriteTrack,
   });
 
   final AlbumSummary album;
@@ -116,7 +118,9 @@ class AlbumPlaybackView extends StatefulWidget {
   final bool canSwitchNextAlbum;
   final VoidCallback? onSwitchPreviousAlbum;
   final VoidCallback? onSwitchNextAlbum;
+  final Set<String> favoriteTrackPaths;
   final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track>? onToggleFavoriteTrack;
 
   @override
   State<AlbumPlaybackView> createState() => _AlbumPlaybackViewState();
@@ -300,8 +304,11 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                                   transitionDirection: transitionDirection,
                                   active: albumActive,
                                   playing: widget.playing,
+                                  favoriteTrackPaths: widget.favoriteTrackPaths,
                                   onAlbumWheel: _handleAlbumWheel,
                                   onPlayTrack: widget.onPlayTrack,
+                                  onToggleFavoriteTrack:
+                                      widget.onToggleFavoriteTrack,
                                 );
                               }
                               return _AlbumPlaybackWideLayout(
@@ -313,8 +320,11 @@ class _AlbumPlaybackViewState extends State<AlbumPlaybackView> {
                                 transitionDirection: transitionDirection,
                                 active: albumActive,
                                 playing: widget.playing,
+                                favoriteTrackPaths: widget.favoriteTrackPaths,
                                 onAlbumWheel: _handleAlbumWheel,
                                 onPlayTrack: widget.onPlayTrack,
+                                onToggleFavoriteTrack:
+                                    widget.onToggleFavoriteTrack,
                               );
                             },
                           ),
@@ -358,8 +368,10 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
     required this.transitionDirection,
     required this.active,
     required this.playing,
+    required this.favoriteTrackPaths,
     required this.onAlbumWheel,
     required this.onPlayTrack,
+    required this.onToggleFavoriteTrack,
   });
 
   final AlbumSummary album;
@@ -370,8 +382,10 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
   final int transitionDirection;
   final bool active;
   final bool playing;
+  final Set<String> favoriteTrackPaths;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track>? onToggleFavoriteTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -401,8 +415,10 @@ class _AlbumPlaybackWideLayout extends StatelessWidget {
               tracks: tracks,
               currentTrack: currentTrack,
               playing: playing,
+              favoriteTrackPaths: favoriteTrackPaths,
               height: metrics.coverSize,
               onPlayTrack: onPlayTrack,
+              onToggleFavoriteTrack: onToggleFavoriteTrack,
             ),
           ),
         ],
@@ -420,8 +436,10 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
     required this.transitionDirection,
     required this.active,
     required this.playing,
+    required this.favoriteTrackPaths,
     required this.onAlbumWheel,
     required this.onPlayTrack,
+    required this.onToggleFavoriteTrack,
   });
 
   final AlbumSummary album;
@@ -431,8 +449,10 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
   final int transitionDirection;
   final bool active;
   final bool playing;
+  final Set<String> favoriteTrackPaths;
   final ValueChanged<PointerScrollEvent> onAlbumWheel;
   final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track>? onToggleFavoriteTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -454,8 +474,10 @@ class _AlbumPlaybackNarrowLayout extends StatelessWidget {
             tracks: tracks,
             currentTrack: currentTrack,
             playing: playing,
+            favoriteTrackPaths: favoriteTrackPaths,
             height: 360,
             onPlayTrack: onPlayTrack,
+            onToggleFavoriteTrack: onToggleFavoriteTrack,
           ),
         ],
       ),

@@ -6,16 +6,20 @@ class _FadingAlbumTrackList extends StatelessWidget {
     required this.tracks,
     required this.currentTrack,
     required this.playing,
+    required this.favoriteTrackPaths,
     required this.height,
     required this.onPlayTrack,
+    required this.onToggleFavoriteTrack,
   });
 
   final String albumFolderPath;
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
+  final Set<String> favoriteTrackPaths;
   final double? height;
   final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track>? onToggleFavoriteTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -39,8 +43,10 @@ class _FadingAlbumTrackList extends StatelessWidget {
           tracks: tracks,
           currentTrack: currentTrack,
           playing: playing,
+          favoriteTrackPaths: favoriteTrackPaths,
           height: height,
           onPlayTrack: onPlayTrack,
+          onToggleFavoriteTrack: onToggleFavoriteTrack,
         ),
       ),
     );
@@ -52,15 +58,19 @@ class _AlbumTrackList extends StatefulWidget {
     required this.tracks,
     required this.currentTrack,
     required this.playing,
+    required this.favoriteTrackPaths,
     required this.height,
     required this.onPlayTrack,
+    required this.onToggleFavoriteTrack,
   });
 
   final List<Track> tracks;
   final Track? currentTrack;
   final bool playing;
+  final Set<String> favoriteTrackPaths;
   final double? height;
   final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track>? onToggleFavoriteTrack;
 
   @override
   State<_AlbumTrackList> createState() => _AlbumTrackListState();
@@ -165,7 +175,11 @@ class _AlbumTrackListState extends State<_AlbumTrackList> {
           track: track,
           selected: selected,
           playing: selected && widget.playing,
+          favorite: widget.favoriteTrackPaths.contains(track.path),
           onTap: () => widget.onPlayTrack(track),
+          onToggleFavorite: widget.onToggleFavoriteTrack == null
+              ? null
+              : () => widget.onToggleFavoriteTrack!(track),
         );
       },
     );
@@ -184,14 +198,18 @@ class _AlbumTrackRow extends StatefulWidget {
     required this.track,
     required this.selected,
     required this.playing,
+    required this.favorite,
     required this.onTap,
+    required this.onToggleFavorite,
   });
 
   final int index;
   final Track track;
   final bool selected;
   final bool playing;
+  final bool favorite;
   final VoidCallback onTap;
+  final VoidCallback? onToggleFavorite;
 
   @override
   State<_AlbumTrackRow> createState() => _AlbumTrackRowState();
@@ -275,6 +293,19 @@ class _AlbumTrackRowState extends State<_AlbumTrackRow> {
               ),
             ),
             const SizedBox(width: 12),
+            if (widget.onToggleFavorite != null) ...[
+              IconButton(
+                tooltip: widget.favorite
+                    ? 'Remove from favorites'
+                    : 'Add to favorites',
+                onPressed: widget.onToggleFavorite,
+                icon: Icon(
+                  widget.favorite ? Icons.favorite : Icons.favorite_border,
+                ),
+                color: widget.favorite ? Colors.redAccent : secondary,
+              ),
+              const SizedBox(width: 4),
+            ],
             Text(
               formatDurationMs(widget.track.durationMs),
               style: Theme.of(context).textTheme.labelMedium?.copyWith(

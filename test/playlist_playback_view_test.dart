@@ -88,6 +88,42 @@ void main() {
     expect(closeCount, 1);
   });
 
+  testWidgets('playlist rows toggle favorite state', (tester) async {
+    final folder = _folder(trackCount: 2);
+    final tracks = [_track(1), _track(2)];
+    Track? toggledTrack;
+
+    await tester.pumpWidget(
+      _Host(
+        child: PlaylistPlaybackView(
+          folder: folder,
+          tracks: tracks,
+          trackCoverCache: const {},
+          currentTrack: tracks[0],
+          playbackActive: true,
+          playing: true,
+          onClose: () {},
+          onPlayAll: () {},
+          onShuffleAll: () {},
+          onPrevious: () {},
+          onTogglePlayback: () {},
+          onNext: () {},
+          favoriteTrackPaths: {tracks[0].path},
+          onPlayTrack: (_) {},
+          onToggleFavoriteTrack: (track) => toggledTrack = track,
+        ),
+      ),
+    );
+
+    expect(find.byTooltip('Remove from favorites'), findsOneWidget);
+    expect(find.byTooltip('Add to favorites'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Add to favorites'));
+    await tester.pump();
+
+    expect(toggledTrack?.path, tracks[1].path);
+  });
+
   testWidgets('empty playlist disables playback commands', (tester) async {
     final folder = _folder(trackCount: 0);
 

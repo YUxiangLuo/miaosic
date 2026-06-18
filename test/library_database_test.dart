@@ -39,6 +39,7 @@ void main() {
     );
     expect(await _tables(upgraded), contains('track_cover_cache'));
     expect(await _tables(upgraded), contains('settings'));
+    expect(await _tables(upgraded), contains('favorites'));
     await upgraded.close();
     await dir.delete(recursive: true);
   });
@@ -101,6 +102,7 @@ void main() {
       await database.replaceLibrary(
         _scanResult([track], rootPath: '/old/root'),
       );
+      await database.setTrackFavorite(track.path, true);
       await database.saveTrackCoverCache([
         TrackCoverCacheEntry(
           path: track.path,
@@ -123,6 +125,8 @@ void main() {
       expect(await database.loadAlbums(), isEmpty);
       expect(await database.loadScanState(), isNull);
       expect(await database.loadLastPlayback(), isNull);
+      expect(await database.loadFavoriteTracks(), isEmpty);
+      expect(await database.loadFavoriteTrackPaths(), isEmpty);
       expect(await database.loadTrackCoverCache([track]), isEmpty);
       expect(await database.loadReferencedCoverArtPaths(), isEmpty);
 
@@ -229,6 +233,35 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  test('persists favorite tracks', () async {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_favorites_test_',
+    );
+    final dbPath = '${dir.path}/miaosic.db';
+    final database = await LibraryDatabase.openAtPath(dbPath);
+    final first = _track('/music/a.flac', size: 10, modified: 1);
+    final second = _track('/music/b.flac', size: 11, modified: 1);
+    await database.replaceLibrary(_scanResult([first, second]));
+
+    await database.setTrackFavorite(first.path, true);
+
+    expect(await database.loadFavoriteTrackPaths(), {first.path});
+    expect((await database.loadFavoriteTracks()).single.path, first.path);
+
+    await database.close();
+    final reopened = await LibraryDatabase.openAtPath(dbPath);
+    expect(await reopened.loadFavoriteTrackPaths(), {first.path});
+
+    await reopened.setTrackFavorite(first.path, false);
+    expect(await reopened.loadFavoriteTrackPaths(), isEmpty);
+
+    await reopened.close();
+    await dir.delete(recursive: true);
+  });
+
   test('persists audio output settings', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
@@ -306,6 +339,7 @@ void main() {
     await database.replaceLibrary(
       _scanResult([unchanged, changedOld, removed]),
     );
+    await database.setTrackFavorite(removed.path, true);
 
     final before = await database.loadTracks();
     final unchangedId = before
@@ -334,6 +368,7 @@ void main() {
       after.firstWhere((track) => track.path == changedNew.path).sizeBytes,
       11,
     );
+    expect(await database.loadFavoriteTrackPaths(), isEmpty);
 
     await database.close();
     await dir.delete(recursive: true);

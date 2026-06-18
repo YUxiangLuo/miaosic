@@ -5,7 +5,8 @@ import 'models.dart';
 
 enum LibraryView {
   albums('Albums', Icons.album),
-  playlists('Playlists', Icons.queue_music);
+  playlists('Playlists', Icons.queue_music),
+  favorites('Favorites', Icons.favorite);
 
   const LibraryView(this.label, this.icon);
 

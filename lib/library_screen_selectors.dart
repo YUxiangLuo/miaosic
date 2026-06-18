@@ -78,6 +78,18 @@ Track? currentTrackForPlaylist({
       : null;
 }
 
+Track? currentTrackForFavorites({
+  required LibraryActiveFavoritesPlayback favoritesPlayback,
+  required Track? currentTrack,
+}) {
+  if (currentTrack == null) {
+    return null;
+  }
+  return favoritesPlayback.queue.any((track) => track.path == currentTrack.path)
+      ? currentTrack
+      : null;
+}
+
 AlbumSummary? albumForCurrentTrack(
   Track currentTrack,
   List<AlbumSummary> albums,
@@ -126,6 +138,16 @@ LibraryAlbumPlaybackSwitchTarget? albumPlaybackSwitchTarget({
   return null;
 }
 
+List<String?> favoriteCoverArtPaths({
+  required List<Track> tracks,
+  required Map<String, String?> trackCoverCache,
+}) {
+  return tracks
+      .take(4)
+      .map((track) => resolveTrackArtwork(track, trackCoverCache))
+      .toList(growable: false);
+}
+
 List<String?> playlistCoverArtPaths({
   required FolderSummary folder,
   required List<Track> tracks,
@@ -148,8 +170,10 @@ LibraryNowPlayingTarget? nowPlayingTarget({
   required bool playing,
   required LibraryActivePlaylistPlayback? activePlaylist,
   required LibraryActiveAlbumPlayback? activeAlbum,
+  required LibraryActiveFavoritesPlayback? activeFavorites,
   required List<AlbumSummary> albums,
   required List<FolderSummary> folders,
+  required List<Track> favoriteTracks,
   required Map<String, List<Track>> tracksByFolder,
   required Map<String, String?> trackCoverCache,
   required bool Function(List<Track> queue) isCurrentQueue,
@@ -193,6 +217,40 @@ LibraryNowPlayingTarget? nowPlayingTarget({
       tracks: activeAlbum.tracks,
       sidebarItem: SidebarNowPlaying.album(
         coverArtPath: activeAlbum.album.coverArtPath,
+        playing: playing,
+      ),
+    );
+  }
+
+  if (activeFavorites != null &&
+      isCurrentQueue(activeFavorites.queue) &&
+      currentTrackForFavorites(
+            favoritesPlayback: activeFavorites,
+            currentTrack: currentTrack,
+          ) !=
+          null) {
+    return LibraryNowPlayingTarget.favorites(
+      tracks: activeFavorites.tracks,
+      sidebarItem: SidebarNowPlaying.playlist(
+        playlistCoverArtPaths: favoriteCoverArtPaths(
+          tracks: activeFavorites.tracks,
+          trackCoverCache: trackCoverCache,
+        ),
+        playing: playing,
+      ),
+    );
+  }
+
+  if (favoriteTracks.isNotEmpty &&
+      isCurrentQueue(favoriteTracks) &&
+      favoriteTracks.any((track) => track.path == currentTrack.path)) {
+    return LibraryNowPlayingTarget.favorites(
+      tracks: favoriteTracks,
+      sidebarItem: SidebarNowPlaying.playlist(
+        playlistCoverArtPaths: favoriteCoverArtPaths(
+          tracks: favoriteTracks,
+          trackCoverCache: trackCoverCache,
+        ),
         playing: playing,
       ),
     );

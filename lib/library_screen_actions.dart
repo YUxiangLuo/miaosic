@@ -80,18 +80,35 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     }
+
+    final activeFavorites = _activeFavoritesPlayback;
+    if (activeFavorites != null) {
+      final availableFavoritePaths = _library.favoriteTrackPaths
+          .where(currentTrackPaths.contains)
+          .toSet();
+      if (!activeFavorites.queue.any(
+        (track) => availableFavoritePaths.contains(track.path),
+      )) {
+        _activeFavoritesPlayback = null;
+        _lastPlaybackPath = null;
+        _lastPlaybackPlaying = false;
+      }
+    }
   }
 
   void _handlePlaybackChanged() {
     final activeAlbumPlayback = _activeAlbumPlayback;
     final activePlaylistPlayback = _activePlaylistPlayback;
+    final activeFavoritesPlayback = _activeFavoritesPlayback;
     if (!mounted) {
       return;
     }
     _saveCurrentPlaybackStateIfChanged();
     final displayTrack = activeAlbumPlayback == null
         ? activePlaylistPlayback == null
-              ? _playback.currentTrack
+              ? activeFavoritesPlayback == null
+                    ? _playback.currentTrack
+                    : _currentTrackForFavorites(activeFavoritesPlayback)
               : _currentTrackForPlaylist(activePlaylistPlayback)
         : _currentTrackForAlbum(activeAlbumPlayback);
     final nextPath = displayTrack?.path;
@@ -159,6 +176,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
         tracks: tracks,
       );
       _activePlaylistPlayback = null;
+      _activeFavoritesPlayback = null;
       _activePlaylistOverlayPath = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
@@ -184,6 +202,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
         tracks: tracks,
         shuffled: state.shuffled,
       );
+      _activeFavoritesPlayback = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     });
@@ -271,6 +290,10 @@ extension _LibraryScreenActions on _LibraryScreenState {
     return _playback.playQueueFrom(queue, track);
   }
 
+  void _toggleFavoriteTrack(Track track) {
+    unawaited(_library.toggleFavoriteTrack(track));
+  }
+
   Future<void> _restoreQueueFrom(
     List<Track> queue,
     Track track, {
@@ -294,6 +317,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
         tracks: tracks,
       );
       _activePlaylistPlayback = null;
+      _activeFavoritesPlayback = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     });
@@ -375,6 +399,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
         tracks: tracks,
         shuffled: false,
       );
+      _activeFavoritesPlayback = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     });
@@ -396,10 +421,55 @@ extension _LibraryScreenActions on _LibraryScreenState {
         tracks: tracks,
         shuffled: true,
       );
+      _activeFavoritesPlayback = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     });
     await _playQueueFrom(shuffled, shuffled.first);
+  }
+
+  Future<void> _playFavorites(List<Track> tracks, {Track? startTrack}) async {
+    if (tracks.isEmpty) {
+      return;
+    }
+    final queue = tracks.toList(growable: false);
+    _mutate(() {
+      _activeAlbumPlayback = null;
+      _activePlaylistPlayback = null;
+      _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
+        tracks: tracks,
+        queue: queue,
+        shuffled: false,
+      );
+      _activePlaylistOverlayPath = null;
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _playQueueFrom(queue, startTrack ?? queue.first);
+  }
+
+  Future<void> _playFavoritesShuffled(List<Track> tracks) async {
+    if (tracks.isEmpty) {
+      return;
+    }
+    final queue = shuffledTracks(tracks);
+    _mutate(() {
+      _activeAlbumPlayback = null;
+      _activePlaylistPlayback = null;
+      _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
+        tracks: tracks,
+        queue: queue,
+        shuffled: true,
+      );
+      _activePlaylistOverlayPath = null;
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _playQueueFrom(queue, queue.first);
+  }
+
+  Future<void> _playFavoriteTrack(Track track) {
+    return _playFavorites(_library.favoriteTracks, startTrack: track);
   }
 
   List<FolderSummary> get _playlistFolders => _library.playlistFolders;
@@ -414,8 +484,10 @@ extension _LibraryScreenActions on _LibraryScreenState {
       playing: _playback.playing,
       activePlaylist: _activePlaylistPlayback,
       activeAlbum: _activeAlbumPlayback,
+      activeFavorites: _activeFavoritesPlayback,
       albums: _library.albums,
       folders: _library.folders,
+      favoriteTracks: _library.favoriteTracks,
       tracksByFolder: _tracksByFolder,
       trackCoverCache: _library.trackCoverCache,
       isCurrentQueue: _playback.isCurrentQueue,
@@ -447,6 +519,13 @@ extension _LibraryScreenActions on _LibraryScreenState {
           return;
         }
         _openPlaylistPlayback(folder);
+      case LibraryNowPlayingKind.favorites:
+        _mutate(() {
+          _view = LibraryView.favorites;
+          _activeAlbumPlayback = null;
+          _activePlaylistPlayback = null;
+          _activePlaylistOverlayPath = null;
+        });
     }
   }
 
@@ -526,6 +605,15 @@ extension _LibraryScreenActions on _LibraryScreenState {
   ) {
     return currentTrackForPlaylist(
       playlistPlayback: playlistPlayback,
+      currentTrack: _playback.currentTrack,
+    );
+  }
+
+  Track? _currentTrackForFavorites(
+    LibraryActiveFavoritesPlayback favoritesPlayback,
+  ) {
+    return currentTrackForFavorites(
+      favoritesPlayback: favoritesPlayback,
       currentTrack: _playback.currentTrack,
     );
   }

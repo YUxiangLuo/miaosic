@@ -76,8 +76,10 @@ void main() {
       playing: true,
       activePlaylist: activePlaylist,
       activeAlbum: activeAlbum,
+      activeFavorites: null,
       albums: [album],
       folders: [playlist],
+      favoriteTracks: const [],
       tracksByFolder: {
         album.folderPath: [albumTrack],
         playlist.path: [playlistTrack],
@@ -88,6 +90,28 @@ void main() {
 
     expect(target?.kind, LibraryNowPlayingKind.playlist);
     expect(target?.folder?.path, playlist.path);
+    expect(target?.sidebarItem.kind, SidebarNowPlayingKind.playlist);
+  });
+
+  test('now playing can target the favorites queue', () {
+    final favoriteTrack = _track('/music/favorites');
+
+    final target = nowPlayingTarget(
+      currentTrack: favoriteTrack,
+      playing: true,
+      activePlaylist: null,
+      activeAlbum: null,
+      activeFavorites: null,
+      albums: const [],
+      folders: const [],
+      favoriteTracks: [favoriteTrack],
+      tracksByFolder: const {},
+      trackCoverCache: const {},
+      isCurrentQueue: (queue) => queue.single.path == favoriteTrack.path,
+    );
+
+    expect(target?.kind, LibraryNowPlayingKind.favorites);
+    expect(target?.tracks.single.path, favoriteTrack.path);
     expect(target?.sidebarItem.kind, SidebarNowPlayingKind.playlist);
   });
 

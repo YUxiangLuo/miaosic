@@ -33,7 +33,19 @@ class LibraryActivePlaylistPlayback {
   final bool shuffled;
 }
 
-enum LibraryNowPlayingKind { album, playlist }
+class LibraryActiveFavoritesPlayback {
+  const LibraryActiveFavoritesPlayback({
+    required this.tracks,
+    required this.queue,
+    required this.shuffled,
+  });
+
+  final List<Track> tracks;
+  final List<Track> queue;
+  final bool shuffled;
+}
+
+enum LibraryNowPlayingKind { album, playlist, favorites }
 
 class LibraryNowPlayingTarget {
   const LibraryNowPlayingTarget.album({
@@ -49,6 +61,13 @@ class LibraryNowPlayingTarget {
     required this.sidebarItem,
   }) : kind = LibraryNowPlayingKind.playlist,
        album = null;
+
+  const LibraryNowPlayingTarget.favorites({
+    required this.tracks,
+    required this.sidebarItem,
+  }) : kind = LibraryNowPlayingKind.favorites,
+       album = null,
+       folder = null;
 
   final LibraryNowPlayingKind kind;
   final AlbumSummary? album;

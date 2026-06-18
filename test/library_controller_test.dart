@@ -78,10 +78,15 @@ void main() {
       await controller.saveThemeMode('light');
       expect(controller.themeMode, 'light');
 
+      await controller.toggleFavoriteTrack(controller.tracks.single);
+      expect(controller.favoriteTrackPaths, {'/music/root/a.flac'});
+      expect(controller.favoriteTracks.single.path, '/music/root/a.flac');
+
       final reopened = await LibraryDatabase.openAtPath(dbPath);
       addTearDown(reopened.close);
       expect((await reopened.loadTracks()).single.path, '/music/root/a.flac');
       expect(await reopened.loadThemeMode(), 'light');
+      expect(await reopened.loadFavoriteTrackPaths(), {'/music/root/a.flac'});
     } finally {
       controller.dispose();
       await dir.delete(recursive: true);

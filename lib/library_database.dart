@@ -38,7 +38,7 @@ class LibraryDatabase {
     final db = await databaseFactoryFfi.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 4,
+        version: 5,
         onCreate: (db, version) async {
           await _createSchema(db);
         },
@@ -51,6 +51,9 @@ class LibraryDatabase {
           }
           if (oldVersion < 4) {
             await _upgradeToV4(db);
+          }
+          if (oldVersion < 5) {
+            await _upgradeToV5(db);
           }
         },
       ),
@@ -83,6 +86,37 @@ class LibraryDatabase {
       orderBy: 'album_artist COLLATE NOCASE, year, title COLLATE NOCASE',
     );
     return rows.map(AlbumSummary.fromMap).toList();
+  }
+
+  Future<List<Track>> loadFavoriteTracks() async {
+    final rows = await _db.rawQuery('''
+      SELECT tracks.*
+      FROM favorites
+      INNER JOIN tracks ON tracks.path = favorites.path
+      ORDER BY favorites.created_at_ms DESC, tracks.title COLLATE NOCASE
+    ''');
+    return rows.map(Track.fromMap).toList();
+  }
+
+  Future<Set<String>> loadFavoriteTrackPaths() async {
+    final rows = await _db.rawQuery('''
+      SELECT favorites.path
+      FROM favorites
+      INNER JOIN tracks ON tracks.path = favorites.path
+      ORDER BY favorites.created_at_ms DESC
+    ''');
+    return rows.map((row) => row['path'] as String).toSet();
+  }
+
+  Future<void> setTrackFavorite(String path, bool favorite) async {
+    if (!favorite) {
+      await _db.delete('favorites', where: 'path = ?', whereArgs: [path]);
+      return;
+    }
+    await _db.insert('favorites', {
+      'path': path,
+      'created_at_ms': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
   }
 
   Future<Map<String, String?>> loadTrackCoverCache(List<Track> tracks) async {
@@ -169,6 +203,7 @@ class LibraryDatabase {
       }
       batch.insert('scan_state', _scanStateMap(result));
       await batch.commit(noResult: true);
+      await _deleteFavoritesWithoutTracks(txn);
     });
   }
 
@@ -182,6 +217,7 @@ class LibraryDatabase {
         txn,
         clearTrackCoverCache: true,
         clearLastPlayback: true,
+        clearFavorites: true,
       );
     });
   }
@@ -351,6 +387,7 @@ class LibraryDatabase {
           where: 'path = ?',
           whereArgs: [change.path],
         );
+        batch.delete('favorites', where: 'path = ?', whereArgs: [change.path]);
       }
       for (final change in diff.added) {
         final track = change.newTrack;
@@ -457,6 +494,7 @@ class LibraryDatabase {
     ''');
     await _createTrackCoverCacheTable(db);
     await _createSettingsTable(db);
+    await _createFavoritesTable(db);
   }
 
   static Future<void> _upgradeToV2(Database db) async {
@@ -476,6 +514,10 @@ class LibraryDatabase {
 
   static Future<void> _upgradeToV4(Database db) async {
     await _createSettingsTable(db);
+  }
+
+  static Future<void> _upgradeToV5(Database db) async {
+    await _createFavoritesTable(db);
   }
 
   static Future<void> _createTrackCoverCacheTable(Database db) async {
@@ -499,10 +541,23 @@ class LibraryDatabase {
     ''');
   }
 
+  static Future<void> _createFavoritesTable(Database db) async {
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS favorites (
+        path TEXT PRIMARY KEY,
+        created_at_ms INTEGER NOT NULL
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS idx_favorites_created_at ON favorites(created_at_ms DESC)',
+    );
+  }
+
   static Future<void> _clearLibraryTables(
     Transaction txn, {
     required bool clearTrackCoverCache,
     bool clearLastPlayback = false,
+    bool clearFavorites = false,
   }) async {
     await txn.delete('tracks');
     await txn.delete('folders');
@@ -518,6 +573,18 @@ class LibraryDatabase {
         whereArgs: [lastPlaybackSettingKey],
       );
     }
+    if (clearFavorites) {
+      await txn.delete('favorites');
+    }
+  }
+
+  static Future<void> _deleteFavoritesWithoutTracks(Transaction txn) async {
+    await txn.rawDelete('''
+      DELETE FROM favorites
+      WHERE NOT EXISTS (
+        SELECT 1 FROM tracks WHERE tracks.path = favorites.path
+      )
+    ''');
   }
 
   static Future<void> _addColumnIfMissing(
