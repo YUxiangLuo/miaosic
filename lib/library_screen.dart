@@ -13,6 +13,8 @@ import 'playback_controller.dart';
 
 part 'library_screen_actions.dart';
 
+typedef LibraryScreenClock = DateTime Function();
+
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
@@ -20,18 +22,23 @@ class LibraryScreen extends StatefulWidget {
     required this.onThemeModeChanged,
     this.libraryController,
     this.playbackController,
+    this.now = DateTime.now,
   });
 
   final ThemeMode themeMode;
   final ValueChanged<ThemeMode> onThemeModeChanged;
   final LibraryController? libraryController;
   final PlaybackController? playbackController;
+  final LibraryScreenClock now;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen> {
+class _LibraryScreenState extends State<LibraryScreen>
+    with WidgetsBindingObserver {
+  static const _returnToNowPlayingAfter = Duration(seconds: 30);
+
   late final LibraryController _library;
   late final PlaybackController _playback;
   late final bool _ownsLibrary;
@@ -52,10 +59,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
   LibraryView _view = LibraryView.albums;
   String? _activePlaylistOverlayPath;
   bool _rescanDialogOpen = false;
+  bool _settingsDialogOpen = false;
+  DateTime? _appLeftAt;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _library = widget.libraryController ?? LibraryController();
     _playback = widget.playbackController ?? PlaybackController();
     _ownsLibrary = widget.libraryController == null;
@@ -67,6 +77,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _scrollMemory.dispose();
     _library.removeListener(_handleLibraryChanged);
     if (_ownsLibrary) {
@@ -77,6 +88,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _playback.dispose();
     }
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.resumed:
+        final leftAt = _appLeftAt;
+        _appLeftAt = null;
+        if (leftAt == null) {
+          return;
+        }
+        final elapsed = widget.now().difference(leftAt);
+        if (!elapsed.isNegative && elapsed >= _returnToNowPlayingAfter) {
+          _returnToNowPlayingIfNeeded();
+        }
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.paused:
+        _appLeftAt ??= widget.now();
+      case AppLifecycleState.detached:
+        break;
+    }
   }
 
   void _mutate(VoidCallback update) {

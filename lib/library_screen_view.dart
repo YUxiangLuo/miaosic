@@ -388,6 +388,7 @@ class _LibraryContentCacheState extends State<_LibraryContentCache> {
         widget.favoritesPlaybackActive,
         widget.playbackPlaying,
         widget.favoriteTrackPaths,
+        _activationSerial,
       ),
     };
   }
@@ -427,6 +428,7 @@ class _LibraryContentCacheState extends State<_LibraryContentCache> {
         onNext: widget.onFavoriteNext,
         onPlayTrack: widget.onPlayFavoriteTrack,
         onToggleFavorite: widget.onToggleFavoriteTrack,
+        focusRequestToken: _activationSerial,
       ),
     };
   }

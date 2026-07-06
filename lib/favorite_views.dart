@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'artwork_resolver.dart';
 import 'library_formatters.dart';
 import 'library_widgets.dart';
 import 'models.dart';
+
+const _favoritePlaybackSpaceActivator = SingleActivator(
+  LogicalKeyboardKey.space,
+  includeRepeats: false,
+);
 
 class FavoriteTrackList extends StatelessWidget {
   const FavoriteTrackList({
@@ -20,6 +26,7 @@ class FavoriteTrackList extends StatelessWidget {
     required this.onNext,
     required this.onPlayTrack,
     required this.onToggleFavorite,
+    this.focusRequestToken,
   });
 
   final List<Track> tracks;
@@ -34,6 +41,7 @@ class FavoriteTrackList extends StatelessWidget {
   final VoidCallback? onNext;
   final ValueChanged<Track> onPlayTrack;
   final ValueChanged<Track> onToggleFavorite;
+  final Object? focusRequestToken;
 
   @override
   Widget build(BuildContext context) {
@@ -41,74 +49,145 @@ class FavoriteTrackList extends StatelessWidget {
       return const EmptyState(message: 'No favorite tracks yet');
     }
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final showArtist = constraints.maxWidth >= 600;
-        final showAlbum = constraints.maxWidth >= 780;
-        final compactHeader = constraints.maxWidth < 780;
-        final controls = _FavoritePlaybackControls(
-          playbackActive: playbackActive,
-          playing: playing,
-          onPlayAll: onPlayAll,
-          onShuffleAll: onShuffleAll,
-          onPrevious: onPrevious,
-          onTogglePlayback: onTogglePlayback,
-          onNext: onNext,
-        );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(28, 24, 28, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _FavoriteTitleBlock(trackCount: tracks.length),
-                      ),
-                      if (!compactHeader) ...[
-                        const SizedBox(width: 16),
-                        controls,
-                      ],
-                    ],
-                  ),
-                  if (compactHeader) ...[const SizedBox(height: 14), controls],
-                ],
-              ),
-            ),
-            _FavoriteTableHeader(showArtist: showArtist, showAlbum: showAlbum),
-            Expanded(
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
-                itemCount: tracks.length,
-                separatorBuilder: (_, _) => Divider(
-                  height: 1,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.outlineVariant.withValues(alpha: 0.7),
-                ),
-                itemBuilder: (context, index) {
-                  final track = tracks[index];
-                  final selected = currentTrack?.path == track.path;
-                  return _FavoriteTrackRow(
-                    index: index,
-                    track: track,
-                    artworkPath: resolveTrackArtwork(track, trackCoverCache),
-                    selected: selected,
-                    playing: selected && playing,
-                    showArtist: showArtist,
-                    showAlbum: showAlbum,
-                    onTap: () => onPlayTrack(track),
-                    onToggleFavorite: () => onToggleFavorite(track),
-                  );
-                },
-              ),
-            ),
-          ],
-        );
+    return _FavoriteShortcutScope(
+      focusRequestToken: focusRequestToken,
+      bindings: {
+        _favoritePlaybackSpaceActivator: () {
+          final action = playbackActive ? onTogglePlayback : onPlayAll;
+          action?.call();
+        },
       },
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final showArtist = constraints.maxWidth >= 600;
+          final showAlbum = constraints.maxWidth >= 780;
+          final compactHeader = constraints.maxWidth < 780;
+          final controls = _FavoritePlaybackControls(
+            playbackActive: playbackActive,
+            playing: playing,
+            onPlayAll: onPlayAll,
+            onShuffleAll: onShuffleAll,
+            onPrevious: onPrevious,
+            onTogglePlayback: onTogglePlayback,
+            onNext: onNext,
+          );
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 24, 28, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _FavoriteTitleBlock(trackCount: tracks.length),
+                        ),
+                        if (!compactHeader) ...[
+                          const SizedBox(width: 16),
+                          controls,
+                        ],
+                      ],
+                    ),
+                    if (compactHeader) ...[
+                      const SizedBox(height: 14),
+                      controls,
+                    ],
+                  ],
+                ),
+              ),
+              _FavoriteTableHeader(
+                showArtist: showArtist,
+                showAlbum: showAlbum,
+              ),
+              Expanded(
+                child: ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
+                  itemCount: tracks.length,
+                  separatorBuilder: (_, _) => Divider(
+                    height: 1,
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.outlineVariant.withValues(alpha: 0.7),
+                  ),
+                  itemBuilder: (context, index) {
+                    final track = tracks[index];
+                    final selected = currentTrack?.path == track.path;
+                    return _FavoriteTrackRow(
+                      index: index,
+                      track: track,
+                      artworkPath: resolveTrackArtwork(track, trackCoverCache),
+                      selected: selected,
+                      playing: selected && playing,
+                      showArtist: showArtist,
+                      showAlbum: showAlbum,
+                      onTap: () => onPlayTrack(track),
+                      onToggleFavorite: () => onToggleFavorite(track),
+                    );
+                  },
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _FavoriteShortcutScope extends StatefulWidget {
+  const _FavoriteShortcutScope({
+    required this.bindings,
+    required this.child,
+    this.focusRequestToken,
+  });
+
+  final Map<ShortcutActivator, VoidCallback> bindings;
+  final Widget child;
+  final Object? focusRequestToken;
+
+  @override
+  State<_FavoriteShortcutScope> createState() => _FavoriteShortcutScopeState();
+}
+
+class _FavoriteShortcutScopeState extends State<_FavoriteShortcutScope> {
+  late final FocusNode _focusNode;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode = FocusNode(debugLabel: 'FavoriteTrackListShortcuts');
+    _scheduleFocusRequest();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FavoriteShortcutScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.focusRequestToken != widget.focusRequestToken) {
+      _scheduleFocusRequest();
+    }
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _scheduleFocusRequest() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _focusNode.requestFocus();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CallbackShortcuts(
+      bindings: widget.bindings,
+      child: Focus(focusNode: _focusNode, autofocus: true, child: widget.child),
     );
   }
 }

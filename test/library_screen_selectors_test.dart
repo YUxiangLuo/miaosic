@@ -112,7 +112,45 @@ void main() {
 
     expect(target?.kind, LibraryNowPlayingKind.favorites);
     expect(target?.tracks.single.path, favoriteTrack.path);
+    expect(target?.queue.single.path, favoriteTrack.path);
+    expect(target?.shuffled, isFalse);
     expect(target?.sidebarItem.kind, SidebarNowPlayingKind.playlist);
+  });
+
+  test('now playing preserves active shuffled favorites queue', () {
+    final first = _track('/music/favorites', path: '/music/favorites/1.flac');
+    final second = _track('/music/favorites', path: '/music/favorites/2.flac');
+    final tracks = [first, second];
+    final queue = [second, first];
+    final activeFavorites = LibraryActiveFavoritesPlayback(
+      tracks: tracks,
+      queue: queue,
+      shuffled: true,
+    );
+
+    final target = nowPlayingTarget(
+      currentTrack: second,
+      playing: true,
+      activePlaylist: null,
+      activeAlbum: null,
+      activeFavorites: activeFavorites,
+      albums: const [],
+      folders: const [],
+      favoriteTracks: tracks,
+      tracksByFolder: const {},
+      trackCoverCache: const {},
+      isCurrentQueue: (candidate) =>
+          candidate.map((track) => track.path).join('|') ==
+          queue.map((track) => track.path).join('|'),
+    );
+
+    expect(target?.kind, LibraryNowPlayingKind.favorites);
+    expect(target?.tracks.map((track) => track.path), [
+      first.path,
+      second.path,
+    ]);
+    expect(target?.queue.map((track) => track.path), [second.path, first.path]);
+    expect(target?.shuffled, isTrue);
   });
 
   test('theme and last playback values stay stable', () {

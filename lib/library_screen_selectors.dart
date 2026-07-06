@@ -231,6 +231,8 @@ LibraryNowPlayingTarget? nowPlayingTarget({
           null) {
     return LibraryNowPlayingTarget.favorites(
       tracks: activeFavorites.tracks,
+      queue: activeFavorites.queue,
+      shuffled: activeFavorites.shuffled,
       sidebarItem: SidebarNowPlaying.playlist(
         playlistCoverArtPaths: favoriteCoverArtPaths(
           tracks: activeFavorites.tracks,
@@ -246,6 +248,8 @@ LibraryNowPlayingTarget? nowPlayingTarget({
       favoriteTracks.any((track) => track.path == currentTrack.path)) {
     return LibraryNowPlayingTarget.favorites(
       tracks: favoriteTracks,
+      queue: favoriteTracks,
+      shuffled: false,
       sidebarItem: SidebarNowPlaying.playlist(
         playlistCoverArtPaths: favoriteCoverArtPaths(
           tracks: favoriteTracks,

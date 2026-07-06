@@ -130,6 +130,37 @@ extension _LibraryScreenActions on _LibraryScreenState {
     });
   }
 
+  void _returnToNowPlayingIfNeeded() {
+    if (!mounted ||
+        _rescanDialogOpen ||
+        _settingsDialogOpen ||
+        !_playback.playing ||
+        _playback.currentTrack == null) {
+      return;
+    }
+    final target = _nowPlayingTarget;
+    if (target == null || _isShowingNowPlayingTarget(target)) {
+      return;
+    }
+    _openNowPlaying(target);
+  }
+
+  bool _isShowingNowPlayingTarget(LibraryNowPlayingTarget target) {
+    return switch (target.kind) {
+      LibraryNowPlayingKind.album =>
+        _activeAlbumPlayback?.album.folderPath == target.album?.folderPath,
+      LibraryNowPlayingKind.playlist =>
+        _activeAlbumPlayback == null &&
+            _activePlaylistOverlayPath == target.folder?.path,
+      LibraryNowPlayingKind.favorites =>
+        _view == LibraryView.favorites &&
+            _activeAlbumPlayback == null &&
+            _activePlaylistOverlayPath == null &&
+            _activeFavoritesPlayback != null &&
+            _playback.isCurrentQueue(_activeFavoritesPlayback!.queue),
+    };
+  }
+
   Future<void> _restoreLastPlaybackIfReady() async {
     if (_lastPlaybackRestoreAttempted ||
         _lastPlaybackRestoring ||
@@ -520,10 +551,19 @@ extension _LibraryScreenActions on _LibraryScreenState {
         }
         _openPlaylistPlayback(folder);
       case LibraryNowPlayingKind.favorites:
+        final tracks = target.tracks;
+        final queue = target.queue;
         _mutate(() {
           _view = LibraryView.favorites;
           _activeAlbumPlayback = null;
           _activePlaylistPlayback = null;
+          _activeFavoritesPlayback = tracks.isEmpty || queue.isEmpty
+              ? null
+              : LibraryActiveFavoritesPlayback(
+                  tracks: tracks,
+                  queue: queue,
+                  shuffled: target.shuffled,
+                );
           _activePlaylistOverlayPath = null;
         });
     }
@@ -574,12 +614,16 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (!_library.settingsLoaded) {
       return;
     }
+    if (_settingsDialogOpen) {
+      return;
+    }
+    _settingsDialogOpen = true;
     unawaited(
       showLibrarySettingsDialog(
         context: context,
         library: _library,
         playback: _playback,
-      ),
+      ).whenComplete(() => _settingsDialogOpen = false),
     );
   }
 
