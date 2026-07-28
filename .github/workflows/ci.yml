@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    name: Check and build Linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.44.4"
+          cache: true
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.96.0"
+          components: rustfmt
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            clang \
+            cmake \
+            libgtk-3-dev \
+            liblzma-dev \
+            libmpv-dev \
+            libsqlite3-dev \
+            ninja-build \
+            pkg-config \
+            xvfb
+
+      - name: Get locked Flutter dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Check Dart formatting
+        run: dart format --output=none --set-exit-if-changed lib test tool
+
+      - name: Analyze Flutter project
+        run: flutter analyze
+
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path native/music_core/Cargo.toml --check
+
+      - name: Run Flutter tests
+        run: flutter test
+
+      - name: Run Rust tests
+        run: cargo test --locked --manifest-path native/music_core/Cargo.toml
+
+      - name: Build Linux release
+        run: flutter build linux --release
+
+      - name: Smoke test Linux bundle
+        run: scripts/smoke_linux_bundle.sh

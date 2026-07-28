@@ -93,8 +93,6 @@ Future<void> showLibrarySettingsDialog({
         animation: Listenable.merge([library, playback]),
         builder: (context, _) {
           return SettingsDialog(
-            llmSettings: library.llmSettings,
-            onSaveLlmSettings: library.saveLlmSettings,
             audioOutputSettings: library.audioOutputSettings,
             audioDevices: playback.audioDevices,
             activeAudioDevice: playback.audioDevice,

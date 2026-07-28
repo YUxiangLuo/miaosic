@@ -35,6 +35,12 @@ class PlaybackController extends ChangeNotifier {
       _restorePreferredAudioDeviceIfAvailable();
       notifyListeners();
     });
+    _playbackErrorSub = _player.stream.error.listen((error) {
+      final message = error.trim();
+      if (message.isNotEmpty) {
+        _setPlaybackError('Playback error: $message');
+      }
+    });
     _audioDevice = _player.state.audioDevice;
     _audioDevices = _normalizeAudioDevices(_player.state.audioDevices);
   }
@@ -52,6 +58,7 @@ class PlaybackController extends ChangeNotifier {
   late final StreamSubscription<Duration> _durationSub;
   late final StreamSubscription<AudioDevice> _audioDeviceSub;
   late final StreamSubscription<List<AudioDevice>> _audioDevicesSub;
+  late final StreamSubscription<String> _playbackErrorSub;
 
   Track? _currentTrack;
   List<Track> _queue = const [];
@@ -65,6 +72,9 @@ class PlaybackController extends ChangeNotifier {
       const AudioOutputSettings.defaults();
   String? _audioOutputWarning;
   String? _audioOutputError;
+  String? _playbackError;
+  int _playbackErrorRevision = 0;
+  int _latestOpenRequestId = 0;
   bool _restoringPreferredAudioDevice = false;
   bool _disposed = false;
 
@@ -78,6 +88,8 @@ class PlaybackController extends ChangeNotifier {
       _preferredAudioOutputSettings;
   String? get audioOutputWarning => _audioOutputWarning;
   String? get audioOutputError => _audioOutputError;
+  String? get playbackError => _playbackError;
+  int get playbackErrorRevision => _playbackErrorRevision;
 
   bool isCurrentQueue(List<Track> queue) {
     final current = _currentTrack;
@@ -129,10 +141,15 @@ class PlaybackController extends ChangeNotifier {
       }
       return;
     }
-    if (_playing) {
-      await _player.pause();
-    } else {
-      await _player.play();
+    _clearPlaybackError(notify: false);
+    try {
+      if (_playing) {
+        await _player.pause();
+      } else {
+        await _player.play();
+      }
+    } catch (error) {
+      _setPlaybackError('Could not change playback state: $error');
     }
   }
 
@@ -172,7 +189,18 @@ class PlaybackController extends ChangeNotifier {
     await _playQueueAt(_queue, index, play: true);
   }
 
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) async {
+    _clearPlaybackError(notify: false);
+    try {
+      await _player.seek(position);
+    } catch (error) {
+      _setPlaybackError('Could not seek: $error');
+    }
+  }
+
+  void clearPlaybackError() {
+    _clearPlaybackError(notify: true);
+  }
 
   Future<void> applyAudioOutputSettings(AudioOutputSettings settings) async {
     final normalized = settings.normalized();
@@ -212,7 +240,11 @@ class PlaybackController extends ChangeNotifier {
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
-    await _player.stop();
+    try {
+      await _player.stop();
+    } catch (error) {
+      _setPlaybackError('Could not stop removed track: $error');
+    }
   }
 
   Future<void> _playQueueAt(
@@ -220,14 +252,52 @@ class PlaybackController extends ChangeNotifier {
     int index, {
     required bool play,
   }) async {
+    final requestId = ++_latestOpenRequestId;
     final track = queue[index];
+    final previousQueue = _queue;
+    final previousQueueIndex = _queueIndex;
+    final previousTrack = _currentTrack;
+    final previousPosition = _position;
+    final previousDuration = _duration;
+    _clearPlaybackError(notify: false);
     _queue = queue;
     _queueIndex = index;
     _currentTrack = track;
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
-    await _player.open(Media(track.path), play: play);
+    try {
+      await _player.open(Media(track.path), play: play);
+    } catch (error) {
+      if (_disposed || requestId != _latestOpenRequestId) {
+        return;
+      }
+      _queue = previousQueue;
+      _queueIndex = previousQueueIndex;
+      _currentTrack = previousTrack;
+      _position = previousPosition;
+      _duration = previousDuration;
+      _setPlaybackError('Could not play ${track.fileName}: $error');
+    }
+  }
+
+  void _setPlaybackError(String message) {
+    if (_disposed) {
+      return;
+    }
+    _playbackError = message;
+    _playbackErrorRevision += 1;
+    notifyListeners();
+  }
+
+  void _clearPlaybackError({required bool notify}) {
+    if (_playbackError == null) {
+      return;
+    }
+    _playbackError = null;
+    if (notify && !_disposed) {
+      notifyListeners();
+    }
   }
 
   AudioDevice _targetDeviceFor(AudioOutputSettings settings) {
@@ -314,6 +384,7 @@ class PlaybackController extends ChangeNotifier {
     unawaited(_durationSub.cancel());
     unawaited(_audioDeviceSub.cancel());
     unawaited(_audioDevicesSub.cancel());
+    unawaited(_playbackErrorSub.cancel());
     unawaited(_player.dispose());
     super.dispose();
   }

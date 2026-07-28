@@ -72,8 +72,11 @@ endif()
 
 add_custom_command(
   OUTPUT "${MUSIC_CORE_LIBRARY}"
-  COMMAND cargo build --manifest-path "${MUSIC_CORE_DIR}/Cargo.toml" ${MUSIC_CORE_CARGO_ARGS}
-  DEPENDS "${MUSIC_CORE_DIR}/Cargo.toml" "${MUSIC_CORE_DIR}/src/lib.rs"
+  COMMAND cargo build --locked --manifest-path "${MUSIC_CORE_DIR}/Cargo.toml" ${MUSIC_CORE_CARGO_ARGS}
+  DEPENDS
+    "${MUSIC_CORE_DIR}/Cargo.toml"
+    "${MUSIC_CORE_DIR}/Cargo.lock"
+    "${MUSIC_CORE_DIR}/src/lib.rs"
   WORKING_DIRECTORY "${MUSIC_CORE_DIR}"
   COMMENT "Building Rust music_core"
   VERBATIM

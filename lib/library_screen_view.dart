@@ -10,9 +10,8 @@ import 'models.dart';
 import 'playlist_playback_view.dart';
 import 'playlist_views.dart';
 
-class LibraryScreenView extends StatelessWidget {
-  const LibraryScreenView({
-    super.key,
+class LibraryScreenViewModel {
+  const LibraryScreenViewModel({
     required this.selectedView,
     required this.loading,
     required this.albums,
@@ -28,7 +27,6 @@ class LibraryScreenView extends StatelessWidget {
     required this.nowPlayingTarget,
     required this.activeAlbumPlayback,
     required this.activeAlbumTrack,
-    required this.albumPlaybackActive,
     required this.dockNowPlayingAlbumTarget,
     required this.activePlaylistOverlayFolder,
     required this.activePlaylistOverlayTracks,
@@ -38,6 +36,40 @@ class LibraryScreenView extends StatelessWidget {
     required this.playbackPlaying,
     required this.albumGridScrollController,
     required this.playlistListScrollController,
+    required this.canSwitchPreviousAlbum,
+    required this.canSwitchNextAlbum,
+  });
+
+  final LibraryView selectedView;
+  final bool loading;
+  final List<AlbumSummary> albums;
+  final List<FolderSummary> playlistFolders;
+  final int playlistCount;
+  final List<Track> favoriteTracks;
+  final int favoriteCount;
+  final Set<String> favoriteTrackPaths;
+  final bool favoritesPlaybackActive;
+  final Map<String, List<Track>> tracksByFolder;
+  final Map<String, String?> trackCoverCache;
+  final ThemeMode themeMode;
+  final LibraryNowPlayingTarget? nowPlayingTarget;
+  final LibraryActiveAlbumPlayback? activeAlbumPlayback;
+  final Track? activeAlbumTrack;
+  final LibraryNowPlayingTarget? dockNowPlayingAlbumTarget;
+  final FolderSummary? activePlaylistOverlayFolder;
+  final List<Track> activePlaylistOverlayTracks;
+  final Track? activePlaylistTrack;
+  final bool playlistOverlayPlaybackActive;
+  final Track? playbackCurrentTrack;
+  final bool playbackPlaying;
+  final ScrollController albumGridScrollController;
+  final ScrollController playlistListScrollController;
+  final bool canSwitchPreviousAlbum;
+  final bool canSwitchNextAlbum;
+}
+
+class LibraryScreenViewActions {
+  const LibraryScreenViewActions({
     required this.onOpenLibrary,
     required this.onToggleThemeMode,
     required this.onOpenSettings,
@@ -49,8 +81,6 @@ class LibraryScreenView extends StatelessWidget {
     required this.onAlbumToggle,
     required this.onAlbumNext,
     required this.onOpenNowPlayingAlbum,
-    required this.canSwitchPreviousAlbum,
-    required this.canSwitchNextAlbum,
     required this.onSwitchPreviousAlbum,
     required this.onSwitchNextAlbum,
     required this.onPlayAlbumTrack,
@@ -71,31 +101,6 @@ class LibraryScreenView extends StatelessWidget {
     required this.onPlayFavoriteTrack,
   });
 
-  final LibraryView selectedView;
-  final bool loading;
-  final List<AlbumSummary> albums;
-  final List<FolderSummary> playlistFolders;
-  final int playlistCount;
-  final List<Track> favoriteTracks;
-  final int favoriteCount;
-  final Set<String> favoriteTrackPaths;
-  final bool favoritesPlaybackActive;
-  final Map<String, List<Track>> tracksByFolder;
-  final Map<String, String?> trackCoverCache;
-  final ThemeMode themeMode;
-  final LibraryNowPlayingTarget? nowPlayingTarget;
-  final LibraryActiveAlbumPlayback? activeAlbumPlayback;
-  final Track? activeAlbumTrack;
-  final bool albumPlaybackActive;
-  final LibraryNowPlayingTarget? dockNowPlayingAlbumTarget;
-  final FolderSummary? activePlaylistOverlayFolder;
-  final List<Track> activePlaylistOverlayTracks;
-  final Track? activePlaylistTrack;
-  final bool playlistOverlayPlaybackActive;
-  final Track? playbackCurrentTrack;
-  final bool playbackPlaying;
-  final ScrollController albumGridScrollController;
-  final ScrollController playlistListScrollController;
   final VoidCallback? onOpenLibrary;
   final VoidCallback? onToggleThemeMode;
   final VoidCallback? onOpenSettings;
@@ -107,8 +112,6 @@ class LibraryScreenView extends StatelessWidget {
   final VoidCallback? onAlbumToggle;
   final VoidCallback? onAlbumNext;
   final VoidCallback? onOpenNowPlayingAlbum;
-  final bool canSwitchPreviousAlbum;
-  final bool canSwitchNextAlbum;
   final VoidCallback? onSwitchPreviousAlbum;
   final VoidCallback? onSwitchNextAlbum;
   final ValueChanged<Track> onPlayAlbumTrack;
@@ -127,11 +130,22 @@ class LibraryScreenView extends StatelessWidget {
   final VoidCallback? onPlaylistNext;
   final ValueChanged<Track> onPlayPlaylistTrack;
   final ValueChanged<Track> onPlayFavoriteTrack;
+}
+
+class LibraryScreenView extends StatelessWidget {
+  const LibraryScreenView({
+    super.key,
+    required this.model,
+    required this.actions,
+  });
+
+  final LibraryScreenViewModel model;
+  final LibraryScreenViewActions actions;
 
   @override
   Widget build(BuildContext context) {
-    final activeAlbumPlayback = this.activeAlbumPlayback;
-    final activePlaylistOverlayFolder = this.activePlaylistOverlayFolder;
+    final activeAlbumPlayback = model.activeAlbumPlayback;
+    final activePlaylistOverlayFolder = model.activePlaylistOverlayFolder;
     return Scaffold(
       body: Stack(
         children: [
@@ -143,19 +157,20 @@ class LibraryScreenView extends StatelessWidget {
               children: [
                 RepaintBoundary(
                   child: LibrarySidebar(
-                    selected: selectedView,
-                    albums: albums.length,
-                    playlists: playlistCount,
-                    favorites: favoriteCount,
-                    nowPlaying: nowPlayingTarget?.sidebarItem,
-                    themeMode: themeMode,
-                    onOpenLibrary: onOpenLibrary,
-                    onToggleThemeMode: onToggleThemeMode,
-                    onOpenSettings: onOpenSettings,
-                    onOpenNowPlaying: nowPlayingTarget == null
+                    selected: model.selectedView,
+                    albums: model.albums.length,
+                    playlists: model.playlistCount,
+                    favorites: model.favoriteCount,
+                    nowPlaying: model.nowPlayingTarget?.sidebarItem,
+                    themeMode: model.themeMode,
+                    onOpenLibrary: actions.onOpenLibrary,
+                    onToggleThemeMode: actions.onToggleThemeMode,
+                    onOpenSettings: actions.onOpenSettings,
+                    onOpenNowPlaying: model.nowPlayingTarget == null
                         ? null
-                        : () => onOpenNowPlaying(nowPlayingTarget!),
-                    onSelected: onSelectedView,
+                        : () =>
+                              actions.onOpenNowPlaying(model.nowPlayingTarget!),
+                    onSelected: actions.onSelectedView,
                   ),
                 ),
                 const VerticalDivider(width: 1),
@@ -168,27 +183,33 @@ class LibraryScreenView extends StatelessWidget {
               child: AlbumPlaybackView(
                 album: activeAlbumPlayback.album,
                 tracks: activeAlbumPlayback.tracks,
-                currentTrack: activeAlbumTrack,
-                playing: activeAlbumTrack != null && playbackPlaying,
-                nowPlayingAlbum: dockNowPlayingAlbumTarget == null
+                currentTrack: model.activeAlbumTrack,
+                playing:
+                    model.activeAlbumTrack != null && model.playbackPlaying,
+                nowPlayingAlbum: model.dockNowPlayingAlbumTarget == null
                     ? null
                     : AlbumPlaybackNowPlaying(
-                        coverArtPath:
-                            dockNowPlayingAlbumTarget!.album?.coverArtPath,
-                        playing: dockNowPlayingAlbumTarget!.sidebarItem.playing,
+                        coverArtPath: model
+                            .dockNowPlayingAlbumTarget!
+                            .album
+                            ?.coverArtPath,
+                        playing: model
+                            .dockNowPlayingAlbumTarget!
+                            .sidebarItem
+                            .playing,
                       ),
-                onClose: onCloseAlbumPlayback,
-                onPrevious: onAlbumPrevious!,
-                onToggle: onAlbumToggle!,
-                onNext: onAlbumNext!,
-                onOpenNowPlayingAlbum: onOpenNowPlayingAlbum,
-                canSwitchPreviousAlbum: canSwitchPreviousAlbum,
-                canSwitchNextAlbum: canSwitchNextAlbum,
-                onSwitchPreviousAlbum: onSwitchPreviousAlbum,
-                onSwitchNextAlbum: onSwitchNextAlbum,
-                favoriteTrackPaths: favoriteTrackPaths,
-                onPlayTrack: onPlayAlbumTrack,
-                onToggleFavoriteTrack: onToggleFavoriteTrack,
+                onClose: actions.onCloseAlbumPlayback,
+                onPrevious: actions.onAlbumPrevious!,
+                onToggle: actions.onAlbumToggle!,
+                onNext: actions.onAlbumNext!,
+                onOpenNowPlayingAlbum: actions.onOpenNowPlayingAlbum,
+                canSwitchPreviousAlbum: model.canSwitchPreviousAlbum,
+                canSwitchNextAlbum: model.canSwitchNextAlbum,
+                onSwitchPreviousAlbum: actions.onSwitchPreviousAlbum,
+                onSwitchNextAlbum: actions.onSwitchNextAlbum,
+                favoriteTrackPaths: model.favoriteTrackPaths,
+                onPlayTrack: actions.onPlayAlbumTrack,
+                onToggleFavoriteTrack: actions.onToggleFavoriteTrack,
               ),
             ),
           if (activeAlbumPlayback == null &&
@@ -196,20 +217,22 @@ class LibraryScreenView extends StatelessWidget {
             Positioned.fill(
               child: PlaylistPlaybackView(
                 folder: activePlaylistOverlayFolder,
-                tracks: activePlaylistOverlayTracks,
-                trackCoverCache: trackCoverCache,
-                currentTrack: activePlaylistTrack,
-                playbackActive: playlistOverlayPlaybackActive,
-                playing: playlistOverlayPlaybackActive && playbackPlaying,
-                onClose: onClosePlaylistPlayback,
-                onPlayAll: onPlaylistPlayAll,
-                onShuffleAll: onPlaylistShuffleAll,
-                onPrevious: onPlaylistPrevious,
-                onTogglePlayback: onPlaylistTogglePlayback,
-                onNext: onPlaylistNext,
-                favoriteTrackPaths: favoriteTrackPaths,
-                onPlayTrack: onPlayPlaylistTrack,
-                onToggleFavoriteTrack: onToggleFavoriteTrack,
+                tracks: model.activePlaylistOverlayTracks,
+                trackCoverCache: model.trackCoverCache,
+                currentTrack: model.activePlaylistTrack,
+                playbackActive: model.playlistOverlayPlaybackActive,
+                playing:
+                    model.playlistOverlayPlaybackActive &&
+                    model.playbackPlaying,
+                onClose: actions.onClosePlaylistPlayback,
+                onPlayAll: actions.onPlaylistPlayAll,
+                onShuffleAll: actions.onPlaylistShuffleAll,
+                onPrevious: actions.onPlaylistPrevious,
+                onTogglePlayback: actions.onPlaylistTogglePlayback,
+                onNext: actions.onPlaylistNext,
+                favoriteTrackPaths: model.favoriteTrackPaths,
+                onPlayTrack: actions.onPlayPlaylistTrack,
+                onToggleFavoriteTrack: actions.onToggleFavoriteTrack,
               ),
             ),
         ],
@@ -218,33 +241,33 @@ class LibraryScreenView extends StatelessWidget {
   }
 
   Widget _buildContent() {
-    if (loading) {
+    if (model.loading) {
       return const Center(child: CircularProgressIndicator());
     }
     return _LibraryContentCache(
-      selectedView: selectedView,
-      albums: albums,
-      playlistFolders: playlistFolders,
-      favoriteTracks: favoriteTracks,
-      favoriteTrackPaths: favoriteTrackPaths,
-      favoritesPlaybackActive: favoritesPlaybackActive,
-      tracksByFolder: tracksByFolder,
-      trackCoverCache: trackCoverCache,
-      activeAlbumPlayback: activeAlbumPlayback,
-      activePlaylistOverlayFolder: activePlaylistOverlayFolder,
-      playbackCurrentTrack: playbackCurrentTrack,
-      playbackPlaying: playbackPlaying,
-      albumGridScrollController: albumGridScrollController,
-      playlistListScrollController: playlistListScrollController,
-      onOpenAlbum: onOpenAlbum,
-      onToggleFavoriteTrack: onToggleFavoriteTrack,
-      onFavoritePlayAll: onFavoritePlayAll,
-      onFavoriteShuffleAll: onFavoriteShuffleAll,
-      onFavoritePrevious: onFavoritePrevious,
-      onFavoriteTogglePlayback: onFavoriteTogglePlayback,
-      onFavoriteNext: onFavoriteNext,
-      onOpenPlaylistPlayback: onOpenPlaylistPlayback,
-      onPlayFavoriteTrack: onPlayFavoriteTrack,
+      selectedView: model.selectedView,
+      albums: model.albums,
+      playlistFolders: model.playlistFolders,
+      favoriteTracks: model.favoriteTracks,
+      favoriteTrackPaths: model.favoriteTrackPaths,
+      favoritesPlaybackActive: model.favoritesPlaybackActive,
+      tracksByFolder: model.tracksByFolder,
+      trackCoverCache: model.trackCoverCache,
+      activeAlbumPlayback: model.activeAlbumPlayback,
+      activePlaylistOverlayFolder: model.activePlaylistOverlayFolder,
+      playbackCurrentTrack: model.playbackCurrentTrack,
+      playbackPlaying: model.playbackPlaying,
+      albumGridScrollController: model.albumGridScrollController,
+      playlistListScrollController: model.playlistListScrollController,
+      onOpenAlbum: actions.onOpenAlbum,
+      onToggleFavoriteTrack: actions.onToggleFavoriteTrack,
+      onFavoritePlayAll: actions.onFavoritePlayAll,
+      onFavoriteShuffleAll: actions.onFavoriteShuffleAll,
+      onFavoritePrevious: actions.onFavoritePrevious,
+      onFavoriteTogglePlayback: actions.onFavoriteTogglePlayback,
+      onFavoriteNext: actions.onFavoriteNext,
+      onOpenPlaylistPlayback: actions.onOpenPlaylistPlayback,
+      onPlayFavoriteTrack: actions.onPlayFavoriteTrack,
     );
   }
 }

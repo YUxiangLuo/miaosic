@@ -45,4 +45,22 @@ void main() {
     expect(track.coverArtPath, '/cache/cover.jpg');
     expect(track.toMap()['cover_art_path'], '/cache/cover.jpg');
   });
+
+  test('round-trips favorites playback without a folder path', () {
+    const state = LastPlaybackState(
+      kind: LastPlaybackKind.favorites,
+      folderPath: '',
+      trackPath: '/music/Favorites/track.flac',
+      playing: true,
+      shuffled: true,
+    );
+
+    final restored = LastPlaybackState.fromJson(state.toJson());
+
+    expect(restored?.kind, LastPlaybackKind.favorites);
+    expect(restored?.folderPath, isEmpty);
+    expect(restored?.trackPath, state.trackPath);
+    expect(restored?.playing, isTrue);
+    expect(restored?.shuffled, isTrue);
+  });
 }

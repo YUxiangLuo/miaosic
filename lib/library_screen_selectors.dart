@@ -283,6 +283,7 @@ LastPlaybackState? currentPlaybackState({
   required bool playing,
   required LibraryActivePlaylistPlayback? activePlaylist,
   required LibraryActiveAlbumPlayback? activeAlbum,
+  required LibraryActiveFavoritesPlayback? activeFavorites,
   required List<AlbumSummary> albums,
   required Map<String, List<Track>> tracksByFolder,
   required bool Function(List<Track> queue) isCurrentQueue,
@@ -303,6 +304,22 @@ LastPlaybackState? currentPlaybackState({
       trackPath: currentTrack.path,
       playing: playing,
       shuffled: activePlaylist.shuffled,
+    );
+  }
+
+  if (activeFavorites != null &&
+      isCurrentQueue(activeFavorites.queue) &&
+      currentTrackForFavorites(
+            favoritesPlayback: activeFavorites,
+            currentTrack: currentTrack,
+          ) !=
+          null) {
+    return LastPlaybackState(
+      kind: LastPlaybackKind.favorites,
+      folderPath: '',
+      trackPath: currentTrack.path,
+      playing: playing,
+      shuffled: activeFavorites.shuffled,
     );
   }
 

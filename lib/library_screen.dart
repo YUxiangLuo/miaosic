@@ -60,6 +60,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   String? _activePlaylistOverlayPath;
   bool _rescanDialogOpen = false;
   bool _settingsDialogOpen = false;
+  int? _lastShownPlaybackErrorRevision;
   DateTime? _appLeftAt;
 
   @override
@@ -170,139 +171,144 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
 
     return LibraryScreenView(
-      selectedView: _view,
-      loading: _library.loading,
-      albums: _library.albums,
-      playlistFolders: _playlistFolders,
-      playlistCount: _playlistCount,
-      favoriteTracks: _library.favoriteTracks,
-      favoriteCount: _library.favoriteCount,
-      favoriteTrackPaths: _library.favoriteTrackPaths,
-      favoritesPlaybackActive: favoritesPlaybackActive,
-      tracksByFolder: _tracksByFolder,
-      trackCoverCache: _library.trackCoverCache,
-      themeMode: widget.themeMode,
-      nowPlayingTarget: nowPlayingTarget,
-      activeAlbumPlayback: activeAlbumPlayback,
-      activeAlbumTrack: activeAlbumTrack,
-      albumPlaybackActive: albumPlaybackActive,
-      dockNowPlayingAlbumTarget: dockNowPlayingAlbumTarget,
-      activePlaylistOverlayFolder: activePlaylistOverlayFolder,
-      activePlaylistOverlayTracks: activePlaylistOverlayTracks,
-      activePlaylistTrack: activePlaylistTrack,
-      playlistOverlayPlaybackActive: playlistOverlayPlaybackActive,
-      playbackCurrentTrack: _playback.currentTrack,
-      playbackPlaying: _playback.playing,
-      albumGridScrollController: _scrollMemory.albumGridScrollController,
-      playlistListScrollController: _scrollMemory.playlistListScrollController,
-      onOpenLibrary: settingsLoaded ? _openRescanModal : null,
-      onToggleThemeMode: settingsLoaded ? _handleToggleThemeMode : null,
-      onOpenSettings: settingsLoaded ? _openSettingsModal : null,
-      onOpenNowPlaying: _openNowPlaying,
-      onSelectedView: _selectLibraryView,
-      onOpenAlbum: _openAlbumPlayback,
-      onCloseAlbumPlayback: _closeAlbumPlayback,
-      onAlbumPrevious: activeAlbumPlayback == null
-          ? null
-          : () => unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
-      onAlbumToggle: activeAlbumPlayback == null
-          ? null
-          : () => unawaited(
-              albumPlaybackActive
-                  ? _playback.togglePlayPause(activeAlbumPlayback.tracks)
-                  : _playAlbum(
-                      activeAlbumPlayback.album,
-                      activeAlbumPlayback.tracks,
-                    ),
-            ),
-      onAlbumNext: activeAlbumPlayback == null
-          ? null
-          : () => unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
-      onOpenNowPlayingAlbum: dockNowPlayingAlbumTarget == null
-          ? null
-          : () => _openNowPlaying(dockNowPlayingAlbumTarget!),
-      canSwitchPreviousAlbum:
-          activeAlbumPlayback != null &&
-          _albumPlaybackSwitchTarget(activeAlbumPlayback.album, -1) != null,
-      canSwitchNextAlbum:
-          activeAlbumPlayback != null &&
-          _albumPlaybackSwitchTarget(activeAlbumPlayback.album, 1) != null,
-      onSwitchPreviousAlbum: activeAlbumPlayback == null
-          ? null
-          : () => _switchAlbumPlayback(-1),
-      onSwitchNextAlbum: activeAlbumPlayback == null
-          ? null
-          : () => _switchAlbumPlayback(1),
-      onPlayAlbumTrack: (track) {
-        final albumPlayback = _activeAlbumPlayback;
-        if (albumPlayback == null) {
-          return;
-        }
-        unawaited(
-          _playAlbumFrom(albumPlayback.album, albumPlayback.tracks, track),
-        );
-      },
-      onToggleFavoriteTrack: _toggleFavoriteTrack,
-      onFavoritePlayAll: _library.favoriteTracks.isEmpty
-          ? null
-          : () => unawaited(_playFavorites(_library.favoriteTracks)),
-      onFavoriteShuffleAll: _library.favoriteTracks.isEmpty
-          ? null
-          : () => unawaited(_playFavoritesShuffled(_library.favoriteTracks)),
-      onFavoritePrevious: favoritesPlaybackActive && favoritesPlaybackIndex > 0
-          ? () => unawaited(_playback.skip(-1, favoritesPlaybackQueue))
-          : null,
-      onFavoriteTogglePlayback: favoritesPlaybackActive
-          ? () => unawaited(_playback.togglePlayPause(favoritesPlaybackQueue))
-          : null,
-      onFavoriteNext:
-          favoritesPlaybackActive &&
-              favoritesPlaybackIndex >= 0 &&
-              favoritesPlaybackIndex < favoritesPlaybackQueue.length - 1
-          ? () => unawaited(_playback.skip(1, favoritesPlaybackQueue))
-          : null,
-      onOpenPlaylistPlayback: _openPlaylistPlayback,
-      onClosePlaylistPlayback: _closePlaylistPlayback,
-      onPlaylistPlayAll:
-          activePlaylistOverlayFolder == null ||
-              activePlaylistOverlayTracks.isEmpty
-          ? null
-          : () => unawaited(
-              _playPlaylist(
-                activePlaylistOverlayFolder,
-                activePlaylistOverlayTracks,
+      model: LibraryScreenViewModel(
+        selectedView: _view,
+        loading: _library.loading,
+        albums: _library.albums,
+        playlistFolders: _playlistFolders,
+        playlistCount: _playlistCount,
+        favoriteTracks: _library.favoriteTracks,
+        favoriteCount: _library.favoriteCount,
+        favoriteTrackPaths: _library.favoriteTrackPaths,
+        favoritesPlaybackActive: favoritesPlaybackActive,
+        tracksByFolder: _tracksByFolder,
+        trackCoverCache: _library.trackCoverCache,
+        themeMode: widget.themeMode,
+        nowPlayingTarget: nowPlayingTarget,
+        activeAlbumPlayback: activeAlbumPlayback,
+        activeAlbumTrack: activeAlbumTrack,
+        dockNowPlayingAlbumTarget: dockNowPlayingAlbumTarget,
+        activePlaylistOverlayFolder: activePlaylistOverlayFolder,
+        activePlaylistOverlayTracks: activePlaylistOverlayTracks,
+        activePlaylistTrack: activePlaylistTrack,
+        playlistOverlayPlaybackActive: playlistOverlayPlaybackActive,
+        playbackCurrentTrack: _playback.currentTrack,
+        playbackPlaying: _playback.playing,
+        albumGridScrollController: _scrollMemory.albumGridScrollController,
+        playlistListScrollController:
+            _scrollMemory.playlistListScrollController,
+        canSwitchPreviousAlbum:
+            activeAlbumPlayback != null &&
+            _albumPlaybackSwitchTarget(activeAlbumPlayback.album, -1) != null,
+        canSwitchNextAlbum:
+            activeAlbumPlayback != null &&
+            _albumPlaybackSwitchTarget(activeAlbumPlayback.album, 1) != null,
+      ),
+      actions: LibraryScreenViewActions(
+        onOpenLibrary: settingsLoaded ? _openRescanModal : null,
+        onToggleThemeMode: settingsLoaded ? _handleToggleThemeMode : null,
+        onOpenSettings: settingsLoaded ? _openSettingsModal : null,
+        onOpenNowPlaying: _openNowPlaying,
+        onSelectedView: _selectLibraryView,
+        onOpenAlbum: _openAlbumPlayback,
+        onCloseAlbumPlayback: _closeAlbumPlayback,
+        onAlbumPrevious: activeAlbumPlayback == null
+            ? null
+            : () => unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
+        onAlbumToggle: activeAlbumPlayback == null
+            ? null
+            : () => unawaited(
+                albumPlaybackActive
+                    ? _playback.togglePlayPause(activeAlbumPlayback.tracks)
+                    : _playAlbum(
+                        activeAlbumPlayback.album,
+                        activeAlbumPlayback.tracks,
+                      ),
               ),
-            ),
-      onPlaylistShuffleAll:
-          activePlaylistOverlayFolder == null ||
-              activePlaylistOverlayTracks.isEmpty
-          ? null
-          : () => unawaited(
-              _playPlaylistShuffled(
-                activePlaylistOverlayFolder,
-                activePlaylistOverlayTracks,
+        onAlbumNext: activeAlbumPlayback == null
+            ? null
+            : () => unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
+        onOpenNowPlayingAlbum: dockNowPlayingAlbumTarget == null
+            ? null
+            : () => _openNowPlaying(dockNowPlayingAlbumTarget!),
+        onSwitchPreviousAlbum: activeAlbumPlayback == null
+            ? null
+            : () => _switchAlbumPlayback(-1),
+        onSwitchNextAlbum: activeAlbumPlayback == null
+            ? null
+            : () => _switchAlbumPlayback(1),
+        onPlayAlbumTrack: (track) {
+          final albumPlayback = _activeAlbumPlayback;
+          if (albumPlayback == null) {
+            return;
+          }
+          unawaited(
+            _playAlbumFrom(albumPlayback.album, albumPlayback.tracks, track),
+          );
+        },
+        onToggleFavoriteTrack: _toggleFavoriteTrack,
+        onFavoritePlayAll: _library.favoriteTracks.isEmpty
+            ? null
+            : () => unawaited(_playFavorites(_library.favoriteTracks)),
+        onFavoriteShuffleAll: _library.favoriteTracks.isEmpty
+            ? null
+            : () => unawaited(_playFavoritesShuffled(_library.favoriteTracks)),
+        onFavoritePrevious:
+            favoritesPlaybackActive && favoritesPlaybackIndex > 0
+            ? () => unawaited(_playback.skip(-1, favoritesPlaybackQueue))
+            : null,
+        onFavoriteTogglePlayback: favoritesPlaybackActive
+            ? () => unawaited(_playback.togglePlayPause(favoritesPlaybackQueue))
+            : null,
+        onFavoriteNext:
+            favoritesPlaybackActive &&
+                favoritesPlaybackIndex >= 0 &&
+                favoritesPlaybackIndex < favoritesPlaybackQueue.length - 1
+            ? () => unawaited(_playback.skip(1, favoritesPlaybackQueue))
+            : null,
+        onOpenPlaylistPlayback: _openPlaylistPlayback,
+        onClosePlaylistPlayback: _closePlaylistPlayback,
+        onPlaylistPlayAll:
+            activePlaylistOverlayFolder == null ||
+                activePlaylistOverlayTracks.isEmpty
+            ? null
+            : () => unawaited(
+                _playPlaylist(
+                  activePlaylistOverlayFolder,
+                  activePlaylistOverlayTracks,
+                ),
               ),
-            ),
-      onPlaylistPrevious: playlistOverlayPlaybackActive
-          ? () => unawaited(_playback.skip(-1, activePlaylistPlayback.tracks))
-          : null,
-      onPlaylistTogglePlayback: playlistOverlayPlaybackActive
-          ? () => unawaited(
-              _playback.togglePlayPause(activePlaylistPlayback.tracks),
-            )
-          : null,
-      onPlaylistNext: playlistOverlayPlaybackActive
-          ? () => unawaited(_playback.skip(1, activePlaylistPlayback.tracks))
-          : null,
-      onPlayPlaylistTrack: (track) {
-        final folder = _activePlaylistOverlayFolder;
-        if (folder == null) {
-          return;
-        }
-        final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
-        unawaited(_playPlaylist(folder, tracks, startTrack: track));
-      },
-      onPlayFavoriteTrack: (track) => unawaited(_playFavoriteTrack(track)),
+        onPlaylistShuffleAll:
+            activePlaylistOverlayFolder == null ||
+                activePlaylistOverlayTracks.isEmpty
+            ? null
+            : () => unawaited(
+                _playPlaylistShuffled(
+                  activePlaylistOverlayFolder,
+                  activePlaylistOverlayTracks,
+                ),
+              ),
+        onPlaylistPrevious: playlistOverlayPlaybackActive
+            ? () => unawaited(_playback.skip(-1, activePlaylistPlayback.tracks))
+            : null,
+        onPlaylistTogglePlayback: playlistOverlayPlaybackActive
+            ? () => unawaited(
+                _playback.togglePlayPause(activePlaylistPlayback.tracks),
+              )
+            : null,
+        onPlaylistNext: playlistOverlayPlaybackActive
+            ? () => unawaited(_playback.skip(1, activePlaylistPlayback.tracks))
+            : null,
+        onPlayPlaylistTrack: (track) {
+          final folder = _activePlaylistOverlayFolder;
+          if (folder == null) {
+            return;
+          }
+          final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
+          unawaited(_playPlaylist(folder, tracks, startTrack: track));
+        },
+        onPlayFavoriteTrack: (track) => unawaited(_playFavoriteTrack(track)),
+      ),
     );
   }
 }

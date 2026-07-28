@@ -153,6 +153,36 @@ void main() {
     expect(target?.shuffled, isTrue);
   });
 
+  test('current playback state persists an active favorites queue', () {
+    final first = _track('/music/favorites', path: '/music/favorites/1.flac');
+    final second = _track('/music/favorites', path: '/music/favorites/2.flac');
+    final queue = [second, first];
+    final activeFavorites = LibraryActiveFavoritesPlayback(
+      tracks: [first, second],
+      queue: queue,
+      shuffled: true,
+    );
+
+    final state = currentPlaybackState(
+      currentTrack: second,
+      playing: true,
+      activePlaylist: null,
+      activeAlbum: null,
+      activeFavorites: activeFavorites,
+      albums: const [],
+      tracksByFolder: const {},
+      isCurrentQueue: (candidate) =>
+          candidate.map((track) => track.path).join('|') ==
+          queue.map((track) => track.path).join('|'),
+    );
+
+    expect(state?.kind, LastPlaybackKind.favorites);
+    expect(state?.folderPath, isEmpty);
+    expect(state?.trackPath, second.path);
+    expect(state?.playing, isTrue);
+    expect(state?.shuffled, isTrue);
+  });
+
   test('theme and last playback values stay stable', () {
     const state = LastPlaybackState(
       kind: LastPlaybackKind.playlist,

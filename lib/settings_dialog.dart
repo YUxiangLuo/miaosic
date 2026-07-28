@@ -3,13 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 
 import 'audio_output_settings.dart';
-import 'llm_settings.dart';
 
 class SettingsDialog extends StatefulWidget {
   const SettingsDialog({
     super.key,
-    required this.llmSettings,
-    required this.onSaveLlmSettings,
     required this.audioOutputSettings,
     required this.audioDevices,
     required this.activeAudioDevice,
@@ -18,8 +15,6 @@ class SettingsDialog extends StatefulWidget {
     this.audioOutputError,
   });
 
-  final LlmSettings llmSettings;
-  final Future<void> Function(LlmSettings settings) onSaveLlmSettings;
   final AudioOutputSettings audioOutputSettings;
   final List<AudioDevice> audioDevices;
   final AudioDevice activeAudioDevice;
@@ -33,10 +28,6 @@ class SettingsDialog extends StatefulWidget {
 }
 
 class _SettingsDialogState extends State<SettingsDialog> {
-  late LlmServiceFormat _format;
-  late final TextEditingController _baseUrlController;
-  late final TextEditingController _apiKeyController;
-  late final TextEditingController _modelController;
   late String _audioDeviceName;
 
   bool _saving = false;
@@ -45,34 +36,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   @override
   void initState() {
     super.initState();
-    final settings = widget.llmSettings;
-    _format = settings.format;
-    _baseUrlController = TextEditingController(text: settings.baseUrl);
-    _apiKeyController = TextEditingController(text: settings.apiKey);
-    _modelController = TextEditingController(text: settings.model);
     _audioDeviceName = widget.audioOutputSettings.normalized().deviceName;
-  }
-
-  @override
-  void dispose() {
-    _baseUrlController.dispose();
-    _apiKeyController.dispose();
-    _modelController.dispose();
-    super.dispose();
-  }
-
-  void _handleFormatChanged(LlmServiceFormat? format) {
-    if (format == null || format == _format) {
-      return;
-    }
-    final previousDefault = _format.defaultBaseUrl;
-    setState(() {
-      _format = format;
-      final currentBaseUrl = _baseUrlController.text.trim();
-      if (currentBaseUrl.isEmpty || currentBaseUrl == previousDefault) {
-        _baseUrlController.text = format.defaultBaseUrl;
-      }
-    });
   }
 
   Future<void> _save() async {
@@ -85,14 +49,6 @@ class _SettingsDialogState extends State<SettingsDialog> {
     });
     try {
       await widget.onSaveAudioOutputSettings(_selectedAudioOutputSettings());
-      await widget.onSaveLlmSettings(
-        LlmSettings(
-          format: _format,
-          baseUrl: _baseUrlController.text,
-          apiKey: _apiKeyController.text,
-          model: _modelController.text,
-        ).normalized(),
-      );
       if (mounted) {
         Navigator.of(context).pop();
       }
@@ -238,59 +194,6 @@ class _SettingsDialogState extends State<SettingsDialog> {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 22),
-                  Text(
-                    'LLM',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  DropdownButtonFormField<LlmServiceFormat>(
-                    initialValue: _format,
-                    decoration: const InputDecoration(
-                      labelText: 'Service format',
-                      border: OutlineInputBorder(),
-                    ),
-                    items: [
-                      for (final format in LlmServiceFormat.values)
-                        DropdownMenuItem(
-                          value: format,
-                          child: Text(format.label),
-                        ),
-                    ],
-                    onChanged: _saving ? null : _handleFormatChanged,
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _baseUrlController,
-                    enabled: !_saving,
-                    decoration: const InputDecoration(
-                      labelText: 'Base URL',
-                      hintText: 'https://api.openai.com/v1',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _apiKeyController,
-                    enabled: !_saving,
-                    obscureText: true,
-                    decoration: const InputDecoration(
-                      labelText: 'API key',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: _modelController,
-                    enabled: !_saving,
-                    decoration: const InputDecoration(
-                      labelText: 'Model',
-                      hintText: 'Provider model name',
-                      border: OutlineInputBorder(),
-                    ),
-                  ),
                 ],
               ),
             ),

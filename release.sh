@@ -78,7 +78,7 @@ run dart format --output=none --set-exit-if-changed lib test tool
 run cargo fmt --manifest-path native/music_core/Cargo.toml --check
 run flutter analyze
 run flutter test
-run cargo test --manifest-path native/music_core/Cargo.toml
+run cargo test --locked --manifest-path native/music_core/Cargo.toml
 run rm -rf build/linux
 run flutter build linux --release
 

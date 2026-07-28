@@ -42,6 +42,17 @@ in the same app data area.
 
 ## Run
 
+Miaosic requires GTK 3 and `libmpv` at runtime. On Debian or Ubuntu systems,
+the following packages provide the development and runtime libraries used by
+the build:
+
+```sh
+sudo apt install clang cmake libgtk-3-dev libmpv-dev ninja-build pkg-config
+```
+
+Use Flutter 3.44.4 and Rust 1.96.0 to match CI. The Rust version is selected
+automatically through `rust-toolchain.toml`.
+
 ```sh
 flutter run -d linux
 ```
@@ -58,6 +69,10 @@ The release bundle is written to:
 build/linux/x64/release/bundle/
 ```
 
+The tar bundle includes Miaosic's Rust scanner, Flutter libraries, and SQLite,
+but it does not bundle GTK 3 or `libmpv`. Those libraries must be installed on
+the target Linux system.
+
 If Flutter reports a stale CMake cache path after moving or copying the checkout,
 reset the Linux build directory before rebuilding:
 
@@ -73,7 +88,7 @@ dart format --output=none --set-exit-if-changed lib test tool
 flutter analyze
 flutter test
 cargo fmt --manifest-path native/music_core/Cargo.toml --check
-cargo test --manifest-path native/music_core/Cargo.toml
+cargo test --locked --manifest-path native/music_core/Cargo.toml
 flutter build linux --release
 ```
 

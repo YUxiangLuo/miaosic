@@ -322,6 +322,73 @@ void main() {
 
     await _disposeLibraryScreen(tester, library, playback);
   });
+
+  testWidgets('restores persisted favorites playback', (tester) async {
+    final favoriteTracks = _favoriteTracks(3);
+    final library = _InjectedLibraryController(
+      tracks: favoriteTracks,
+      favoriteTracks: favoriteTracks,
+      lastPlaybackState: LastPlaybackState(
+        kind: LastPlaybackKind.favorites,
+        folderPath: '',
+        trackPath: favoriteTracks[1].path,
+        playing: false,
+        shuffled: false,
+      ),
+      canRestorePlayback: true,
+    );
+    final playback = _InjectedPlaybackController();
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+    await tester.pump();
+
+    expect(playback.restoreCount, 1);
+    expect(playback.currentTrack?.path, favoriteTracks[1].path);
+    expect(
+      playback.currentQueueForTest.map((track) => track.path),
+      favoriteTracks.map((track) => track.path),
+    );
+    expect(playback.playing, isFalse);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets('shows repeated playback failures as separate events', (
+    tester,
+  ) async {
+    final library = _InjectedLibraryController();
+    final playback = _InjectedPlaybackController();
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+
+    playback.emitPlaybackErrorForTest('Could not seek: test failure');
+    tester.binding.scheduleFrame();
+    await tester.pumpAndSettle();
+    expect(find.text('Could not seek: test failure'), findsOneWidget);
+
+    ScaffoldMessenger.of(
+      tester.element(find.byType(Scaffold)),
+    ).hideCurrentSnackBar();
+    await tester.pumpAndSettle();
+    expect(find.text('Could not seek: test failure'), findsNothing);
+
+    playback.emitPlaybackErrorForTest('Could not seek: test failure');
+    tester.binding.scheduleFrame();
+    await tester.pumpAndSettle();
+    expect(find.text('Could not seek: test failure'), findsOneWidget);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
 }
 
 class _LibraryFixture {
@@ -437,6 +504,8 @@ class _InjectedLibraryController extends LibraryController {
     List<AlbumSummary> albums = const [],
     List<Track> favoriteTracks = const [],
     Map<String, List<Track>> tracksByFolder = const {},
+    this.lastPlaybackState,
+    this.canRestorePlayback = false,
   }) : _tracks = List.unmodifiable(tracks),
        _folders = List.unmodifiable(folders),
        _albums = List.unmodifiable(albums),
@@ -451,6 +520,8 @@ class _InjectedLibraryController extends LibraryController {
   final List<AlbumSummary> _albums;
   final List<Track> _favoriteTracks;
   final Map<String, List<Track>> _tracksByFolder;
+  final LastPlaybackState? lastPlaybackState;
+  final bool canRestorePlayback;
   String? savedThemeMode;
   String? changedMusicRoot;
 
@@ -501,7 +572,7 @@ class _InjectedLibraryController extends LibraryController {
   Map<String, String?> get trackCoverCache => const {};
 
   @override
-  LastPlaybackState? get lastPlayback => null;
+  LastPlaybackState? get lastPlayback => lastPlaybackState;
 
   @override
   LlmSettings get llmSettings => const LlmSettings.defaults();
@@ -522,7 +593,7 @@ class _InjectedLibraryController extends LibraryController {
   bool get canChangeMusicRoot => canEditMusicRoot;
 
   @override
-  bool get canRestoreLastPlayback => false;
+  bool get canRestoreLastPlayback => canRestorePlayback;
 
   @override
   List<FolderSummary> get playlistFolders => _folders
@@ -553,9 +624,12 @@ class _InjectedPlaybackController extends PlaybackController {
   bool disposedByScreen = false;
   AudioOutputSettings? appliedAudioOutputSettings;
   int toggleCount = 0;
+  int restoreCount = 0;
   Track? _currentTrack;
   bool _playing = false;
   List<Track> _currentQueue = const [];
+  String? _playbackError;
+  int _playbackErrorRevision = 0;
 
   @override
   Track? get currentTrack => _currentTrack;
@@ -576,6 +650,18 @@ class _InjectedPlaybackController extends PlaybackController {
 
   @override
   String? get audioOutputError => null;
+
+  @override
+  String? get playbackError => _playbackError;
+
+  @override
+  int get playbackErrorRevision => _playbackErrorRevision;
+
+  void emitPlaybackErrorForTest(String message) {
+    _playbackError = message;
+    _playbackErrorRevision += 1;
+    notifyListeners();
+  }
 
   @override
   bool isCurrentQueue(List<Track> queue) {
@@ -607,6 +693,19 @@ class _InjectedPlaybackController extends PlaybackController {
     _currentQueue = queue;
     _currentTrack = track;
     _playing = true;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> restoreQueueFrom(
+    List<Track> queue,
+    Track track, {
+    required bool play,
+  }) async {
+    restoreCount += 1;
+    _currentQueue = List.unmodifiable(queue);
+    _currentTrack = track;
+    _playing = play;
     notifyListeners();
   }
 

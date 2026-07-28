@@ -213,26 +213,90 @@ class LibraryController extends ChangeNotifier {
       return false;
     }
 
-    if (!await Directory(nextRoot).exists()) {
-      _setError('Music folder does not exist: $nextRoot');
+    final normalizedRoot = normalizeMusicRootPath(nextRoot);
+    if (!await Directory(normalizedRoot).exists()) {
+      _setError('Music folder does not exist: $normalizedRoot');
       return false;
     }
 
-    await database.saveMusicRootAndClearLibrary(nextRoot);
-    if (_disposed) {
-      return false;
-    }
-    _musicRoot = nextRoot;
+    _coverIndexer.cancel();
+    _scanning = true;
+    _loading = false;
     _error = null;
-    _clearLoadedLibraryState(clearLastPlayback: true);
+    _scanProgress = ScanProgress(
+      filesSeen: 0,
+      tracksParsed: 0,
+      currentPath: normalizedRoot,
+    );
+    rescanState.value = RescanUiState(
+      mode: LibraryScanMode.direct,
+      phase: RescanPhase.scanning,
+      message: 'Scanning new music folder',
+      progress: _scanProgress,
+    );
     _emit();
 
-    await _replaceLibraryWithScan(
-      database,
-      message: 'Scanning new music folder',
-      errorMessage: 'Music folder scan failed',
-    );
-    return true;
+    var switched = false;
+    try {
+      final result = await _scanner.scan(
+        normalizedRoot,
+        onProgress: (progress) {
+          if (_disposed) {
+            return;
+          }
+          _scanProgress = progress;
+          rescanState.value = RescanUiState(
+            mode: LibraryScanMode.direct,
+            phase: RescanPhase.scanning,
+            message: 'Scanning new music folder',
+            progress: progress,
+          );
+          _emit();
+        },
+      );
+      if (_disposed) {
+        return false;
+      }
+      await database.replaceLibraryForMusicRoot(normalizedRoot, result);
+      if (_disposed) {
+        return false;
+      }
+      _musicRoot = normalizedRoot;
+      await _loadFromDatabase();
+      if (_disposed) {
+        return false;
+      }
+      switched = true;
+      rescanState.value = const RescanUiState(
+        mode: LibraryScanMode.direct,
+        phase: RescanPhase.done,
+        message: 'Library refreshed',
+      );
+      _emit();
+      return true;
+    } catch (error) {
+      if (!_disposed) {
+        final message = error.toString();
+        _error = message;
+        rescanState.value = RescanUiState(
+          mode: LibraryScanMode.direct,
+          phase: RescanPhase.error,
+          message: 'Music folder scan failed',
+          error: message,
+        );
+        _emit();
+      }
+      return false;
+    } finally {
+      if (!_disposed) {
+        _scanning = false;
+        _scanProgress = null;
+        _emit();
+        if (!switched) {
+          _startBackgroundCoverIndexing(_tracks, knownCache: _trackCoverCache);
+        }
+      }
+    }
   }
 
   Future<bool> _replaceLibraryWithScan(
@@ -631,20 +695,6 @@ class LibraryController extends ChangeNotifier {
     if (!_disposed) {
       trackCoverCacheListenable.value = nextCache;
     }
-  }
-
-  void _clearLoadedLibraryState({required bool clearLastPlayback}) {
-    _tracks = const [];
-    _folders = const [];
-    _albums = const [];
-    _favoriteTracks = const [];
-    _favoriteTrackPaths = const {};
-    _refreshDerivedLibraryState();
-    _scanState = null;
-    if (clearLastPlayback) {
-      _lastPlayback = null;
-    }
-    _setTrackCoverCache(const {});
   }
 
   void _setError(String error, {bool? loading}) {

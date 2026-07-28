@@ -3,13 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:miaosic/audio_output_settings.dart';
-import 'package:miaosic/llm_settings.dart';
 import 'package:miaosic/settings_dialog.dart';
 
 void main() {
-  testWidgets('saves Anthropic-compatible LLM settings', (tester) async {
-    LlmSettings? saved;
-
+  testWidgets('hides LLM settings', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(
@@ -21,10 +18,6 @@ void main() {
                     context: context,
                     builder: (context) {
                       return SettingsDialog(
-                        llmSettings: const LlmSettings.defaults(),
-                        onSaveLlmSettings: (settings) async {
-                          saved = settings;
-                        },
                         audioOutputSettings:
                             const AudioOutputSettings.defaults(),
                         audioDevices: const [AudioDevice('auto', '')],
@@ -45,26 +38,13 @@ void main() {
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('OpenAI-compatible'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Anthropic-compatible').last);
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.widgetWithText(TextField, 'Base URL'),
-      ' https://llm.example.com ',
-    );
-    await tester.enterText(find.widgetWithText(TextField, 'API key'), ' key ');
-    await tester.enterText(find.widgetWithText(TextField, 'Model'), ' model ');
-
-    await tester.tap(find.text('Save'));
-    await tester.pumpAndSettle();
-
-    expect(saved?.format, LlmServiceFormat.anthropic);
-    expect(saved?.baseUrl, 'https://llm.example.com');
-    expect(saved?.apiKey, 'key');
-    expect(saved?.model, 'model');
-    expect(find.text('Settings'), findsNothing);
+    expect(find.text('Settings'), findsOneWidget);
+    expect(find.text('Audio output'), findsOneWidget);
+    expect(find.text('LLM'), findsNothing);
+    expect(find.text('Service format'), findsNothing);
+    expect(find.text('Base URL'), findsNothing);
+    expect(find.text('API key'), findsNothing);
+    expect(find.text('Model'), findsNothing);
   });
 
   testWidgets('escape closes settings dialog', (tester) async {
@@ -79,8 +59,6 @@ void main() {
                     context: context,
                     builder: (context) {
                       return SettingsDialog(
-                        llmSettings: const LlmSettings.defaults(),
-                        onSaveLlmSettings: (_) async {},
                         audioOutputSettings:
                             const AudioOutputSettings.defaults(),
                         audioDevices: const [AudioDevice('auto', '')],
@@ -121,8 +99,6 @@ void main() {
                     context: context,
                     builder: (context) {
                       return SettingsDialog(
-                        llmSettings: const LlmSettings.defaults(),
-                        onSaveLlmSettings: (_) async {},
                         audioOutputSettings:
                             const AudioOutputSettings.defaults(),
                         audioDevices: const [
@@ -173,8 +149,6 @@ void main() {
                     context: context,
                     builder: (context) {
                       return SettingsDialog(
-                        llmSettings: const LlmSettings.defaults(),
-                        onSaveLlmSettings: (_) async {},
                         audioOutputSettings:
                             const AudioOutputSettings.defaults(),
                         audioDevices: const [
@@ -225,8 +199,6 @@ void main() {
                     context: context,
                     builder: (context) {
                       return SettingsDialog(
-                        llmSettings: const LlmSettings.defaults(),
-                        onSaveLlmSettings: (_) async {},
                         audioOutputSettings:
                             const AudioOutputSettings.defaults(),
                         audioDevices: const [

@@ -103,6 +103,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (!mounted) {
       return;
     }
+    _showPlaybackErrorIfNeeded();
     _saveCurrentPlaybackStateIfChanged();
     final displayTrack = activeAlbumPlayback == null
         ? activePlaylistPlayback == null
@@ -127,6 +128,38 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _lastPlaybackPlaying = nextPlaying;
       _lastNowPlayingPath = nextNowPlayingPath;
       _lastNowPlayingPlaying = nextNowPlayingPlaying;
+    });
+  }
+
+  void _showPlaybackErrorIfNeeded() {
+    final error = _playback.playbackError;
+    final errorRevision = _playback.playbackErrorRevision;
+    if (error == null) {
+      _lastShownPlaybackErrorRevision = null;
+      return;
+    }
+    if (errorRevision == _lastShownPlaybackErrorRevision) {
+      return;
+    }
+    _lastShownPlaybackErrorRevision = errorRevision;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _playback.playbackError != error ||
+          _playback.playbackErrorRevision != errorRevision) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(error),
+            action: SnackBarAction(
+              label: 'Dismiss',
+              onPressed: _playback.clearPlaybackError,
+            ),
+          ),
+        );
     });
   }
 
@@ -183,6 +216,8 @@ extension _LibraryScreenActions on _LibraryScreenState {
           await _restoreAlbumPlayback(state);
         case LastPlaybackKind.playlist:
           await _restorePlaylistPlayback(state);
+        case LastPlaybackKind.favorites:
+          await _restoreFavoritesPlayback(state);
       }
     } finally {
       _lastPlaybackRestoring = false;
@@ -240,12 +275,35 @@ extension _LibraryScreenActions on _LibraryScreenState {
     await _restoreQueueFrom(queue, track, play: state.playing);
   }
 
+  Future<void> _restoreFavoritesPlayback(LastPlaybackState state) async {
+    final tracks = _library.favoriteTracks;
+    if (tracks.isEmpty || !mounted) {
+      return;
+    }
+    final queue = state.shuffled ? shuffledTracks(tracks) : tracks;
+    final track = trackByPathOrFirst(queue, state.trackPath);
+    _mutate(() {
+      _activeAlbumPlayback = null;
+      _activePlaylistPlayback = null;
+      _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
+        tracks: tracks,
+        queue: queue,
+        shuffled: state.shuffled,
+      );
+      _activePlaylistOverlayPath = null;
+      _lastPlaybackPath = null;
+      _lastPlaybackPlaying = false;
+    });
+    await _restoreQueueFrom(queue, track, play: state.playing);
+  }
+
   void _saveCurrentPlaybackStateIfChanged() {
     final state = currentPlaybackState(
       currentTrack: _playback.currentTrack,
       playing: _playback.playing,
       activePlaylist: _activePlaylistPlayback,
       activeAlbum: _activeAlbumPlayback,
+      activeFavorites: _activeFavoritesPlayback,
       albums: _library.albums,
       tracksByFolder: _tracksByFolder,
       isCurrentQueue: _playback.isCurrentQueue,

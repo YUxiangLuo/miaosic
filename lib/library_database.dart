@@ -190,20 +190,27 @@ class LibraryDatabase {
   Future<void> replaceLibrary(ScanResult result) async {
     await _db.transaction((txn) async {
       await _clearLibraryTables(txn, clearTrackCoverCache: false);
-
-      final batch = txn.batch();
-      for (final track in result.tracks) {
-        batch.insert('tracks', track.toMap());
-      }
-      for (final folder in result.folders) {
-        batch.insert('folders', folder.toMap());
-      }
-      for (final album in result.albums) {
-        batch.insert('albums', album.toMap());
-      }
-      batch.insert('scan_state', _scanStateMap(result));
-      await batch.commit(noResult: true);
+      await _insertLibrary(txn, result);
       await _deleteFavoritesWithoutTracks(txn);
+    });
+  }
+
+  Future<void> replaceLibraryForMusicRoot(
+    String rootPath,
+    ScanResult result,
+  ) async {
+    await _db.transaction((txn) async {
+      await txn.insert('settings', {
+        'key': musicRootSettingKey,
+        'value': normalizeMusicRootPath(rootPath),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      await _clearLibraryTables(
+        txn,
+        clearTrackCoverCache: true,
+        clearLastPlayback: true,
+        clearFavorites: true,
+      );
+      await _insertLibrary(txn, result);
     });
   }
 
@@ -585,6 +592,21 @@ class LibraryDatabase {
         SELECT 1 FROM tracks WHERE tracks.path = favorites.path
       )
     ''');
+  }
+
+  static Future<void> _insertLibrary(Transaction txn, ScanResult result) async {
+    final batch = txn.batch();
+    for (final track in result.tracks) {
+      batch.insert('tracks', track.toMap());
+    }
+    for (final folder in result.folders) {
+      batch.insert('folders', folder.toMap());
+    }
+    for (final album in result.albums) {
+      batch.insert('albums', album.toMap());
+    }
+    batch.insert('scan_state', _scanStateMap(result));
+    await batch.commit(noResult: true);
   }
 
   static Future<void> _addColumnIfMissing(

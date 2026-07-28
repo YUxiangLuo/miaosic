@@ -259,7 +259,8 @@ class AlbumSummary {
 
 enum LastPlaybackKind {
   album('album'),
-  playlist('playlist');
+  playlist('playlist'),
+  favorites('favorites');
 
   const LastPlaybackKind(this.dbValue);
 
@@ -309,12 +310,12 @@ class LastPlaybackState {
     if (kindValue is! String ||
         folderPath is! String ||
         trackPath is! String ||
-        folderPath.isEmpty ||
         trackPath.isEmpty) {
       return null;
     }
     final kind = LastPlaybackKind.fromDb(kindValue);
-    if (kind == null) {
+    if (kind == null ||
+        (kind != LastPlaybackKind.favorites && folderPath.isEmpty)) {
       return null;
     }
     return LastPlaybackState(
