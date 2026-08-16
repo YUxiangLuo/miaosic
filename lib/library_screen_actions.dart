@@ -88,6 +88,9 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (_view == LibraryView.playlists && _activePlaylistOverlayPath == null) {
       _savePlaylistListScrollOffset();
     }
+    if (_view == LibraryView.favorites && _overlay?.isFavorites != true) {
+      _saveFavoritesListScrollOffset();
+    }
   }
 
   void _bindAlbumPlayback(AlbumSummary album, List<Track> tracks) {
@@ -723,6 +726,26 @@ extension _LibraryScreenActions on _LibraryScreenState {
     return _playFavorites(_library.favoriteTracks, startTrack: track);
   }
 
+  void _openFavoritesPlaybackFromTrack(Track track) {
+    _saveBrowseScrollForFavoritesOverlay();
+    final nowPlaying = _nowPlayingTarget;
+    final alreadyThisTrack =
+        _playback.currentTrack?.path == track.path &&
+        (nowPlaying?.kind == LibraryNowPlayingKind.favorites ||
+            (_activeFavoritesPlayback != null &&
+                _playback.isCurrentQueue(_activeFavoritesPlayback!.queue)));
+    if (alreadyThisTrack) {
+      _mutate(() {
+        _showFavoritesOverlay();
+        if (nowPlaying != null) {
+          _bindFavoritesPlayback(nowPlaying);
+        }
+      });
+      return;
+    }
+    unawaited(_playFavoriteTrack(track));
+  }
+
   List<FolderSummary> get _playlistFolders => _library.playlistFolders;
 
   int get _playlistCount => _library.playlistCount;
@@ -785,18 +808,6 @@ extension _LibraryScreenActions on _LibraryScreenState {
   }
 
   void _selectLibraryView(LibraryView view) {
-    if (view == LibraryView.favorites) {
-      _saveBrowseScrollForFavoritesOverlay();
-      final nowPlaying = _nowPlayingTarget;
-      _mutate(() {
-        _showFavoritesOverlay();
-        if (nowPlaying != null) {
-          _bindFavoritesPlayback(nowPlaying);
-        }
-      });
-      return;
-    }
-
     final currentView = _sidebarSelected;
     if (currentView == view && _overlay == null) {
       return;
@@ -810,6 +821,11 @@ extension _LibraryScreenActions on _LibraryScreenState {
         _activePlaylistOverlayPath == null) {
       _savePlaylistListScrollOffset();
     }
+    if (_view == LibraryView.favorites &&
+        view != LibraryView.favorites &&
+        !_favoritesOverlayOpen) {
+      _saveFavoritesListScrollOffset();
+    }
     _mutate(() {
       _view = view;
       _overlay = null;
@@ -819,6 +835,9 @@ extension _LibraryScreenActions on _LibraryScreenState {
     }
     if (view == LibraryView.playlists) {
       _restorePlaylistListScrollOffset();
+    }
+    if (view == LibraryView.favorites) {
+      _restoreFavoritesListScrollOffset();
     }
   }
 
@@ -853,6 +872,8 @@ extension _LibraryScreenActions on _LibraryScreenState {
     _mutate(() => _overlay = null);
     if (_view == LibraryView.playlists) {
       _restorePlaylistListScrollOffset();
+    } else if (_view == LibraryView.favorites) {
+      _restoreFavoritesListScrollOffset();
     } else {
       _restoreAlbumGridScrollOffset();
     }
@@ -936,6 +957,18 @@ extension _LibraryScreenActions on _LibraryScreenState {
 
   void _savePlaylistListScrollOffset() {
     _scrollMemory.savePlaylistListScrollOffset();
+  }
+
+  void _saveFavoritesListScrollOffset() {
+    _scrollMemory.saveFavoritesListScrollOffset();
+  }
+
+  void _restoreFavoritesListScrollOffset() {
+    _scrollMemory.restoreFavoritesListScrollOffset(
+      isMounted: () => mounted,
+      currentView: () => _view,
+      hasFavoritesOverlay: () => _favoritesOverlayOpen,
+    );
   }
 
   void _restorePlaylistListScrollOffset() {

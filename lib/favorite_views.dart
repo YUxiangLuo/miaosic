@@ -192,6 +192,81 @@ class _FavoriteShortcutScopeState extends State<_FavoriteShortcutScope> {
   }
 }
 
+class FavoriteBrowseList extends StatelessWidget {
+  const FavoriteBrowseList({
+    super.key,
+    required this.tracks,
+    required this.trackCoverCache,
+    required this.currentTrack,
+    required this.playing,
+    required this.onPlayTrack,
+    required this.onToggleFavorite,
+    this.scrollController,
+  });
+
+  final List<Track> tracks;
+  final Map<String, String?> trackCoverCache;
+  final Track? currentTrack;
+  final bool playing;
+  final ValueChanged<Track> onPlayTrack;
+  final ValueChanged<Track> onToggleFavorite;
+  final ScrollController? scrollController;
+
+  @override
+  Widget build(BuildContext context) {
+    if (tracks.isEmpty) {
+      return const EmptyState(message: 'No favorite tracks yet');
+    }
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showArtist = constraints.maxWidth >= 600;
+        final showAlbum = constraints.maxWidth >= 780;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 14),
+              child: _FavoriteTitleBlock(trackCount: tracks.length),
+            ),
+            _FavoriteTableHeader(showArtist: showArtist, showAlbum: showAlbum),
+            Expanded(
+              child: ListView.separated(
+                controller: scrollController,
+                padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
+                itemCount: tracks.length,
+                separatorBuilder: (_, _) => Divider(
+                  height: 1,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outlineVariant.withValues(alpha: 0.7),
+                ),
+                itemBuilder: (context, index) {
+                  final track = tracks[index];
+                  final selected = currentTrack?.path == track.path;
+                  return _FavoriteTrackRow(
+                    index: index,
+                    track: track,
+                    artworkPath: resolveTrackArtwork(track, trackCoverCache),
+                    selected: selected,
+                    playing: selected && playing,
+                    showArtist: showArtist,
+                    showAlbum: showAlbum,
+                    showPlayButton: true,
+                    onPlay: () => onPlayTrack(track),
+                    onDoubleTap: () => onPlayTrack(track),
+                    onToggleFavorite: () => onToggleFavorite(track),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
 class _FavoriteTitleBlock extends StatelessWidget {
   const _FavoriteTitleBlock({required this.trackCount});
 
@@ -423,7 +498,10 @@ class _FavoriteTrackRow extends StatelessWidget {
     required this.playing,
     required this.showArtist,
     required this.showAlbum,
-    required this.onTap,
+    this.showPlayButton = false,
+    this.onTap,
+    this.onPlay,
+    this.onDoubleTap,
     required this.onToggleFavorite,
   });
 
@@ -434,7 +512,10 @@ class _FavoriteTrackRow extends StatelessWidget {
   final bool playing;
   final bool showArtist;
   final bool showAlbum;
-  final VoidCallback onTap;
+  final bool showPlayButton;
+  final VoidCallback? onTap;
+  final VoidCallback? onPlay;
+  final VoidCallback? onDoubleTap;
   final VoidCallback onToggleFavorite;
 
   @override
@@ -445,91 +526,97 @@ class _FavoriteTrackRow extends StatelessWidget {
     final background = selected
         ? scheme.primaryContainer.withValues(alpha: 0.55)
         : Colors.transparent;
+    final indexOrEq = playing
+        ? Icon(Icons.graphic_eq, size: 18, color: primary)
+        : Text(
+            (index + 1).toString().padLeft(2, '0'),
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: secondary,
+              fontWeight: FontWeight.w800,
+            ),
+          );
+    final details = Row(
+      children: [
+        if (!showPlayButton)
+          SizedBox(width: 44, child: Center(child: indexOrEq)),
+        Artwork(path: artworkPath, size: 42, icon: Icons.music_note),
+        const SizedBox(width: 14),
+        Expanded(
+          flex: 5,
+          child: _FavoriteTrackCell(
+            title: track.title,
+            subtitle: showArtist ? track.fileName : track.artist,
+            titleColor: primary,
+            subtitleColor: secondary,
+          ),
+        ),
+        if (showArtist) ...[
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 3,
+            child: Text(
+              track.artist,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: secondary, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+        if (showAlbum) ...[
+          const SizedBox(width: 16),
+          Expanded(
+            flex: 3,
+            child: Text(
+              track.album.isEmpty ? track.folderName : track.album,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(color: secondary, fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+        const SizedBox(width: 16),
+        SizedBox(
+          width: 68,
+          child: Text(
+            formatDurationMs(track.durationMs),
+            textAlign: TextAlign.right,
+            style: TextStyle(color: secondary, fontWeight: FontWeight.w700),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: 'Remove from favorites',
+          onPressed: onToggleFavorite,
+          icon: const Icon(Icons.favorite),
+          color: scheme.error,
+        ),
+      ],
+    );
     return Material(
       color: background,
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox(
-          height: 58,
-          child: Row(
-            children: [
-              SizedBox(
-                width: 44,
-                child: Center(
-                  child: playing
-                      ? Icon(Icons.graphic_eq, size: 18, color: primary)
-                      : Text(
-                          (index + 1).toString().padLeft(2, '0'),
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                color: secondary,
-                                fontWeight: FontWeight.w800,
-                              ),
-                        ),
-                ),
-              ),
-              Artwork(path: artworkPath, size: 42, icon: Icons.music_note),
-              const SizedBox(width: 14),
-              Expanded(
-                flex: 5,
-                child: _FavoriteTrackCell(
-                  title: track.title,
-                  subtitle: showArtist ? track.fileName : track.artist,
-                  titleColor: primary,
-                  subtitleColor: secondary,
-                ),
-              ),
-              if (showArtist) ...[
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    track.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: secondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-              if (showAlbum) ...[
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    track.album.isEmpty ? track.folderName : track.album,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: secondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 68,
-                child: Text(
-                  formatDurationMs(track.durationMs),
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    color: secondary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
+      child: SizedBox(
+        height: 58,
+        child: Row(
+          children: [
+            if (showPlayButton)
               IconButton(
-                tooltip: 'Remove from favorites',
-                onPressed: onToggleFavorite,
-                icon: const Icon(Icons.favorite),
-                color: scheme.error,
+                key: Key('favorite-play-${track.path}'),
+                tooltip: 'Play favorite',
+                visualDensity: VisualDensity.compact,
+                onPressed: onPlay,
+                icon: Icon(
+                  playing ? Icons.graphic_eq : Icons.play_arrow_rounded,
+                ),
+                color: primary,
               ),
-            ],
-          ),
+            Expanded(
+              child: InkWell(
+                onTap: onTap,
+                onDoubleTap: onDoubleTap,
+                child: details,
+              ),
+            ),
+          ],
         ),
       ),
     );

@@ -148,7 +148,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (_favoritesOverlayOpen) {
       return LibraryView.favorites;
     }
-    return _view == LibraryView.favorites ? LibraryView.albums : _view;
+    return _view;
   }
 
   @override
@@ -213,11 +213,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     return LibraryScreenView(
       model: LibraryScreenViewModel(
         selectedView: _sidebarSelected,
-        browseView: _sidebarSelected == LibraryView.favorites
-            ? (_view == LibraryView.playlists
-                  ? LibraryView.playlists
-                  : LibraryView.albums)
-            : _sidebarSelected,
+        browseView: _view,
         loading: _library.loading,
         albums: _library.albums,
         playlistFolders: _playlistFolders,
@@ -243,6 +239,8 @@ class _LibraryScreenState extends State<LibraryScreen>
         albumGridScrollController: _scrollMemory.albumGridScrollController,
         playlistListScrollController:
             _scrollMemory.playlistListScrollController,
+        favoritesListScrollController:
+            _scrollMemory.favoritesListScrollController,
         canSwitchPreviousAlbum:
             viewedAlbumPlayback != null &&
             _albumPlaybackSwitchTarget(viewedAlbumPlayback.album, -1) != null,
@@ -380,7 +378,7 @@ class _LibraryScreenState extends State<LibraryScreen>
           final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
           unawaited(_playPlaylist(folder, tracks, startTrack: track));
         },
-        onPlayFavoriteTrack: (track) => unawaited(_playFavoriteTrack(track)),
+        onPlayFavoriteTrack: _openFavoritesPlaybackFromTrack,
       ),
     );
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'album_playback_view.dart';
 import 'album_views.dart';
+import 'favorite_views.dart';
 import 'favorites_playback_view.dart';
 import 'library_screen_models.dart';
 import 'library_sidebar.dart';
@@ -38,6 +39,7 @@ class LibraryScreenViewModel {
     required this.playbackPlaying,
     required this.albumGridScrollController,
     required this.playlistListScrollController,
+    required this.favoritesListScrollController,
     required this.canSwitchPreviousAlbum,
     required this.canSwitchNextAlbum,
     required this.canSwitchPreviousPlaylist,
@@ -70,6 +72,7 @@ class LibraryScreenViewModel {
   final bool playbackPlaying;
   final ScrollController albumGridScrollController;
   final ScrollController playlistListScrollController;
+  final ScrollController favoritesListScrollController;
   final bool canSwitchPreviousAlbum;
   final bool canSwitchNextAlbum;
   final bool canSwitchPreviousPlaylist;
@@ -294,8 +297,16 @@ class LibraryScreenView extends StatelessWidget {
           model.favoritesOverlayOpen,
       albumGridScrollController: model.albumGridScrollController,
       playlistListScrollController: model.playlistListScrollController,
+      favoritesListScrollController: model.favoritesListScrollController,
+      favoriteTracks: model.favoriteTracks,
+      currentFavoriteTrack: model.favoritesPlaybackActive
+          ? model.playbackCurrentTrack
+          : null,
+      favoritesPlaying: model.favoritesPlaybackActive && model.playbackPlaying,
       onOpenAlbum: actions.onOpenAlbum,
       onOpenPlaylistPlayback: actions.onOpenPlaylistPlayback,
+      onPlayFavoriteTrack: actions.onPlayFavoriteTrack,
+      onToggleFavoriteTrack: actions.onToggleFavoriteTrack,
     );
   }
 }
@@ -324,8 +335,14 @@ class _LibraryContentCache extends StatefulWidget {
     required this.overlayOpen,
     required this.albumGridScrollController,
     required this.playlistListScrollController,
+    required this.favoritesListScrollController,
+    required this.favoriteTracks,
+    required this.currentFavoriteTrack,
+    required this.favoritesPlaying,
     required this.onOpenAlbum,
     required this.onOpenPlaylistPlayback,
+    required this.onPlayFavoriteTrack,
+    required this.onToggleFavoriteTrack,
   });
 
   final LibraryView selectedView;
@@ -336,8 +353,14 @@ class _LibraryContentCache extends StatefulWidget {
   final bool overlayOpen;
   final ScrollController albumGridScrollController;
   final ScrollController playlistListScrollController;
+  final ScrollController favoritesListScrollController;
+  final List<Track> favoriteTracks;
+  final Track? currentFavoriteTrack;
+  final bool favoritesPlaying;
   final void Function(AlbumSummary album, List<Track> tracks) onOpenAlbum;
   final ValueChanged<FolderSummary> onOpenPlaylistPlayback;
+  final ValueChanged<Track> onPlayFavoriteTrack;
+  final ValueChanged<Track> onToggleFavoriteTrack;
 
   @override
   State<_LibraryContentCache> createState() => _LibraryContentCacheState();
@@ -379,10 +402,16 @@ class _LibraryContentCacheState extends State<_LibraryContentCache> {
   @override
   Widget build(BuildContext context) {
     _ensureSelectedPageIsFresh();
-    const browseViews = [LibraryView.albums, LibraryView.playlists];
-    final selected = widget.selectedView == LibraryView.playlists
-        ? LibraryView.playlists
-        : LibraryView.albums;
+    const browseViews = [
+      LibraryView.albums,
+      LibraryView.playlists,
+      LibraryView.favorites,
+    ];
+    final selected = switch (widget.selectedView) {
+      LibraryView.playlists => LibraryView.playlists,
+      LibraryView.favorites => LibraryView.favorites,
+      _ => LibraryView.albums,
+    };
     return IndexedStack(
       index: browseViews.indexOf(selected),
       children: [
@@ -422,7 +451,14 @@ class _LibraryContentCacheState extends State<_LibraryContentCache> {
         _keyboardShortcutsEnabled,
         _activationSerial,
       ),
-      LibraryView.favorites => _activationSerial,
+      LibraryView.favorites => (
+        widget.favoriteTracks,
+        widget.trackCoverCache,
+        widget.favoritesListScrollController,
+        widget.currentFavoriteTrack,
+        widget.favoritesPlaying,
+        _activationSerial,
+      ),
     };
   }
 
@@ -447,7 +483,16 @@ class _LibraryContentCacheState extends State<_LibraryContentCache> {
         focusRequestToken: _activationSerial,
         onOpen: widget.onOpenPlaylistPlayback,
       ),
-      LibraryView.favorites => const SizedBox.expand(),
+      LibraryView.favorites => FavoriteBrowseList(
+        key: const PageStorageKey<String>('library-content-favorites'),
+        tracks: widget.favoriteTracks,
+        trackCoverCache: widget.trackCoverCache,
+        currentTrack: widget.currentFavoriteTrack,
+        playing: widget.favoritesPlaying,
+        scrollController: widget.favoritesListScrollController,
+        onPlayTrack: widget.onPlayFavoriteTrack,
+        onToggleFavorite: widget.onToggleFavoriteTrack,
+      ),
     };
   }
 }

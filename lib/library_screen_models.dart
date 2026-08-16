@@ -130,13 +130,16 @@ class LibraryNowPlayingTarget {
 class LibraryScrollMemory {
   final albumGridScrollController = ScrollController();
   final playlistListScrollController = ScrollController();
+  final favoritesListScrollController = ScrollController();
 
   double _albumGridScrollOffset = 0;
   double _playlistListScrollOffset = 0;
+  double _favoritesListScrollOffset = 0;
 
   void dispose() {
     albumGridScrollController.dispose();
     playlistListScrollController.dispose();
+    favoritesListScrollController.dispose();
   }
 
   void saveAlbumGridScrollOffset() {
@@ -186,6 +189,32 @@ class LibraryScrollMemory {
           .clamp(position.minScrollExtent, position.maxScrollExtent)
           .toDouble();
       playlistListScrollController.jumpTo(target);
+    });
+  }
+
+  void saveFavoritesListScrollOffset() {
+    if (favoritesListScrollController.hasClients) {
+      _favoritesListScrollOffset = favoritesListScrollController.offset;
+    }
+  }
+
+  void restoreFavoritesListScrollOffset({
+    required bool Function() isMounted,
+    required LibraryView Function() currentView,
+    required bool Function() hasFavoritesOverlay,
+  }) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!isMounted() ||
+          currentView() != LibraryView.favorites ||
+          hasFavoritesOverlay() ||
+          !favoritesListScrollController.hasClients) {
+        return;
+      }
+      final position = favoritesListScrollController.position;
+      final target = _favoritesListScrollOffset
+          .clamp(position.minScrollExtent, position.maxScrollExtent)
+          .toDouble();
+      favoritesListScrollController.jumpTo(target);
     });
   }
 }

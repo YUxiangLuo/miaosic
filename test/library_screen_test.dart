@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,7 @@ import 'package:media_kit/media_kit.dart' hide Track;
 import 'package:miaosic/album_playback_view.dart';
 import 'package:miaosic/album_views.dart';
 import 'package:miaosic/audio_output_settings.dart';
+import 'package:miaosic/favorite_views.dart';
 import 'package:miaosic/favorites_playback_view.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_screen.dart';
@@ -348,8 +350,8 @@ void main() {
 
       await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
       await tester.pump();
-      expect(find.byType(FavoritesPlaybackView), findsOneWidget);
-      expect(find.byTooltip('Back to now playing'), findsOneWidget);
+      expect(find.byType(FavoriteBrowseList), findsOneWidget);
+      expect(find.byType(FavoritesPlaybackView), findsNothing);
 
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       now = now.add(const Duration(seconds: 31));
@@ -492,6 +494,13 @@ void main() {
 
     await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
     await tester.pump();
+    expect(find.byType(FavoriteBrowseList), findsOneWidget);
+    expect(find.text('Favorite 1'), findsOneWidget);
+    await tester.tap(
+      find.byKey(Key('favorite-play-${favoriteTracks.first.path}')),
+    );
+    await tester.pump();
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
     for (var attempt = 0; attempt < 20; attempt += 1) {
       await tester.tap(find.byTooltip('Shuffle favorites'));
       await tester.pump();
@@ -515,10 +524,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(FavoritesPlaybackView), findsOneWidget);
-    expect(
-      find.text('${favoriteTracks.length} favorite tracks'),
-      findsOneWidget,
-    );
+    expect(find.text('${favoriteTracks.length} favorite tracks'), findsWidgets);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.pump();
@@ -591,6 +597,14 @@ void main() {
 
       await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
       await tester.pump();
+      expect(find.byType(FavoritesPlaybackView), findsNothing);
+      expect(find.byType(FavoriteBrowseList), findsOneWidget);
+
+      expect(find.text('Favorite 2'), findsOneWidget);
+      await tester.tap(
+        find.byKey(Key('favorite-play-${favoriteTracks[1].path}')),
+      );
+      await tester.pump();
 
       expect(find.byType(FavoritesPlaybackView), findsOneWidget);
       expect(find.byTooltip('Pause'), findsWidgets);
@@ -631,7 +645,8 @@ void main() {
 
     await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
     await tester.pump();
-    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(find.byType(FavoriteBrowseList), findsOneWidget);
+    expect(find.byType(FavoritesPlaybackView), findsNothing);
     expect(playback.currentTrack, isNull);
 
     await playback.playQueueFrom(favoriteTracks, favoriteTracks[1]);
@@ -655,7 +670,7 @@ void main() {
     await _disposeLibraryScreen(tester, library, playback);
   });
 
-  testWidgets('favorites sidebar opens overlay without starting playback', (
+  testWidgets('favorites sidebar opens the browse list without playing', (
     tester,
   ) async {
     final favoriteTracks = _favoriteTracks(2);
@@ -675,13 +690,25 @@ void main() {
     await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
     await tester.pump();
 
-    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(find.byType(FavoriteBrowseList), findsOneWidget);
+    expect(find.byType(FavoritesPlaybackView), findsNothing);
+    expect(find.byTooltip('Play favorite'), findsNWidgets(2));
+    expect(find.byTooltip('Shuffle favorites'), findsNothing);
     expect(playback.currentTrack, isNull);
     expect(playback.playing, isFalse);
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
-    await tester.pump();
+    await tester.tap(find.text('Favorite 2'));
+    await tester.pump(kDoubleTapTimeout);
     expect(find.byType(FavoritesPlaybackView), findsNothing);
+    expect(playback.currentTrack, isNull);
+
+    await tester.tap(
+      find.byKey(Key('favorite-play-${favoriteTracks[1].path}')),
+    );
+    await tester.pump();
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(playback.currentTrack?.path, favoriteTracks[1].path);
+    expect(playback.playing, isTrue);
 
     await _disposeLibraryScreen(tester, library, playback);
   });
@@ -815,14 +842,25 @@ void main() {
 
     await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
     await tester.pump();
-    await tester.tap(find.byTooltip('Remove from favorites').first);
+    await tester.tap(
+      find.byKey(Key('favorite-play-${favoriteTracks.first.path}')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(FavoritesPlaybackView),
+            matching: find.byTooltip('Remove from favorites'),
+          )
+          .first,
+    );
     await tester.pump();
 
     expect(playback.stopIfCurrentRemovedCount, 1);
     expect(playback.currentTrack, isNull);
     expect(playback.playing, isFalse);
     expect(find.byType(FavoritesPlaybackView), findsOneWidget);
-    expect(find.text('1 favorite track'), findsOneWidget);
+    expect(find.text('1 favorite track'), findsWidgets);
 
     await _disposeLibraryScreen(tester, library, playback);
   });
@@ -848,13 +886,22 @@ void main() {
 
     await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
     await tester.pump();
-    await tester.tap(find.byTooltip('Remove from favorites'));
+    await tester.tap(
+      find.byKey(Key('favorite-play-${favoriteTracks.single.path}')),
+    );
+    await tester.pump();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(FavoritesPlaybackView),
+        matching: find.byTooltip('Remove from favorites'),
+      ),
+    );
     await tester.pump();
 
     expect(playback.stopIfCurrentRemovedCount, 1);
     expect(playback.currentTrack, isNull);
     expect(find.byType(FavoritesPlaybackView), findsOneWidget);
-    expect(find.text('No favorite tracks yet'), findsOneWidget);
+    expect(find.text('No favorite tracks yet'), findsWidgets);
 
     await _disposeLibraryScreen(tester, library, playback);
   });

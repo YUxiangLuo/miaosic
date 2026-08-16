@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:miaosic/favorite_views.dart';
@@ -82,6 +83,50 @@ void main() {
     );
 
     expect(find.text('No favorite tracks yet'), findsOneWidget);
+  });
+
+  testWidgets('browse list plays from the row control, not a single tap', (
+    tester,
+  ) async {
+    final tracks = [_track(1), _track(2)];
+    Track? playedTrack;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SizedBox(
+          width: 1000,
+          height: 640,
+          child: FavoriteBrowseList(
+            tracks: tracks,
+            trackCoverCache: const {},
+            currentTrack: null,
+            playing: false,
+            onPlayTrack: (track) => playedTrack = track,
+            onToggleFavorite: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.byTooltip('Play favorites'), findsNothing);
+    expect(find.byTooltip('Shuffle favorites'), findsNothing);
+    expect(find.byTooltip('Play favorite'), findsNWidgets(2));
+
+    await tester.tap(find.text('Track 2'));
+    await tester.pump(kDoubleTapTimeout);
+    expect(playedTrack, isNull);
+
+    await tester.tap(find.byKey(Key('favorite-play-${tracks[1].path}')));
+    await tester.pump();
+    expect(playedTrack?.path, tracks[1].path);
+
+    playedTrack = null;
+    await tester.tap(find.text('Track 1'));
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tap(find.text('Track 1'));
+    await tester.pump(kDoubleTapTimeout);
+    expect(playedTrack?.path, tracks[0].path);
   });
 }
 
