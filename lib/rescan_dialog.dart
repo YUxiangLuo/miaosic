@@ -363,6 +363,16 @@ class _RescanStatus extends StatelessWidget {
                               ?.copyWith(color: scheme.onSurfaceVariant),
                         ),
                       ],
+                      for (final sample in state.errorSamples.take(8)) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          sample,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: scheme.onSurfaceVariant),
+                        ),
+                      ],
                     ],
                   ),
                 ),

@@ -15,7 +15,7 @@ import 'playlist_cover_indexer.dart';
 
 typedef LibraryDatabaseOpener = Future<LibraryDatabase> Function();
 typedef LargeDeletionConfirmation = Future<bool> Function(DeletionRisk risk);
-typedef CoverCacheMigrator = Future<void> Function();
+typedef CoverCacheMigrator = Future<void> Function(LibraryDatabase database);
 typedef ThemeModePersister =
     Future<void> Function(LibraryDatabase database, String value);
 
@@ -115,7 +115,7 @@ class LibraryController extends ChangeNotifier {
       _audioOutputSettings = audioOutputSettings;
       _settingsLoaded = true;
       _emit();
-      await _migrateCoverCache();
+      await _migrateCoverCache(database);
       if (_disposed) {
         return;
       }
@@ -290,6 +290,7 @@ class LibraryController extends ChangeNotifier {
         mode: LibraryScanMode.direct,
         phase: RescanPhase.done,
         message: _libraryRefreshMessage(result),
+        errorSamples: result.errorSamples,
       );
       _emit();
       return true;
@@ -379,6 +380,7 @@ class LibraryController extends ChangeNotifier {
         mode: LibraryScanMode.direct,
         phase: RescanPhase.done,
         message: _libraryRefreshMessage(result),
+        errorSamples: result.errorSamples,
       );
       _emit();
       replaced = true;
@@ -581,6 +583,7 @@ class LibraryController extends ChangeNotifier {
         phase: RescanPhase.ready,
         message: _rescanReadyMessage(diff),
         diff: diff,
+        errorSamples: result.errorSamples,
       );
       _emit();
     } on ScanCancelledException {
@@ -763,27 +766,34 @@ class LibraryController extends ChangeNotifier {
     return database.saveThemeMode(value);
   }
 
-  static Future<void> _migrateCoverCacheSafely() async {
+  static Future<void> _migrateCoverCacheSafely(LibraryDatabase database) async {
     try {
-      await migrateLegacyCoverCache();
+      final migration = await migrateLegacyCoverCache();
+      if (migration.shouldRewritePaths && migration.legacyDir != null) {
+        await database.relocateCoverArtPaths(
+          fromDir: migration.legacyDir!,
+          toDir: migration.currentDir,
+        );
+      }
     } catch (_) {}
   }
 
   static String _libraryRefreshMessage(ScanResult result) {
-    if (result.skippedFiles <= 0) {
-      return 'Library refreshed';
-    }
-    return 'Library refreshed. Skipped ${result.skippedFiles} unreadable files';
+    return _skippedFilesMessage('Library refreshed', result);
   }
 
   static String _rescanReadyMessage(LibraryDiff diff) {
     final base = diff.hasChanges
         ? 'Review changes before applying'
         : 'Library is up to date';
-    if (diff.result.skippedFiles <= 0) {
+    return _skippedFilesMessage(base, diff.result);
+  }
+
+  static String _skippedFilesMessage(String base, ScanResult result) {
+    if (result.skippedFiles <= 0) {
       return base;
     }
-    return '$base. Skipped ${diff.result.skippedFiles} unreadable files';
+    return '$base. Skipped ${result.skippedFiles} unreadable files';
   }
 
   void _setError(String error, {bool? loading}) {
@@ -806,6 +816,7 @@ class LibraryController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _scanner.cancel();
     _coverIndexer.dispose();
     rescanState.dispose();
     trackCoverCacheListenable.dispose();

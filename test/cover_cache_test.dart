@@ -48,7 +48,8 @@ void main() {
       legacyDirPath: legacy.path,
     );
 
-    expect(moved, 1);
+    expect(moved.processedFiles, 1);
+    expect(moved.shouldRewritePaths, isTrue);
     expect(await File('${current.path}/art.jpg').exists(), isTrue);
     expect(await File('${legacy.path}/art.jpg').exists(), isFalse);
     expect(await File('${legacy.path}/notes.txt').exists(), isTrue);
@@ -75,8 +76,35 @@ void main() {
       legacyDirPath: legacy.path,
     );
 
-    expect(moved, 0);
+    expect(moved.processedFiles, 1);
+    expect(moved.shouldRewritePaths, isTrue);
     expect(await File('${current.path}/art.jpg').readAsBytes(), [9]);
     expect(await File('${legacy.path}/art.jpg').exists(), isFalse);
+  });
+
+  test('rewrites cover paths from the legacy directory', () {
+    expect(
+      relocatedCoverArtPath(
+        '/old/covers/art.jpg',
+        fromDir: '/old/covers',
+        toDir: '/new/covers',
+      ),
+      '/new/covers/art.jpg',
+    );
+    expect(
+      relocatedCoverArtPath(
+        '/other/art.jpg',
+        fromDir: '/old/covers',
+        toDir: '/new/covers',
+      ),
+      '/other/art.jpg',
+    );
+  });
+
+  test('falls back to an XDG cover directory without path_provider', () {
+    final path = fallbackCoverCacheDir();
+    expect(path, contains('dev.vesein.miaosic'));
+    expect(path.endsWith('covers'), isTrue);
+    expect(Directory(path).existsSync(), isTrue);
   });
 }

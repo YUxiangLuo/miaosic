@@ -372,7 +372,7 @@ bool isAudioPath(String path) {
 String logicalFolderFor(File file) {
   final parent = file.parent.path;
   final name = p.basename(parent).toLowerCase();
-  final isDiscFolder = RegExp(r'^(disc|disk|cd)\s*[\divx]+$').hasMatch(name);
+  final isDiscFolder = RegExp(r'^(disc|disk|cd)\s*[0-9ivx]+$').hasMatch(name);
   if (isDiscFolder) {
     return p.dirname(parent);
   }

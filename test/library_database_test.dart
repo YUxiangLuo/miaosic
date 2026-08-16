@@ -366,6 +366,57 @@ void main() {
     await dir.delete(recursive: true);
   });
 
+  test(
+    'rewrites stored cover art paths after a cache directory move',
+    () async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+
+      final dir = await Directory.systemTemp.createTemp(
+        'miaosic_cover_relocate_test_',
+      );
+      addTearDown(() async {
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+        }
+      });
+      final dbPath = '${dir.path}/miaosic.db';
+      final database = await LibraryDatabase.openAtPath(dbPath);
+      final track = _track(
+        '/music/a.flac',
+        size: 10,
+        modified: 1,
+        cover: '/old/covers/art.jpg',
+      );
+      await database.replaceLibrary(_scanResult([track]));
+      await database.saveTrackCoverCache([
+        TrackCoverCacheEntry(
+          path: track.path,
+          sizeBytes: track.sizeBytes,
+          modifiedMs: track.modifiedMs,
+          coverArtPath: '/old/covers/art.jpg',
+        ),
+      ]);
+
+      final updated = await database.relocateCoverArtPaths(
+        fromDir: '/old/covers',
+        toDir: '/new/covers',
+      );
+
+      expect(updated, greaterThanOrEqualTo(2));
+      expect(
+        (await database.loadTracks()).single.coverArtPath,
+        '/new/covers/art.jpg',
+      );
+      expect(
+        (await database.loadTrackCoverCache([track]))[track.path],
+        '/new/covers/art.jpg',
+      );
+
+      await database.close();
+    },
+  );
+
   test('loads only valid track cover cache entries', () async {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;

@@ -418,7 +418,7 @@ void main() {
         openDatabase: () => LibraryDatabase.openAtPath(dbPath),
         scanner: scanner,
         coverIndexer: _NoopTrackCoverIndexer(),
-        migrateCoverCache: () async {},
+        migrateCoverCache: (_) async {},
       );
 
       try {
@@ -464,7 +464,7 @@ void main() {
       openDatabase: () => LibraryDatabase.openAtPath(dbPath),
       scanner: scanner,
       coverIndexer: _NoopTrackCoverIndexer(),
-      migrateCoverCache: () async {},
+      migrateCoverCache: (_) async {},
     );
 
     try {
@@ -504,7 +504,7 @@ void main() {
       openDatabase: () => LibraryDatabase.openAtPath(dbPath),
       scanner: scanner,
       coverIndexer: indexer,
-      migrateCoverCache: () async {},
+      migrateCoverCache: (_) async {},
     );
 
     try {
@@ -525,6 +525,42 @@ void main() {
     } finally {
       controller.dispose();
     }
+  });
+
+  test('dispose cancels an in-flight scan', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_dispose_cancel_',
+    );
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    final dbPath = '${dir.path}/miaosic.db';
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.replaceLibrary(
+      _scanResult([_track('/music/root/keep.flac')]),
+    );
+    await seedDatabase.close();
+
+    final scanner = _HangingMusicScanner();
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: scanner,
+      coverIndexer: _NoopTrackCoverIndexer(),
+      migrateCoverCache: (_) async {},
+    );
+
+    await controller.open();
+    final scan = controller.scanLibrary();
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    expect(controller.scanning, isTrue);
+
+    controller.dispose();
+    await scan;
+
+    expect(scanner.cancelCount, 1);
   });
 
   test('saveThemeMode keeps the previous mode when persist fails', () async {
@@ -555,7 +591,7 @@ void main() {
         return _scanResult(const []);
       }),
       coverIndexer: _NoopTrackCoverIndexer(),
-      migrateCoverCache: () async {},
+      migrateCoverCache: (_) async {},
       persistThemeMode: (_, _) async {
         throw StateError('disk full');
       },

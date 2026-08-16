@@ -108,7 +108,9 @@ class RustMusicScanner {
               for (final track in previousTracks)
                 track.toMap()
                   ..remove('id')
-                  ..remove('cover_art_path'),
+                  ..remove(
+                    'cover_art_path',
+                  ), // apply_folder_covers recomputes these
             ],
           }).toNativeUtf8();
     NativeCallable<_ProgressCallbackNative>? progressCallback;
@@ -144,9 +146,6 @@ class RustMusicScanner {
       if (previousTracks != null &&
           previousTracks.isNotEmpty &&
           incrementalScanner != null) {
-        // Cover paths are recomputed during the scan. Sending them inflates
-        // the isolate payload; a fingerprint-only ABI needs folder
-        // classification to leave Rust first.
         responsePointer = incrementalScanner(
           rootPointer,
           previousTracksPointer,

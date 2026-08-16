@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'audio_output_settings.dart';
+import 'cover_cache.dart';
 import 'library_diff.dart';
 import 'models.dart';
 
@@ -183,6 +184,56 @@ class LibraryDatabase {
         AND track_cover_cache.cover_art_path != ''
     ''');
     return rows.map((row) => row['cover_art_path']).whereType<String>().toSet();
+  }
+
+  Future<int> relocateCoverArtPaths({
+    required String fromDir,
+    required String toDir,
+  }) async {
+    if (normalizedAbsolutePath(fromDir) == normalizedAbsolutePath(toDir)) {
+      return 0;
+    }
+
+    Future<int> rewrite({
+      required String table,
+      required String keyColumn,
+    }) async {
+      final rows = await _db.query(
+        table,
+        columns: [keyColumn, 'cover_art_path'],
+        where: "cover_art_path IS NOT NULL AND cover_art_path != ''",
+      );
+      var updated = 0;
+      final batch = _db.batch();
+      for (final row in rows) {
+        final next = relocatedCoverArtPath(
+          row['cover_art_path'] as String?,
+          fromDir: fromDir,
+          toDir: toDir,
+        );
+        if (next == null || next == row['cover_art_path']) {
+          continue;
+        }
+        batch.update(
+          table,
+          {'cover_art_path': next},
+          where: '$keyColumn = ?',
+          whereArgs: [row[keyColumn]],
+        );
+        updated += 1;
+      }
+      if (updated > 0) {
+        await batch.commit(noResult: true);
+      }
+      return updated;
+    }
+
+    var total = 0;
+    total += await rewrite(table: 'tracks', keyColumn: 'path');
+    total += await rewrite(table: 'folders', keyColumn: 'path');
+    total += await rewrite(table: 'albums', keyColumn: 'folder_path');
+    total += await rewrite(table: 'track_cover_cache', keyColumn: 'path');
+    return total;
   }
 
   Future<void> replaceLibrary(ScanResult result) async {

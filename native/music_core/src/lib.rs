@@ -82,8 +82,12 @@ struct ScanIssues {
 }
 
 impl ScanIssues {
-    fn push(&mut self, sample: impl Into<String>) {
+    fn skip_file(&mut self, sample: impl Into<String>) {
         self.skipped_files += 1;
+        self.note(sample);
+    }
+
+    fn note(&mut self, sample: impl Into<String>) {
         if self.error_samples.len() < 8 {
             self.error_samples.push(sample.into());
         }
@@ -483,7 +487,7 @@ fn scan_library(
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
-                issues.push(error.to_string());
+                issues.note(error.to_string());
                 continue;
             }
         };
@@ -496,7 +500,7 @@ fn scan_library(
                 tracks.push(track);
                 progress.parsed_track();
             }
-            Err(error) => issues.push(format!("{}: {error}", entry.path().display())),
+            Err(error) => issues.skip_file(format!("{}: {error}", entry.path().display())),
         }
         if progress.should_emit() {
             progress.emit_path(entry.path());
@@ -543,7 +547,7 @@ fn scan_library_incremental(
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
-                issues.push(error.to_string());
+                issues.note(error.to_string());
                 continue;
             }
         };
@@ -556,7 +560,7 @@ fn scan_library_incremental(
         let path_string = match path_to_utf8(path) {
             Ok(value) => value,
             Err(error) => {
-                issues.push(error);
+                issues.skip_file(error);
                 continue;
             }
         };
@@ -568,12 +572,12 @@ fn scan_library_incremental(
                 .or_else(|| match parse_track(path) {
                     Ok(track) => Some(track),
                     Err(error) => {
-                        issues.push(format!("{path_string}: {error}"));
+                        issues.skip_file(format!("{path_string}: {error}"));
                         None
                     }
                 }),
             Err(error) => {
-                issues.push(format!("{path_string}: {error}"));
+                issues.skip_file(format!("{path_string}: {error}"));
                 None
             }
         };
@@ -1564,6 +1568,15 @@ mod tests {
         unsafe {
             drop(CString::from_raw(pointer));
         }
+    }
+
+    #[test]
+    fn walk_notes_do_not_count_as_skipped_files() {
+        let mut issues = ScanIssues::default();
+        issues.note("dir: permission denied");
+        issues.skip_file("/music/a.flac: not found");
+        assert_eq!(issues.skipped_files, 1);
+        assert_eq!(issues.error_samples.len(), 2);
     }
 
     #[test]

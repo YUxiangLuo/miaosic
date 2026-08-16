@@ -21,6 +21,12 @@ void main() {
     expect(logicalFolderFor(file), '/music/Artist/Disc');
   });
 
+  test('does not treat a disc suffix letter d as a disc folder', () {
+    final file = File('/music/Artist/discd/01. Song.flac');
+
+    expect(logicalFolderFor(file), '/music/Artist/discd');
+  });
+
   test('expands tilde music root paths', () {
     expect(normalizeMusicRootPath('~/Music'), defaultMusicRoot);
     expect(normalizeMusicRootPath(' /tmp/music '), '/tmp/music');

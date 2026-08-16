@@ -42,6 +42,7 @@ class RescanUiState {
     this.progress,
     this.diff,
     this.error,
+    this.errorSamples = const [],
   });
 
   static const _unset = Object();
@@ -52,6 +53,7 @@ class RescanUiState {
   final ScanProgress? progress;
   final LibraryDiff? diff;
   final String? error;
+  final List<String> errorSamples;
 
   RescanUiState copyWith({
     LibraryScanMode? mode,
@@ -60,6 +62,7 @@ class RescanUiState {
     Object? progress = _unset,
     Object? diff = _unset,
     Object? error = _unset,
+    List<String>? errorSamples,
   }) {
     return RescanUiState(
       mode: mode ?? this.mode,
@@ -70,6 +73,7 @@ class RescanUiState {
           : progress as ScanProgress?,
       diff: identical(diff, _unset) ? this.diff : diff as LibraryDiff?,
       error: identical(error, _unset) ? this.error : error as String?,
+      errorSamples: errorSamples ?? this.errorSamples,
     );
   }
 }
