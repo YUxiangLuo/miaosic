@@ -282,9 +282,10 @@ class _PlaylistHeroPanel extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Center(
-                  child: _PlaylistPlaybackCover(
-                    coverPaths: coverPaths,
+                  child: PlaylistCoverCollage(
+                    paths: coverPaths,
                     size: coverSize,
+                    radius: 8,
                   ),
                 ),
                 const SizedBox(height: 22),
@@ -328,7 +329,7 @@ class _PlaylistCompactHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        _PlaylistPlaybackCover(coverPaths: coverPaths, size: 88),
+        PlaylistCoverCollage(paths: coverPaths, size: 88, radius: 8),
         const SizedBox(width: 18),
         Expanded(child: _PlaylistPlaybackTitle(folder: folder)),
       ],
@@ -480,7 +481,7 @@ class _DockPlaylistIdentity extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        _PlaylistPlaybackCover(coverPaths: coverPaths, size: 64),
+        PlaylistCoverCollage(paths: coverPaths, size: 64, radius: 8),
         const SizedBox(width: 12),
         ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 220),
@@ -1006,82 +1007,6 @@ class _TrackCell extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _PlaylistPlaybackCover extends StatelessWidget {
-  const _PlaylistPlaybackCover({required this.coverPaths, required this.size});
-
-  final List<String> coverPaths;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final paths = coverPaths.take(4).toList(growable: false);
-    return SizedBox.square(
-      dimension: size,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: paths.length <= 1
-            ? Artwork(
-                path: paths.isEmpty ? null : paths.first,
-                size: double.infinity,
-                icon: Icons.queue_music,
-                radius: 0,
-              )
-            : _CoverGrid(paths: paths),
-      ),
-    );
-  }
-}
-
-class _CoverGrid extends StatelessWidget {
-  const _CoverGrid({required this.paths});
-
-  final List<String> paths;
-
-  @override
-  Widget build(BuildContext context) {
-    final padded = paths.toList(growable: true);
-    while (padded.length < 4) {
-      padded.add(paths.last);
-    }
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: _CoverGridTile(path: padded[0])),
-              Expanded(child: _CoverGridTile(path: padded[1])),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: _CoverGridTile(path: padded[2])),
-              Expanded(child: _CoverGridTile(path: padded[3])),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _CoverGridTile extends StatelessWidget {
-  const _CoverGridTile({required this.path});
-
-  final String path;
-
-  @override
-  Widget build(BuildContext context) {
-    return Artwork(
-      path: path,
-      size: double.infinity,
-      icon: Icons.music_note,
-      radius: 0,
     );
   }
 }

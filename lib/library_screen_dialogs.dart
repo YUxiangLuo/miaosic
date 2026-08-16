@@ -32,6 +32,7 @@ Future<void> showLibraryRescanDialog({
             onScanLibrary: () => unawaited(library.scanLibrary()),
             onRescan: () => library.startRescanDiff(),
             onFullRescan: () => library.startRescanDiff(full: true),
+            onCancel: library.cancelScan,
           );
         },
       );

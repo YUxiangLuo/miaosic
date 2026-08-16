@@ -23,6 +23,35 @@ void main() {
     );
   });
 
+  test('honors cancel requested before scan starts', () async {
+    final scanner = MusicScanner(rustScannerLoader: () => null);
+
+    scanner.cancel();
+
+    await expectLater(
+      scanner.scan('/tmp'),
+      throwsA(isA<ScanCancelledException>()),
+    );
+  });
+
+  test('prepareForScan allows a new attempt after cancel', () async {
+    final scanner = MusicScanner(rustScannerLoader: () => null);
+
+    scanner.cancel();
+    scanner.prepareForScan();
+
+    await expectLater(
+      scanner.scan('/tmp'),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('Rust scanner dynamic library is required'),
+        ),
+      ),
+    );
+  });
+
   test('Rust scanner scans generated FLAC fixture', () async {
     if (RustMusicScanner.tryLoad() == null) {
       markTestSkipped('Rust dynamic library is not available');
@@ -37,7 +66,7 @@ void main() {
     });
     await _writeFixture(dir);
 
-    final result = await MusicScanner().scan(dir.path);
+    final result = await _scannerFor(dir).scan(dir.path);
 
     expect(result.engine, 'rust');
     _expectFixtureShape(result);
@@ -67,7 +96,7 @@ void main() {
       },
     );
 
-    final result = await MusicScanner().scan(dir.path);
+    final result = await _scannerFor(dir).scan(dir.path);
 
     expect(await looseTrack.exists(), isTrue);
     expect(
@@ -95,7 +124,7 @@ void main() {
     await fileRoot.writeAsString('not a directory');
 
     expect(
-      MusicScanner().scan(fileRoot.path),
+      _scannerFor(dir).scan(fileRoot.path),
       throwsA(
         isA<StateError>().having(
           (error) => error.message,
@@ -127,7 +156,7 @@ void main() {
     });
     await _writeFixture(dir);
 
-    final full = await MusicScanner().scan(dir.path);
+    final full = await _scannerFor(dir).scan(dir.path);
     final previousTracks = full.tracks
         .map((track) {
           if (track.title == 'Opening') {
@@ -137,10 +166,9 @@ void main() {
         })
         .toList(growable: false);
 
-    final incremental = await MusicScanner().scan(
-      dir.path,
-      previousTracks: previousTracks,
-    );
+    final incremental = await _scannerFor(
+      dir,
+    ).scan(dir.path, previousTracks: previousTracks);
 
     expect(incremental.engine, 'rust');
     expect(
@@ -175,17 +203,16 @@ void main() {
     final cover = File('${dir.path}/Artist - Album (2020)/cover.jpg');
     await cover.writeAsBytes([0xff, 0xd8, 0xff, 0xd9]);
 
-    final full = await MusicScanner().scan(dir.path);
+    final full = await _scannerFor(dir).scan(dir.path);
     final albumTrack = full.tracks.firstWhere(
       (track) => track.path.endsWith('Opening.flac'),
     );
     expect(albumTrack.coverArtPath, isNotNull);
 
     await cover.delete();
-    final incremental = await MusicScanner().scan(
-      dir.path,
-      previousTracks: full.tracks,
-    );
+    final incremental = await _scannerFor(
+      dir,
+    ).scan(dir.path, previousTracks: full.tracks);
 
     expect(
       incremental.tracks
@@ -200,6 +227,16 @@ void main() {
       isNull,
     );
   });
+}
+
+MusicScanner _scannerFor(Directory root) {
+  return MusicScanner(
+    cacheDirectoryProvider: () async {
+      final covers = Directory('${root.path}/.covers');
+      await covers.create(recursive: true);
+      return covers.path;
+    },
+  );
 }
 
 Future<void> _writeFixture(Directory root) async {

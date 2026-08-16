@@ -6,7 +6,6 @@ import 'package:miaosic/album_playback_view.dart';
 import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_screen.dart';
-import 'package:miaosic/llm_settings.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/playback_controller.dart';
 
@@ -45,6 +44,43 @@ void main() {
     expect(library.disposedByScreen, isFalse);
     expect(playback.disposedByScreen, isFalse);
 
+    playback.disposeForTest();
+    library.disposeForTest();
+  });
+
+  testWidgets('rolls theme back when saving the preference fails', (
+    tester,
+  ) async {
+    final library = _InjectedLibraryController(themeSaveError: 'disk full');
+    final playback = _InjectedPlaybackController();
+    var themeMode = ThemeMode.light;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: StatefulBuilder(
+          builder: (context, setState) {
+            return LibraryScreen(
+              themeMode: themeMode,
+              onThemeModeChanged: (mode) => setState(() => themeMode = mode),
+              libraryController: library,
+              playbackController: playback,
+            );
+          },
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byTooltip('Switch to dark mode'));
+    await tester.pump();
+    await tester.pump();
+    await tester.pump();
+
+    expect(themeMode, ThemeMode.light);
+    expect(find.textContaining('Could not save theme'), findsOneWidget);
+
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
     playback.disposeForTest();
     library.disposeForTest();
   });
@@ -506,6 +542,7 @@ class _InjectedLibraryController extends LibraryController {
     Map<String, List<Track>> tracksByFolder = const {},
     this.lastPlaybackState,
     this.canRestorePlayback = false,
+    this.themeSaveError,
   }) : _tracks = List.unmodifiable(tracks),
        _folders = List.unmodifiable(folders),
        _albums = List.unmodifiable(albums),
@@ -524,6 +561,7 @@ class _InjectedLibraryController extends LibraryController {
   final bool canRestorePlayback;
   String? savedThemeMode;
   String? changedMusicRoot;
+  final String? themeSaveError;
 
   @override
   Future<void> open() async {
@@ -543,6 +581,9 @@ class _InjectedLibraryController extends LibraryController {
 
   @override
   Future<void> saveThemeMode(String value) async {
+    if (themeSaveError != null) {
+      throw StateError(themeSaveError!);
+    }
     savedThemeMode = value;
   }
 
@@ -573,9 +614,6 @@ class _InjectedLibraryController extends LibraryController {
 
   @override
   LastPlaybackState? get lastPlayback => lastPlaybackState;
-
-  @override
-  LlmSettings get llmSettings => const LlmSettings.defaults();
 
   @override
   String get musicRoot => '/music';

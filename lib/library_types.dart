@@ -44,6 +44,8 @@ class RescanUiState {
     this.error,
   });
 
+  static const _unset = Object();
+
   final LibraryScanMode mode;
   final RescanPhase phase;
   final String message;
@@ -55,17 +57,19 @@ class RescanUiState {
     LibraryScanMode? mode,
     RescanPhase? phase,
     String? message,
-    ScanProgress? progress,
-    LibraryDiff? diff,
-    String? error,
+    Object? progress = _unset,
+    Object? diff = _unset,
+    Object? error = _unset,
   }) {
     return RescanUiState(
       mode: mode ?? this.mode,
       phase: phase ?? this.phase,
       message: message ?? this.message,
-      progress: progress,
-      diff: diff ?? this.diff,
-      error: error,
+      progress: identical(progress, _unset)
+          ? this.progress
+          : progress as ScanProgress?,
+      diff: identical(diff, _unset) ? this.diff : diff as LibraryDiff?,
+      error: identical(error, _unset) ? this.error : error as String?,
     );
   }
 }

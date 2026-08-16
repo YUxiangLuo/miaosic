@@ -444,9 +444,10 @@ class _PlaylistCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Center(
-                      child: _PlaylistCoverCollage(
-                        coverPaths: coverPaths,
+                      child: PlaylistCoverCollage(
+                        paths: coverPaths,
                         size: coverSize,
+                        radius: 8,
                       ),
                     ),
                     SizedBox(height: veryCompact ? 8 : (compact ? 14 : 22)),
@@ -533,94 +534,6 @@ class _PlaylistCard extends StatelessWidget {
       paths.add(folderCover);
     }
     return paths;
-  }
-}
-
-class _PlaylistCoverCollage extends StatelessWidget {
-  const _PlaylistCoverCollage({required this.coverPaths, required this.size});
-
-  final List<String> coverPaths;
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final paths = coverPaths.take(4).toList(growable: false);
-    return SizedBox.square(
-      dimension: size,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: paths.length <= 1
-            ? Artwork(
-                path: paths.isEmpty ? null : paths.first,
-                size: double.infinity,
-                icon: Icons.queue_music,
-                radius: 0,
-              )
-            : _CoverGrid(paths: paths),
-      ),
-    );
-  }
-}
-
-class _CoverGrid extends StatelessWidget {
-  const _CoverGrid({required this.paths});
-
-  final List<String> paths;
-
-  @override
-  Widget build(BuildContext context) {
-    final padded = paths.toList(growable: true);
-    while (padded.length < 4) {
-      padded.add(paths.last);
-    }
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(
-                child: Artwork(
-                  path: padded[0],
-                  size: double.infinity,
-                  icon: Icons.music_note,
-                  radius: 0,
-                ),
-              ),
-              Expanded(
-                child: Artwork(
-                  path: padded[1],
-                  size: double.infinity,
-                  icon: Icons.music_note,
-                  radius: 0,
-                ),
-              ),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(
-                child: Artwork(
-                  path: padded[2],
-                  size: double.infinity,
-                  icon: Icons.music_note,
-                  radius: 0,
-                ),
-              ),
-              Expanded(
-                child: Artwork(
-                  path: padded[3],
-                  size: double.infinity,
-                  icon: Icons.music_note,
-                  radius: 0,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
   }
 }
 

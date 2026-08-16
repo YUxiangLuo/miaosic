@@ -382,60 +382,10 @@ class _NowPlayingArtwork extends StatelessWidget {
           icon: Icons.album,
           radius: 0,
         ),
-        SidebarNowPlayingKind.playlist => _NowPlayingPlaylistCollage(
+        SidebarNowPlayingKind.playlist => PlaylistCoverCollage(
           paths: nowPlaying.playlistCoverArtPaths,
         ),
       },
-    );
-  }
-}
-
-class _NowPlayingPlaylistCollage extends StatelessWidget {
-  const _NowPlayingPlaylistCollage({required this.paths});
-
-  final List<String?> paths;
-
-  @override
-  Widget build(BuildContext context) {
-    final padded = paths.take(4).toList(growable: true);
-    while (padded.length < 4) {
-      padded.add(null);
-    }
-    return Column(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: _PlaylistCollageTile(path: padded[0])),
-              Expanded(child: _PlaylistCollageTile(path: padded[1])),
-            ],
-          ),
-        ),
-        Expanded(
-          child: Row(
-            children: [
-              Expanded(child: _PlaylistCollageTile(path: padded[2])),
-              Expanded(child: _PlaylistCollageTile(path: padded[3])),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _PlaylistCollageTile extends StatelessWidget {
-  const _PlaylistCollageTile({required this.path});
-
-  final String? path;
-
-  @override
-  Widget build(BuildContext context) {
-    return Artwork(
-      path: path,
-      size: double.infinity,
-      icon: Icons.queue_music,
-      radius: 0,
     );
   }
 }

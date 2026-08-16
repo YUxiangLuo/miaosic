@@ -9,7 +9,6 @@ import 'rust_music_scanner.dart';
 typedef TrackCoverCacheUpdated = void Function(Map<String, String?> cache);
 typedef TrackCoverExtractorStarter =
     Future<TrackCoverExtractor> Function(String cacheDir);
-typedef CoverCacheDirectoryProvider = Future<String> Function();
 
 abstract interface class TrackCoverExtractor {
   Future<Map<String, String?>> extract(List<String> paths);

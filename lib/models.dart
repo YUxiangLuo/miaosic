@@ -337,6 +337,8 @@ class ScanResult {
     required this.albums,
     required this.elapsed,
     required this.coversCached,
+    this.skippedFiles = 0,
+    this.errorSamples = const [],
   });
 
   final String rootPath;
@@ -346,6 +348,8 @@ class ScanResult {
   final List<AlbumSummary> albums;
   final Duration elapsed;
   final int coversCached;
+  final int skippedFiles;
+  final List<String> errorSamples;
 }
 
 class ScanProgress {

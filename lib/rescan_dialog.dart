@@ -20,6 +20,7 @@ class RescanDialog extends StatefulWidget {
     required this.onScanLibrary,
     required this.onRescan,
     required this.onFullRescan,
+    this.onCancel,
   });
 
   final ValueListenable<RescanUiState> stateListenable;
@@ -31,6 +32,7 @@ class RescanDialog extends StatefulWidget {
   final VoidCallback onScanLibrary;
   final VoidCallback onRescan;
   final VoidCallback onFullRescan;
+  final VoidCallback? onCancel;
 
   @override
   State<RescanDialog> createState() => _RescanDialogState();
@@ -45,6 +47,12 @@ class _RescanDialogState extends State<RescanDialog> {
   }
 
   void _close() {
+    final state = widget.stateListenable.value;
+    if (state.phase.isBusy &&
+        state.phase != RescanPhase.applying &&
+        widget.onCancel != null) {
+      widget.onCancel!();
+    }
     Navigator.of(context).pop();
   }
 
@@ -118,6 +126,7 @@ class _RescanDialogState extends State<RescanDialog> {
                       onScanLibrary: widget.onScanLibrary,
                       onRescan: widget.onRescan,
                       onFullRescan: widget.onFullRescan,
+                      onCancel: widget.onCancel,
                       onApply: _applyAndClose,
                     ),
                   ],
@@ -148,6 +157,7 @@ class _RescanActions extends StatelessWidget {
     required this.onRescan,
     required this.onFullRescan,
     required this.onApply,
+    this.onCancel,
   });
 
   final LibraryScanMode mode;
@@ -158,12 +168,21 @@ class _RescanActions extends StatelessWidget {
   final VoidCallback onRescan;
   final VoidCallback onFullRescan;
   final Future<void> Function() onApply;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
+    final canCancel = busy && phase != RescanPhase.applying && onCancel != null;
+
     if (mode == LibraryScanMode.direct) {
       return Row(
         children: [
+          if (canCancel)
+            TextButton.icon(
+              onPressed: onCancel,
+              icon: const Icon(Icons.stop, size: 18),
+              label: const Text('Cancel'),
+            ),
           const Spacer(),
           FilledButton.tonalIcon(
             onPressed: busy ? null : onScanLibrary,
@@ -184,6 +203,14 @@ class _RescanActions extends StatelessWidget {
           icon: const Icon(Icons.restart_alt, size: 18),
           label: const Text('Full rescan'),
         ),
+        if (canCancel) ...[
+          const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: onCancel,
+            icon: const Icon(Icons.stop, size: 18),
+            label: const Text('Cancel'),
+          ),
+        ],
         const Spacer(),
         const SizedBox(width: 8),
         FilledButton.tonalIcon(

@@ -8,6 +8,13 @@ import 'rust_music_scanner.dart';
 typedef ScanProgressCallback = void Function(ScanProgress progress);
 typedef RustScannerLoader = RustMusicScanner? Function();
 
+class ScanCancelledException implements Exception {
+  const ScanCancelledException();
+
+  @override
+  String toString() => 'Scan cancelled';
+}
+
 Future<void> _rustScanWorker(List<Object?> message) async {
   final rootPath = message[0] as String;
   final coverCacheDir = message[1] as String;
@@ -41,16 +48,48 @@ Future<void> _rustScanWorker(List<Object?> message) async {
 }
 
 class MusicScanner {
-  MusicScanner({this.rustScannerLoader = RustMusicScanner.tryLoad});
+  MusicScanner({
+    this.rustScannerLoader = RustMusicScanner.tryLoad,
+    CoverCacheDirectoryProvider? cacheDirectoryProvider,
+  }) : _cacheDirectoryProvider = cacheDirectoryProvider ?? coverCacheDir;
 
   final RustScannerLoader rustScannerLoader;
+  final CoverCacheDirectoryProvider _cacheDirectoryProvider;
   RustMusicScanner? _rustScanner;
+  Isolate? _worker;
+  Completer<Object?>? _resultCompleter;
+  bool _cancelRequested = false;
+
+  void cancel() {
+    _cancelRequested = true;
+    final worker = _worker;
+    _worker = null;
+    worker?.kill(priority: Isolate.immediate);
+    final completer = _resultCompleter;
+    if (completer != null && !completer.isCompleted) {
+      completer.completeError(const ScanCancelledException());
+    }
+  }
+
+  void prepareForScan() {
+    if (_resultCompleter != null) {
+      return;
+    }
+    _cancelRequested = false;
+  }
 
   Future<ScanResult> scan(
     String rootPath, {
     ScanProgressCallback? onProgress,
     List<Track>? previousTracks,
   }) async {
+    if (_resultCompleter != null) {
+      throw StateError('A scan is already running');
+    }
+    if (_cancelRequested) {
+      throw const ScanCancelledException();
+    }
+
     final rustScanner = _loadRustScanner();
     if (rustScanner == null) {
       throw StateError(
@@ -59,7 +98,10 @@ class MusicScanner {
       );
     }
 
-    final cacheDir = await coverCacheDir();
+    final cacheDir = await _cacheDirectoryProvider();
+    if (_cancelRequested) {
+      throw const ScanCancelledException();
+    }
     onProgress?.call(
       ScanProgress(filesSeen: 0, tracksParsed: 0, currentPath: rootPath),
     );
@@ -87,8 +129,16 @@ class MusicScanner {
     }
 
     final resultPort = ReceivePort();
+    final resultCompleter = Completer<Object?>();
+    _resultCompleter = resultCompleter;
+    StreamSubscription<Object?>? resultSub;
     Isolate? worker;
     try {
+      resultSub = resultPort.listen((message) {
+        if (!resultCompleter.isCompleted) {
+          resultCompleter.complete(message);
+        }
+      });
       worker = await Isolate.spawn<List<Object?>>(_rustScanWorker, [
         rootPath,
         cacheDir,
@@ -96,7 +146,12 @@ class MusicScanner {
         shouldForwardProgress ? progressPort?.sendPort : null,
         previousTracks,
       ]);
-      final message = await resultPort.first;
+      if (_cancelRequested) {
+        worker.kill(priority: Isolate.immediate);
+        throw const ScanCancelledException();
+      }
+      _worker = worker;
+      final message = await resultCompleter.future;
       final result = switch (message) {
         [true, final ScanResult result] => result,
         [false, final String error, _] => throw StateError(error),
@@ -111,7 +166,10 @@ class MusicScanner {
       );
       return result;
     } finally {
+      _worker = null;
+      _resultCompleter = null;
       worker?.kill(priority: Isolate.immediate);
+      await resultSub?.cancel();
       resultPort.close();
       await progressSub?.cancel();
       progressPort?.close();

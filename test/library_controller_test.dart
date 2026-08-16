@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -393,6 +394,192 @@ void main() {
       }
     },
   );
+
+  test(
+    'cancelling a hanging rescan leaves the current library in place',
+    () async {
+      final dir = await Directory.systemTemp.createTemp(
+        'miaosic_controller_cancel_test_',
+      );
+      addTearDown(() async {
+        if (await dir.exists()) {
+          await dir.delete(recursive: true);
+        }
+      });
+      final dbPath = '${dir.path}/miaosic.db';
+      final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+      final existing = _track('/music/root/keep.flac');
+      await seedDatabase.saveMusicRoot('/music/root');
+      await seedDatabase.replaceLibrary(_scanResult([existing]));
+      await seedDatabase.close();
+
+      final scanner = _HangingMusicScanner();
+      final controller = LibraryController(
+        openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+        scanner: scanner,
+        coverIndexer: _NoopTrackCoverIndexer(),
+        migrateCoverCache: () async {},
+      );
+
+      try {
+        await controller.open();
+        expect(controller.tracks.single.path, existing.path);
+
+        controller.startRescanDiff();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(controller.scanning, isTrue);
+
+        controller.cancelScan();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(scanner.cancelCount, 1);
+        expect(controller.scanning, isFalse);
+        expect(controller.rescanState.value.phase, RescanPhase.idle);
+        expect(controller.rescanState.value.message, 'Scan cancelled');
+        expect(controller.tracks.single.path, existing.path);
+      } finally {
+        controller.dispose();
+      }
+    },
+  );
+
+  test('cancel during snapshot load does not start the file scan', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_cancel_before_scan_',
+    );
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    final dbPath = '${dir.path}/miaosic.db';
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    final existing = _track('/music/root/keep.flac');
+    await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.replaceLibrary(_scanResult([existing]));
+    await seedDatabase.close();
+
+    final scanner = _CancelAwareMusicScanner();
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: scanner,
+      coverIndexer: _NoopTrackCoverIndexer(),
+      migrateCoverCache: () async {},
+    );
+
+    try {
+      await controller.open();
+      controller.startRescanDiff();
+      controller.cancelScan();
+      await _waitForRescanIdle(controller);
+
+      expect(scanner.scanCount, 0);
+      expect(controller.rescanState.value.phase, RescanPhase.idle);
+      expect(controller.rescanState.value.message, 'Scan cancelled');
+      expect(controller.tracks.single.path, existing.path);
+    } finally {
+      controller.dispose();
+    }
+  });
+
+  test('cancelled direct scan restarts background cover indexing', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_cancel_covers_',
+    );
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    final dbPath = '${dir.path}/miaosic.db';
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    final existing = _track('/music/root/keep.flac');
+    await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.replaceLibrary(_scanResult([existing]));
+    await seedDatabase.close();
+
+    final indexer = _CountingTrackCoverIndexer();
+    final scanner = _HangingMusicScanner();
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: scanner,
+      coverIndexer: indexer,
+      migrateCoverCache: () async {},
+    );
+
+    try {
+      await controller.open();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(indexer.startCount, 1);
+
+      final scan = controller.scanLibrary();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(controller.scanning, isTrue);
+
+      controller.cancelScan();
+      await scan;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(indexer.startCount, 2);
+      expect(controller.rescanState.value.phase, RescanPhase.idle);
+    } finally {
+      controller.dispose();
+    }
+  });
+
+  test('saveThemeMode keeps the previous mode when persist fails', () async {
+    final dir = await Directory.systemTemp.createTemp(
+      'miaosic_controller_theme_fail_',
+    );
+    addTearDown(() async {
+      if (await dir.exists()) {
+        await dir.delete(recursive: true);
+      }
+    });
+    final dbPath = '${dir.path}/miaosic.db';
+    final seedDatabase = await LibraryDatabase.openAtPath(dbPath);
+    await seedDatabase.saveMusicRoot('/music/root');
+    await seedDatabase.saveThemeMode('light');
+    await seedDatabase.replaceLibrary(
+      _scanResult([_track('/music/root/keep.flac')]),
+    );
+    await seedDatabase.close();
+
+    final controller = LibraryController(
+      openDatabase: () => LibraryDatabase.openAtPath(dbPath),
+      scanner: _FakeMusicScanner((
+        rootPath, {
+        onProgress,
+        previousTracks,
+      }) async {
+        return _scanResult(const []);
+      }),
+      coverIndexer: _NoopTrackCoverIndexer(),
+      migrateCoverCache: () async {},
+      persistThemeMode: (_, _) async {
+        throw StateError('disk full');
+      },
+    );
+
+    try {
+      await controller.open();
+      expect(controller.themeMode, 'light');
+
+      await expectLater(
+        controller.saveThemeMode('dark'),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            'disk full',
+          ),
+        ),
+      );
+      expect(controller.themeMode, 'light');
+    } finally {
+      controller.dispose();
+    }
+  });
 }
 
 typedef _ScanHandler =
@@ -401,6 +588,76 @@ typedef _ScanHandler =
       ScanProgressCallback? onProgress,
       List<Track>? previousTracks,
     });
+
+class _CancelAwareMusicScanner extends MusicScanner {
+  _CancelAwareMusicScanner() : super(rustScannerLoader: () => null);
+
+  var scanCount = 0;
+  var cancelled = false;
+
+  @override
+  void prepareForScan() {
+    cancelled = false;
+  }
+
+  @override
+  void cancel() {
+    cancelled = true;
+  }
+
+  @override
+  Future<ScanResult> scan(
+    String rootPath, {
+    ScanProgressCallback? onProgress,
+    List<Track>? previousTracks,
+  }) async {
+    if (cancelled) {
+      throw const ScanCancelledException();
+    }
+    scanCount += 1;
+    return _scanResult([_track('/music/root/new.flac')]);
+  }
+}
+
+class _CountingTrackCoverIndexer extends TrackCoverIndexer {
+  var startCount = 0;
+
+  @override
+  Future<bool> indexTracks({
+    required List<Track> tracks,
+    required LibraryDatabase database,
+    Map<String, String?>? knownCache,
+    required bool Function() shouldPause,
+    required TrackCoverCacheUpdated onCacheUpdated,
+  }) async {
+    startCount += 1;
+    return false;
+  }
+}
+
+class _HangingMusicScanner extends MusicScanner {
+  _HangingMusicScanner() : super(rustScannerLoader: () => null);
+
+  final completer = Completer<ScanResult>();
+  var cancelCount = 0;
+
+  @override
+  Future<ScanResult> scan(
+    String rootPath, {
+    ScanProgressCallback? onProgress,
+    List<Track>? previousTracks,
+  }) {
+    return completer.future;
+  }
+
+  @override
+  void cancel() {
+    cancelCount += 1;
+    if (!completer.isCompleted) {
+      completer.completeError(const ScanCancelledException());
+    }
+  }
+}
 
 class _FakeMusicScanner extends MusicScanner {
   _FakeMusicScanner(this._handler) : super(rustScannerLoader: () => null);
@@ -502,6 +759,22 @@ FolderSummary _folder(String path, {FolderKind kind = FolderKind.album}) {
     artistCount: 1,
     yearCount: 1,
     coverArtPath: null,
+  );
+}
+
+Future<void> _waitForRescanIdle(LibraryController controller) async {
+  for (var i = 0; i < 100; i++) {
+    if (!controller.scanning &&
+        controller.rescanState.value.phase == RescanPhase.idle) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  fail(
+    'Timed out waiting for rescan idle. '
+    'scanning=${controller.scanning} '
+    'phase=${controller.rescanState.value.phase} '
+    'error=${controller.rescanState.value.error}',
   );
 }
 

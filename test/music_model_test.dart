@@ -15,6 +15,12 @@ void main() {
     expect(logicalFolderFor(file), '/music/Artist - Album (2001)');
   });
 
+  test('does not collapse a bare disc folder name', () {
+    final file = File('/music/Artist/Disc/01. Song.flac');
+
+    expect(logicalFolderFor(file), '/music/Artist/Disc');
+  });
+
   test('expands tilde music root paths', () {
     expect(normalizeMusicRootPath('~/Music'), defaultMusicRoot);
     expect(normalizeMusicRootPath(' /tmp/music '), '/tmp/music');

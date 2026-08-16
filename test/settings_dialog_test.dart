@@ -6,7 +6,7 @@ import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/settings_dialog.dart';
 
 void main() {
-  testWidgets('hides LLM settings', (tester) async {
+  testWidgets('settings dialog only shows audio output', (tester) async {
     await tester.pumpWidget(
       MaterialApp(
         home: Builder(

@@ -61,34 +61,80 @@ class _ArtworkPlaceholder extends StatelessWidget {
   }
 }
 
-class TwoLineText extends StatelessWidget {
-  const TwoLineText({super.key, required this.title, required this.subtitle});
+class PlaylistCoverCollage extends StatelessWidget {
+  const PlaylistCoverCollage({
+    super.key,
+    required this.paths,
+    this.size,
+    this.radius = 0,
+    this.icon = Icons.queue_music,
+  });
 
-  final String title;
-  final String subtitle;
+  final List<String?> paths;
+  final double? size;
+  final double radius;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
+    final cleaned = [
+      for (final path in paths)
+        if (path != null && path.isNotEmpty) path,
+    ].take(4).toList(growable: false);
+    final collage = ClipRRect(
+      borderRadius: BorderRadius.circular(radius),
+      child: cleaned.length <= 1
+          ? Artwork(
+              path: cleaned.isEmpty ? null : cleaned.first,
+              size: double.infinity,
+              icon: icon,
+              radius: 0,
+            )
+          : _PlaylistCoverGrid(paths: cleaned, icon: icon),
+    );
+    if (size == null) {
+      return collage;
+    }
+    return SizedBox.square(dimension: size, child: collage);
+  }
+}
+
+class _PlaylistCoverGrid extends StatelessWidget {
+  const _PlaylistCoverGrid({required this.paths, required this.icon});
+
+  final List<String> paths;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final padded = paths.toList(growable: true);
+    while (padded.length < 4) {
+      padded.add(paths.last);
+    }
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w700),
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(child: _tile(padded[0])),
+              Expanded(child: _tile(padded[1])),
+            ],
+          ),
         ),
-        const SizedBox(height: 3),
-        Text(
-          subtitle,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: TextStyle(color: scheme.onSurfaceVariant),
+        Expanded(
+          child: Row(
+            children: [
+              Expanded(child: _tile(padded[2])),
+              Expanded(child: _tile(padded[3])),
+            ],
+          ),
         ),
       ],
     );
+  }
+
+  Widget _tile(String path) {
+    return Artwork(path: path, size: double.infinity, icon: icon, radius: 0);
   }
 }
 

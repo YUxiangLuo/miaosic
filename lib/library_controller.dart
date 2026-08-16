@@ -9,26 +9,34 @@ import 'library_database.dart';
 import 'library_diff.dart';
 import 'library_formatters.dart';
 import 'library_types.dart';
-import 'llm_settings.dart';
 import 'models.dart';
 import 'music_scanner.dart';
 import 'playlist_cover_indexer.dart';
 
 typedef LibraryDatabaseOpener = Future<LibraryDatabase> Function();
 typedef LargeDeletionConfirmation = Future<bool> Function(DeletionRisk risk);
+typedef CoverCacheMigrator = Future<void> Function();
+typedef ThemeModePersister =
+    Future<void> Function(LibraryDatabase database, String value);
 
 class LibraryController extends ChangeNotifier {
   LibraryController({
     MusicScanner? scanner,
     TrackCoverIndexer? coverIndexer,
     LibraryDatabaseOpener? openDatabase,
+    CoverCacheMigrator? migrateCoverCache,
+    ThemeModePersister? persistThemeMode,
   }) : _scanner = scanner ?? MusicScanner(),
        _coverIndexer = coverIndexer ?? TrackCoverIndexer(),
-       _openDatabase = openDatabase ?? LibraryDatabase.open;
+       _openDatabase = openDatabase ?? LibraryDatabase.open,
+       _migrateCoverCache = migrateCoverCache ?? _migrateCoverCacheSafely,
+       _persistThemeMode = persistThemeMode ?? _persistThemeModeToDatabase;
 
   final MusicScanner _scanner;
   final TrackCoverIndexer _coverIndexer;
   final LibraryDatabaseOpener _openDatabase;
+  final CoverCacheMigrator _migrateCoverCache;
+  final ThemeModePersister _persistThemeMode;
   final ValueNotifier<RescanUiState> rescanState = ValueNotifier(
     const RescanUiState(phase: RescanPhase.idle),
   );
@@ -46,12 +54,12 @@ class LibraryController extends ChangeNotifier {
   Map<String, String?> _trackCoverCache = const {};
   Map<String, Object?>? _scanState;
   LastPlaybackState? _lastPlayback;
-  LlmSettings _llmSettings = const LlmSettings.defaults();
   AudioOutputSettings _audioOutputSettings =
       const AudioOutputSettings.defaults();
   String _musicRoot = defaultMusicRoot;
   String _themeMode = 'light';
   ScanProgress? _scanProgress;
+  String? _backgroundWarning;
   bool _loading = true;
   bool _settingsLoaded = false;
   bool _scanning = false;
@@ -67,11 +75,11 @@ class LibraryController extends ChangeNotifier {
   Map<String, String?> get trackCoverCache => _trackCoverCache;
   Map<String, Object?>? get scanState => _scanState;
   LastPlaybackState? get lastPlayback => _lastPlayback;
-  LlmSettings get llmSettings => _llmSettings;
   AudioOutputSettings get audioOutputSettings => _audioOutputSettings;
   String get musicRoot => _musicRoot;
   String get themeMode => _themeMode;
   ScanProgress? get scanProgress => _scanProgress;
+  String? get backgroundWarning => _backgroundWarning;
   bool get loading => _loading;
   bool get settingsLoaded => _settingsLoaded;
   bool get scanning => _scanning;
@@ -98,17 +106,19 @@ class LibraryController extends ChangeNotifier {
       _database = database;
       final musicRoot = await database.loadMusicRoot();
       final themeMode = await database.loadThemeMode();
-      final llmSettings = await database.loadLlmSettings();
       final audioOutputSettings = await database.loadAudioOutputSettings();
       if (_disposed) {
         return;
       }
       _musicRoot = musicRoot;
       _themeMode = themeMode;
-      _llmSettings = llmSettings;
       _audioOutputSettings = audioOutputSettings;
       _settingsLoaded = true;
       _emit();
+      await _migrateCoverCache();
+      if (_disposed) {
+        return;
+      }
       await _loadFromDatabase();
       if (_disposed) {
         return;
@@ -137,9 +147,17 @@ class LibraryController extends ChangeNotifier {
     if (_rescanTask != null || rescanState.value.phase.isBusy || _disposed) {
       return;
     }
+    _scanner.prepareForScan();
     _rescanTask = _runRescanDiff(full: full).whenComplete(() {
       _rescanTask = null;
     });
+  }
+
+  void cancelScan() {
+    if (_disposed) {
+      return;
+    }
+    _scanner.cancel();
   }
 
   void prepareRescanDialog() {
@@ -219,6 +237,7 @@ class LibraryController extends ChangeNotifier {
       return false;
     }
 
+    _scanner.prepareForScan();
     _coverIndexer.cancel();
     _scanning = true;
     _loading = false;
@@ -267,13 +286,18 @@ class LibraryController extends ChangeNotifier {
         return false;
       }
       switched = true;
-      rescanState.value = const RescanUiState(
+      rescanState.value = RescanUiState(
         mode: LibraryScanMode.direct,
         phase: RescanPhase.done,
-        message: 'Library refreshed',
+        message: _libraryRefreshMessage(result),
       );
       _emit();
       return true;
+    } on ScanCancelledException {
+      if (!_disposed) {
+        _markScanCancelled(mode: LibraryScanMode.direct);
+      }
+      return false;
     } catch (error) {
       if (!_disposed) {
         final message = error.toString();
@@ -304,6 +328,7 @@ class LibraryController extends ChangeNotifier {
     required String message,
     required String errorMessage,
   }) async {
+    _scanner.prepareForScan();
     _coverIndexer.cancel();
     _scanning = true;
     _loading = false;
@@ -321,6 +346,7 @@ class LibraryController extends ChangeNotifier {
     );
     _emit();
 
+    var replaced = false;
     try {
       final result = await _scanner.scan(
         _musicRoot,
@@ -349,13 +375,19 @@ class LibraryController extends ChangeNotifier {
       if (_disposed) {
         return false;
       }
-      rescanState.value = const RescanUiState(
+      rescanState.value = RescanUiState(
         mode: LibraryScanMode.direct,
         phase: RescanPhase.done,
-        message: 'Library refreshed',
+        message: _libraryRefreshMessage(result),
       );
       _emit();
+      replaced = true;
       return true;
+    } on ScanCancelledException {
+      if (!_disposed) {
+        _markScanCancelled(mode: LibraryScanMode.direct);
+      }
+      return false;
     } catch (error) {
       if (!_disposed) {
         final message = error.toString();
@@ -374,6 +406,9 @@ class LibraryController extends ChangeNotifier {
         _scanning = false;
         _scanProgress = null;
         _emit();
+        if (!replaced) {
+          _startBackgroundCoverIndexing(_tracks, knownCache: _trackCoverCache);
+        }
       }
     }
   }
@@ -415,16 +450,6 @@ class LibraryController extends ChangeNotifier {
     _emit();
   }
 
-  Future<void> saveLlmSettings(LlmSettings settings) async {
-    final database = _database;
-    if (database == null || _disposed) {
-      return;
-    }
-    _llmSettings = settings.normalized();
-    await database.saveLlmSettings(_llmSettings);
-    _emit();
-  }
-
   Future<void> saveAudioOutputSettings(AudioOutputSettings settings) async {
     final database = _database;
     if (database == null || _disposed) {
@@ -440,9 +465,13 @@ class LibraryController extends ChangeNotifier {
     if (database == null || _disposed) {
       return;
     }
-    _themeMode = value == 'dark' ? 'dark' : 'light';
+    final nextMode = value == 'dark' ? 'dark' : 'light';
+    await _persistThemeMode(database, nextMode);
+    if (_disposed) {
+      return;
+    }
+    _themeMode = nextMode;
     _emit();
-    await database.saveThemeMode(_themeMode);
   }
 
   Future<void> _loadFromDatabase() async {
@@ -550,12 +579,14 @@ class LibraryController extends ChangeNotifier {
       }
       rescanState.value = RescanUiState(
         phase: RescanPhase.ready,
-        message: diff.hasChanges
-            ? 'Review changes before applying'
-            : 'Library is up to date',
+        message: _rescanReadyMessage(diff),
         diff: diff,
       );
       _emit();
+    } on ScanCancelledException {
+      if (!_disposed) {
+        _markScanCancelled();
+      }
     } catch (error) {
       if (!_disposed) {
         rescanState.value = RescanUiState(
@@ -639,6 +670,7 @@ class LibraryController extends ChangeNotifier {
         await _pruneUnusedCoverCache(database);
       }
     } catch (error, stackTrace) {
+      _setBackgroundWarning('Cover art update failed');
       _debugLogBackgroundTaskFailure(
         'background cover indexing',
         error,
@@ -652,8 +684,17 @@ class LibraryController extends ChangeNotifier {
       final referencedPaths = await database.loadReferencedCoverArtPaths();
       await pruneCoverCacheFiles(referencedPaths);
     } catch (error, stackTrace) {
+      _setBackgroundWarning('Cover cache cleanup failed');
       _debugLogBackgroundTaskFailure('cover cache pruning', error, stackTrace);
     }
+  }
+
+  void clearBackgroundWarning() {
+    if (_backgroundWarning == null || _disposed) {
+      return;
+    }
+    _backgroundWarning = null;
+    _emit();
   }
 
   void _debugLogBackgroundTaskFailure(
@@ -695,6 +736,54 @@ class LibraryController extends ChangeNotifier {
     if (!_disposed) {
       trackCoverCacheListenable.value = nextCache;
     }
+  }
+
+  void _markScanCancelled({LibraryScanMode mode = LibraryScanMode.diff}) {
+    _error = null;
+    rescanState.value = RescanUiState(
+      mode: mode,
+      phase: RescanPhase.idle,
+      message: 'Scan cancelled',
+    );
+    _emit();
+  }
+
+  void _setBackgroundWarning(String message) {
+    if (_disposed) {
+      return;
+    }
+    _backgroundWarning = message;
+    _emit();
+  }
+
+  static Future<void> _persistThemeModeToDatabase(
+    LibraryDatabase database,
+    String value,
+  ) {
+    return database.saveThemeMode(value);
+  }
+
+  static Future<void> _migrateCoverCacheSafely() async {
+    try {
+      await migrateLegacyCoverCache();
+    } catch (_) {}
+  }
+
+  static String _libraryRefreshMessage(ScanResult result) {
+    if (result.skippedFiles <= 0) {
+      return 'Library refreshed';
+    }
+    return 'Library refreshed. Skipped ${result.skippedFiles} unreadable files';
+  }
+
+  static String _rescanReadyMessage(LibraryDiff diff) {
+    final base = diff.hasChanges
+        ? 'Review changes before applying'
+        : 'Library is up to date';
+    if (diff.result.skippedFiles <= 0) {
+      return base;
+    }
+    return '$base. Skipped ${diff.result.skippedFiles} unreadable files';
   }
 
   void _setError(String error, {bool? loading}) {

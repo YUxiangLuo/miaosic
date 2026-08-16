@@ -61,6 +61,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   bool _rescanDialogOpen = false;
   bool _settingsDialogOpen = false;
   int? _lastShownPlaybackErrorRevision;
+  String? _lastShownBackgroundWarning;
   DateTime? _appLeftAt;
 
   @override

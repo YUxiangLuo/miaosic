@@ -8,6 +8,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     _mutate(_syncActiveSelectionsWithLibrary);
     _syncThemeModeWithLibrary();
     _applyAudioOutputSettingsIfReady();
+    _showBackgroundWarningIfNeeded();
     unawaited(_restoreLastPlaybackIfReady());
   }
 
@@ -25,13 +26,27 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (!_library.settingsLoaded) {
       return;
     }
-    final nextMode = widget.themeMode == ThemeMode.dark
+    final previousMode = widget.themeMode;
+    final nextMode = previousMode == ThemeMode.dark
         ? ThemeMode.light
         : ThemeMode.dark;
     widget.onThemeModeChanged(nextMode);
-    unawaited(
-      _library.saveThemeMode(themeModeToDb(nextMode)).catchError((_) {}),
-    );
+    unawaited(_persistThemeMode(previousMode, nextMode));
+  }
+
+  Future<void> _persistThemeMode(
+    ThemeMode previousMode,
+    ThemeMode nextMode,
+  ) async {
+    try {
+      await _library.saveThemeMode(themeModeToDb(nextMode));
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+      widget.onThemeModeChanged(previousMode);
+      _showTransientMessage('Could not save theme: $error');
+    }
   }
 
   void _applyAudioOutputSettingsIfReady() {
@@ -42,7 +57,12 @@ extension _LibraryScreenActions on _LibraryScreenState {
     unawaited(
       _playback
           .applyAudioOutputSettings(_library.audioOutputSettings)
-          .catchError((_) {}),
+          .catchError((Object error) {
+            if (!mounted) {
+              return;
+            }
+            _showTransientMessage('Could not apply audio output: $error');
+          }),
     );
   }
 
@@ -128,6 +148,39 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _lastPlaybackPlaying = nextPlaying;
       _lastNowPlayingPath = nextNowPlayingPath;
       _lastNowPlayingPlaying = nextNowPlayingPlaying;
+    });
+  }
+
+  void _showBackgroundWarningIfNeeded() {
+    final warning = _library.backgroundWarning;
+    if (warning == null) {
+      _lastShownBackgroundWarning = null;
+      return;
+    }
+    if (warning == _lastShownBackgroundWarning) {
+      return;
+    }
+    _lastShownBackgroundWarning = warning;
+    _showTransientMessage(warning, onDismiss: _library.clearBackgroundWarning);
+  }
+
+  void _showTransientMessage(String message, {VoidCallback? onDismiss}) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      messenger
+        ?..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(message),
+            action: SnackBarAction(
+              label: 'Dismiss',
+              onPressed: onDismiss ?? () {},
+            ),
+          ),
+        );
     });
   }
 

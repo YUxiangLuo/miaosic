@@ -45,6 +45,25 @@ void main() {
     expect(find.text('Rescan library'), findsNothing);
   });
 
+  testWidgets('shows cancel while a rescan is busy', (tester) async {
+    final state = ValueNotifier(
+      const RescanUiState(phase: RescanPhase.scanning, message: 'Scanning'),
+    );
+    var cancelCount = 0;
+
+    await tester.pumpWidget(
+      _DialogHost(state: state, onCancel: () => cancelCount += 1),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pump();
+
+    expect(find.text('Cancel'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pump();
+
+    expect(cancelCount, 1);
+  });
+
   testWidgets('apply closes only after successful apply', (tester) async {
     final state = ValueNotifier(
       RescanUiState(phase: RescanPhase.ready, diff: _diff(hasChanges: true)),
@@ -208,6 +227,7 @@ class _DialogHost extends StatelessWidget {
     this.onEditMusicRoot,
     this.onRescan,
     this.onFullRescan,
+    this.onCancel,
   });
 
   final ValueNotifier<RescanUiState> state;
@@ -216,6 +236,7 @@ class _DialogHost extends StatelessWidget {
   final VoidCallback? onEditMusicRoot;
   final VoidCallback? onRescan;
   final VoidCallback? onFullRescan;
+  final VoidCallback? onCancel;
 
   @override
   Widget build(BuildContext context) {
@@ -240,6 +261,7 @@ class _DialogHost extends StatelessWidget {
                         onScanLibrary: onScanLibrary ?? () {},
                         onRescan: onRescan ?? () {},
                         onFullRescan: onFullRescan ?? () {},
+                        onCancel: onCancel,
                       );
                     },
                   );

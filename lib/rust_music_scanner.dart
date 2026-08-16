@@ -105,7 +105,10 @@ class RustMusicScanner {
         ? nullptr.cast<Utf8>()
         : jsonEncode({
             'previous_tracks': [
-              for (final track in previousTracks) track.toMap()..remove('id'),
+              for (final track in previousTracks)
+                track.toMap()
+                  ..remove('id')
+                  ..remove('cover_art_path'),
             ],
           }).toNativeUtf8();
     NativeCallable<_ProgressCallbackNative>? progressCallback;
@@ -141,6 +144,9 @@ class RustMusicScanner {
       if (previousTracks != null &&
           previousTracks.isNotEmpty &&
           incrementalScanner != null) {
+        // Cover paths are recomputed during the scan. Sending them inflates
+        // the isolate payload; a fingerprint-only ABI needs folder
+        // classification to leave Rust first.
         responsePointer = incrementalScanner(
           rootPointer,
           previousTracksPointer,
@@ -330,6 +336,11 @@ ScanResult _scanResultFromJson(Map<String, Object?> json) {
     albums: _list(json['albums']).map(_albumFromJson).toList(),
     elapsed: Duration(milliseconds: _int(json['elapsed_ms']) ?? 0),
     coversCached: _int(json['covers_cached']) ?? 0,
+    skippedFiles: _int(json['skipped_files']) ?? 0,
+    errorSamples: [
+      for (final sample in json['error_samples'] as List<Object?>? ?? const [])
+        if (sample is String && sample.isNotEmpty) sample,
+    ],
   );
 }
 

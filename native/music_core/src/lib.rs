@@ -5,6 +5,7 @@ use std::ffi::{CStr, CString};
 use std::fs::{self, File};
 use std::io::{self, Read};
 use std::os::raw::c_char;
+use std::panic::{self, AssertUnwindSafe};
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 use walkdir::WalkDir;
@@ -52,6 +53,8 @@ struct ScanResult {
     albums: Vec<AlbumSummary>,
     elapsed_ms: u128,
     covers_cached: u64,
+    skipped_files: u64,
+    error_samples: Vec<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -68,7 +71,23 @@ struct Track {
     duration_ms: Option<i64>,
     size_bytes: i64,
     modified_ms: i64,
+    #[serde(default)]
     cover_art_path: Option<String>,
+}
+
+#[derive(Default)]
+struct ScanIssues {
+    skipped_files: u64,
+    error_samples: Vec<String>,
+}
+
+impl ScanIssues {
+    fn push(&mut self, sample: impl Into<String>) {
+        self.skipped_files += 1;
+        if self.error_samples.len() < 8 {
+            self.error_samples.push(sample.into());
+        }
+    }
 }
 
 #[derive(Clone, Serialize)]
@@ -207,18 +226,18 @@ impl CoverCache {
         let file_name = format!("{}.{}", hex::encode(hasher.finalize()), image.extension);
         let output_path = dir.join(file_name);
         if output_path.exists() {
-            return Some(output_path.to_string_lossy().to_string());
+            return path_to_utf8(&output_path).ok();
         }
 
         fs::write(&output_path, bytes).ok()?;
         self.writes += 1;
-        Some(output_path.to_string_lossy().to_string())
+        path_to_utf8(&output_path).ok()
     }
 }
 
 #[no_mangle]
 pub extern "C" fn miaosic_scan_library(root_path: *const c_char) -> *mut c_char {
-    miaosic_scan_library_with_covers(root_path, std::ptr::null())
+    catch_native(|| miaosic_scan_library_with_covers(root_path, std::ptr::null()))
 }
 
 #[no_mangle]
@@ -226,7 +245,7 @@ pub extern "C" fn miaosic_scan_library_with_covers(
     root_path: *const c_char,
     cover_cache_dir: *const c_char,
 ) -> *mut c_char {
-    scan_library_response(root_path, cover_cache_dir, None)
+    catch_native(|| scan_library_response(root_path, cover_cache_dir, None))
 }
 
 #[no_mangle]
@@ -235,7 +254,7 @@ pub extern "C" fn miaosic_scan_library_with_covers_and_progress(
     cover_cache_dir: *const c_char,
     progress_callback: Option<ProgressCallback>,
 ) -> *mut c_char {
-    scan_library_response(root_path, cover_cache_dir, progress_callback)
+    catch_native(|| scan_library_response(root_path, cover_cache_dir, progress_callback))
 }
 
 #[no_mangle]
@@ -245,12 +264,14 @@ pub extern "C" fn miaosic_scan_library_incremental_with_covers_and_progress(
     cover_cache_dir: *const c_char,
     progress_callback: Option<ProgressCallback>,
 ) -> *mut c_char {
-    scan_library_incremental_response(
-        root_path,
-        previous_tracks_json,
-        cover_cache_dir,
-        progress_callback,
-    )
+    catch_native(|| {
+        scan_library_incremental_response(
+            root_path,
+            previous_tracks_json,
+            cover_cache_dir,
+            progress_callback,
+        )
+    })
 }
 
 #[no_mangle]
@@ -258,38 +279,38 @@ pub extern "C" fn miaosic_extract_track_covers(
     paths_json: *const c_char,
     cover_cache_dir: *const c_char,
 ) -> *mut c_char {
-    let response = match read_c_string(paths_json) {
-        Ok(raw) => match serde_json::from_str::<TrackCoverRequest>(&raw)
-            .map_err(|error| error.to_string())
-            .and_then(|request| {
-                read_optional_c_string(cover_cache_dir).map(|cache_dir| (request, cache_dir))
-            })
-            .map(|(request, cache_dir)| extract_track_covers(request, cache_dir.as_deref()))
-        {
-            Ok(result) => TrackCoverResponse {
-                ok: true,
-                error: None,
-                result: Some(result),
+    catch_native(|| {
+        let response = match read_c_string(paths_json, "paths json") {
+            Ok(raw) => match serde_json::from_str::<TrackCoverRequest>(&raw)
+                .map_err(|error| error.to_string())
+                .and_then(|request| {
+                    read_optional_c_string(cover_cache_dir, "cover cache dir")
+                        .map(|cache_dir| (request, cache_dir))
+                })
+                .map(|(request, cache_dir)| extract_track_covers(request, cache_dir.as_deref()))
+            {
+                Ok(result) => TrackCoverResponse {
+                    ok: true,
+                    error: None,
+                    result: Some(result),
+                },
+                Err(error) => TrackCoverResponse {
+                    ok: false,
+                    error: Some(error),
+                    result: None,
+                },
             },
             Err(error) => TrackCoverResponse {
                 ok: false,
                 error: Some(error),
                 result: None,
             },
-        },
-        Err(error) => TrackCoverResponse {
-            ok: false,
-            error: Some(error),
-            result: None,
-        },
-    };
-
-    let json = serde_json::to_string(&response).unwrap_or_else(|error| {
-        format!(
-            r#"{{"ok":false,"error":"failed to serialize track cover response: {error}","result":null}}"#
-        )
-    });
-    CString::new(json).unwrap().into_raw()
+        };
+        respond_json(serialize_response(
+            &response,
+            "failed to serialize track cover response",
+        ))
+    })
 }
 
 fn scan_library_response(
@@ -297,34 +318,34 @@ fn scan_library_response(
     cover_cache_dir: *const c_char,
     progress_callback: Option<ProgressCallback>,
 ) -> *mut c_char {
-    let response = match read_c_string(root_path) {
-        Ok(root) => match read_optional_c_string(cover_cache_dir).and_then(|cache_dir| {
-            scan_library(&root, cache_dir.as_deref(), progress_callback).map_err(|e| e.to_string())
-        }) {
-            Ok(result) => ScanResponse {
-                ok: true,
-                error: None,
-                result: Some(result),
-            },
-            Err(error) => ScanResponse {
-                ok: false,
-                error: Some(error),
-                result: None,
-            },
-        },
+    let response = match read_c_string(root_path, "root path") {
+        Ok(root) => {
+            match read_optional_c_string(cover_cache_dir, "cover cache dir").and_then(|cache_dir| {
+                scan_library(&root, cache_dir.as_deref(), progress_callback)
+                    .map_err(|error| error.to_string())
+            }) {
+                Ok(result) => ScanResponse {
+                    ok: true,
+                    error: None,
+                    result: Some(result),
+                },
+                Err(error) => ScanResponse {
+                    ok: false,
+                    error: Some(error),
+                    result: None,
+                },
+            }
+        }
         Err(error) => ScanResponse {
             ok: false,
             error: Some(error),
             result: None,
         },
     };
-
-    let json = serde_json::to_string(&response).unwrap_or_else(|error| {
-        format!(
-            r#"{{"ok":false,"error":"failed to serialize scan response: {error}","result":null}}"#
-        )
-    });
-    CString::new(json).unwrap().into_raw()
+    respond_json(serialize_response(
+        &response,
+        "failed to serialize scan response",
+    ))
 }
 
 fn scan_library_incremental_response(
@@ -333,15 +354,15 @@ fn scan_library_incremental_response(
     cover_cache_dir: *const c_char,
     progress_callback: Option<ProgressCallback>,
 ) -> *mut c_char {
-    let response = match read_c_string(root_path) {
+    let response = match read_c_string(root_path, "root path") {
         Ok(root) => {
-            let result = read_c_string(previous_tracks_json)
+            let result = read_c_string(previous_tracks_json, "previous tracks json")
                 .and_then(|raw| {
                     serde_json::from_str::<IncrementalScanRequest>(&raw)
                         .map_err(|error| error.to_string())
                 })
                 .and_then(|request| {
-                    read_optional_c_string(cover_cache_dir)
+                    read_optional_c_string(cover_cache_dir, "cover cache dir")
                         .map(|cache_dir| (request.previous_tracks, cache_dir))
                 })
                 .and_then(|(previous_tracks, cache_dir)| {
@@ -373,13 +394,44 @@ fn scan_library_incremental_response(
             result: None,
         },
     };
+    respond_json(serialize_response(
+        &response,
+        "failed to serialize incremental scan response",
+    ))
+}
 
-    let json = serde_json::to_string(&response).unwrap_or_else(|error| {
-        format!(
-            r#"{{"ok":false,"error":"failed to serialize incremental scan response: {error}","result":null}}"#
-        )
-    });
-    CString::new(json).unwrap().into_raw()
+fn catch_native<F>(work: F) -> *mut c_char
+where
+    F: FnOnce() -> *mut c_char,
+{
+    match panic::catch_unwind(AssertUnwindSafe(work)) {
+        Ok(pointer) => pointer,
+        Err(_) => respond_json(
+            r#"{"ok":false,"error":"native panic: music_core aborted the request","result":null}"#
+                .to_string(),
+        ),
+    }
+}
+
+fn serialize_response<T: Serialize>(value: &T, context: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|error| {
+        format!(r#"{{"ok":false,"error":"{context}: {error}","result":null}}"#)
+    })
+}
+
+fn respond_json(json: String) -> *mut c_char {
+    let sanitized: String = json
+        .chars()
+        .filter(|character| *character != '\0')
+        .collect();
+    match CString::new(sanitized) {
+        Ok(value) => value.into_raw(),
+        Err(_) => {
+            CString::new(r#"{"ok":false,"error":"failed to encode native response","result":null}"#)
+                .expect("fallback response has no interior NUL")
+                .into_raw()
+        }
+    }
 }
 
 #[no_mangle]
@@ -392,21 +444,27 @@ pub extern "C" fn miaosic_free_string(value: *mut c_char) {
     }
 }
 
-fn read_c_string(value: *const c_char) -> Result<String, String> {
+fn read_c_string(value: *const c_char, name: &str) -> Result<String, String> {
     if value.is_null() {
-        return Err("root path pointer is null".to_string());
+        return Err(format!("{name} pointer is null"));
     }
     let raw = unsafe { CStr::from_ptr(value) };
     raw.to_str()
         .map(|value| value.to_string())
-        .map_err(|error| format!("root path is not valid UTF-8: {error}"))
+        .map_err(|error| format!("{name} is not valid UTF-8: {error}"))
 }
 
-fn read_optional_c_string(value: *const c_char) -> Result<Option<String>, String> {
+fn read_optional_c_string(value: *const c_char, name: &str) -> Result<Option<String>, String> {
     if value.is_null() {
         return Ok(None);
     }
-    read_c_string(value).map(Some)
+    read_c_string(value, name).map(Some)
+}
+
+fn path_to_utf8(path: &Path) -> Result<String, String> {
+    path.to_str()
+        .map(ToString::to_string)
+        .ok_or_else(|| format!("{}: path is not valid UTF-8", path.display()))
 }
 
 fn scan_library(
@@ -418,20 +476,27 @@ fn scan_library(
     let root = Path::new(root_path);
     validate_scan_root(root, root_path)?;
     let mut tracks = Vec::new();
+    let mut issues = ScanIssues::default();
     let mut cover_cache = CoverCache::new(cover_cache_dir.map(PathBuf::from));
     let mut progress = ProgressReporter::new(progress_callback);
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(_) => continue,
+            Err(error) => {
+                issues.push(error.to_string());
+                continue;
+            }
         };
         if !entry.file_type().is_file() || !is_audio_path(entry.path()) {
             continue;
         }
         progress.seen_file();
-        if let Ok(track) = parse_track(entry.path()) {
-            tracks.push(track);
-            progress.parsed_track();
+        match parse_track(entry.path()) {
+            Ok(track) => {
+                tracks.push(track);
+                progress.parsed_track();
+            }
+            Err(error) => issues.push(format!("{}: {error}", entry.path().display())),
         }
         if progress.should_emit() {
             progress.emit_path(entry.path());
@@ -451,6 +516,8 @@ fn scan_library(
         albums,
         elapsed_ms: started.elapsed().as_millis(),
         covers_cached: cover_cache.writes,
+        skipped_files: issues.skipped_files,
+        error_samples: issues.error_samples,
     })
 }
 
@@ -468,13 +535,17 @@ fn scan_library_incremental(
         .map(|track| (track.path.clone(), track))
         .collect::<HashMap<_, _>>();
     let mut tracks = Vec::new();
+    let mut issues = ScanIssues::default();
     let mut cover_cache = CoverCache::new(cover_cache_dir.map(PathBuf::from));
     let mut progress = ProgressReporter::new(progress_callback);
 
     for entry in WalkDir::new(root).follow_links(false) {
         let entry = match entry {
             Ok(entry) => entry,
-            Err(_) => continue,
+            Err(error) => {
+                issues.push(error.to_string());
+                continue;
+            }
         };
         if !entry.file_type().is_file() || !is_audio_path(entry.path()) {
             continue;
@@ -482,14 +553,29 @@ fn scan_library_incremental(
 
         progress.seen_file();
         let path = entry.path();
-        let path_string = path.to_string_lossy().to_string();
+        let path_string = match path_to_utf8(path) {
+            Ok(value) => value,
+            Err(error) => {
+                issues.push(error);
+                continue;
+            }
+        };
         let track = match track_file_state(path) {
             Ok((size_bytes, modified_ms)) => previous_by_path
                 .get(&path_string)
                 .filter(|track| track.size_bytes == size_bytes && track.modified_ms == modified_ms)
                 .cloned()
-                .or_else(|| parse_track(path).ok()),
-            Err(_) => None,
+                .or_else(|| match parse_track(path) {
+                    Ok(track) => Some(track),
+                    Err(error) => {
+                        issues.push(format!("{path_string}: {error}"));
+                        None
+                    }
+                }),
+            Err(error) => {
+                issues.push(format!("{path_string}: {error}"));
+                None
+            }
         };
 
         if let Some(track) = track {
@@ -514,6 +600,8 @@ fn scan_library_incremental(
         albums,
         elapsed_ms: started.elapsed().as_millis(),
         covers_cached: cover_cache.writes,
+        skipped_files: issues.skipped_files,
+        error_samples: issues.error_samples,
     })
 }
 
@@ -554,6 +642,10 @@ fn validate_scan_root(root: &Path, root_path: &str) -> io::Result<()> {
 }
 
 fn parse_track(path: &Path) -> io::Result<Track> {
+    let path_string =
+        path_to_utf8(path).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    let folder_path = path_to_utf8(&logical_folder_for(path))
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let (size_bytes, modified_ms) = track_file_state(path)?;
     let flac = read_flac_metadata(path).unwrap_or_else(|_| FlacMetadata {
         tags: HashMap::new(),
@@ -568,8 +660,8 @@ fn parse_track(path: &Path) -> io::Result<Track> {
         first_tag(&flac.tags, &["ALBUMARTIST", "ALBUM_ARTIST"]).unwrap_or_else(|| artist.clone());
 
     Ok(Track {
-        path: path.to_string_lossy().to_string(),
-        folder_path: logical_folder_for(path).to_string_lossy().to_string(),
+        path: path_string,
+        folder_path,
         title,
         artist,
         album,
@@ -1042,21 +1134,14 @@ fn cover_extension_for_path(path: &Path) -> Option<&'static str> {
 }
 
 fn is_disc_folder(name: &str) -> bool {
-    let normalized = name.replace(' ', "");
-    if let Some(rest) = normalized.strip_prefix("disc") {
-        return rest
-            .chars()
-            .all(|char| char.is_ascii_digit() || "ivx".contains(char));
-    }
-    if let Some(rest) = normalized.strip_prefix("disk") {
-        return rest
-            .chars()
-            .all(|char| char.is_ascii_digit() || "ivx".contains(char));
-    }
-    if let Some(rest) = normalized.strip_prefix("cd") {
-        return rest
-            .chars()
-            .all(|char| char.is_ascii_digit() || "ivx".contains(char));
+    let normalized = name.to_lowercase().replace(' ', "");
+    for prefix in ["disc", "disk", "cd"] {
+        if let Some(rest) = normalized.strip_prefix(prefix) {
+            return !rest.is_empty()
+                && rest
+                    .chars()
+                    .all(|char| char.is_ascii_digit() || "ivx".contains(char));
+        }
     }
     false
 }
@@ -1455,6 +1540,55 @@ mod tests {
         assert_eq!(find_external_cover(&root), Some(cover_path));
 
         fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn respond_json_strips_interior_nuls() {
+        let pointer =
+            respond_json("{\"ok\":false,\"error\":\"bad\0value\",\"result\":null}".to_string());
+        let raw = unsafe { CStr::from_ptr(pointer) };
+        let text = raw.to_str().expect("utf8");
+        assert!(!text.as_bytes().contains(&0));
+        assert!(text.contains("badvalue"));
+        unsafe {
+            drop(CString::from_raw(pointer));
+        }
+    }
+
+    #[test]
+    fn catch_native_turns_panics_into_json_errors() {
+        let pointer = catch_native(|| panic!("boom"));
+        let raw = unsafe { CStr::from_ptr(pointer) };
+        let text = raw.to_str().expect("utf8");
+        assert!(text.contains("native panic"));
+        unsafe {
+            drop(CString::from_raw(pointer));
+        }
+    }
+
+    #[test]
+    fn disc_folder_requires_a_number_or_roman_suffix() {
+        assert!(is_disc_folder("disc 1"));
+        assert!(is_disc_folder("CD2"));
+        assert!(is_disc_folder("Disk IV"));
+        assert!(!is_disc_folder("disc"));
+        assert!(!is_disc_folder("CD"));
+        assert!(!is_disc_folder("Disk"));
+        assert!(!is_disc_folder("discussion"));
+    }
+
+    #[test]
+    fn incremental_previous_tracks_can_omit_cover_art_path() {
+        let raw = r#"{"previous_tracks":[{"path":"/a.flac","folder_path":"/","title":"A","artist":"B","album":"C","album_artist":"B","track_number":1,"disc_number":1,"year":2020,"duration_ms":1000,"size_bytes":1,"modified_ms":2}]}"#;
+        let request: IncrementalScanRequest = serde_json::from_str(raw).expect("parse");
+        assert_eq!(request.previous_tracks[0].cover_art_path, None);
+    }
+
+    #[test]
+    fn read_c_string_names_the_pointer() {
+        let error = read_c_string(std::ptr::null(), "previous tracks json").unwrap_err();
+        assert!(error.contains("previous tracks json"));
+        assert!(!error.contains("root path pointer"));
     }
 
     #[test]
