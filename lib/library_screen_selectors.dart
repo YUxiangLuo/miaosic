@@ -107,6 +107,47 @@ FolderSummary? playlistFolderForPath(String path, List<FolderSummary> folders) {
       .firstOrNull;
 }
 
+FolderSummary? livePlaylistOverlayFolder({
+  required FolderSummary? stored,
+  required List<FolderSummary> folders,
+}) {
+  if (stored == null) {
+    return null;
+  }
+  return playlistFolderForPath(stored.path, folders) ?? stored;
+}
+
+LibraryPlaylistPlaybackSwitchTarget? playlistPlaybackSwitchTarget({
+  required FolderSummary folder,
+  required int delta,
+  required List<FolderSummary> folders,
+  required Map<String, List<Track>> tracksByFolder,
+}) {
+  if (folders.length < 2 || delta == 0) {
+    return null;
+  }
+  final currentIndex = folders.indexWhere(
+    (candidate) => candidate.path == folder.path,
+  );
+  if (currentIndex < 0) {
+    return null;
+  }
+
+  final step = delta.sign;
+  for (var offset = 1; offset < folders.length; offset += 1) {
+    final index = (currentIndex + step * offset) % folders.length;
+    final nextFolder = folders[index];
+    final nextTracks = tracksByFolder[nextFolder.path] ?? const <Track>[];
+    if (nextTracks.isNotEmpty) {
+      return LibraryPlaylistPlaybackSwitchTarget(
+        folder: nextFolder,
+        tracks: nextTracks,
+      );
+    }
+  }
+  return null;
+}
+
 LibraryAlbumPlaybackSwitchTarget? albumPlaybackSwitchTarget({
   required AlbumSummary album,
   required int delta,

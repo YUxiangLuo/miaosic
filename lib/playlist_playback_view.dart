@@ -36,6 +36,11 @@ class PlaylistPlaybackView extends StatelessWidget {
     this.favoriteTrackPaths = const {},
     required this.onPlayTrack,
     this.onToggleFavoriteTrack,
+    this.canSwitchPreviousPlaylist = false,
+    this.canSwitchNextPlaylist = false,
+    this.onSwitchPreviousPlaylist,
+    this.onSwitchNextPlaylist,
+    this.onOpenNowPlaying,
   });
 
   final FolderSummary folder;
@@ -53,11 +58,28 @@ class PlaylistPlaybackView extends StatelessWidget {
   final Set<String> favoriteTrackPaths;
   final ValueChanged<Track> onPlayTrack;
   final ValueChanged<Track>? onToggleFavoriteTrack;
+  final bool canSwitchPreviousPlaylist;
+  final bool canSwitchNextPlaylist;
+  final VoidCallback? onSwitchPreviousPlaylist;
+  final VoidCallback? onSwitchNextPlaylist;
+  final VoidCallback? onOpenNowPlaying;
 
   KeyEventResult _handleKeyEvent(FocusNode _, KeyEvent event) {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.escape) {
       onClose();
+      return KeyEventResult.handled;
+    }
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.arrowLeft &&
+        canSwitchPreviousPlaylist) {
+      onSwitchPreviousPlaylist?.call();
+      return KeyEventResult.handled;
+    }
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.arrowRight &&
+        canSwitchNextPlaylist) {
+      onSwitchNextPlaylist?.call();
       return KeyEventResult.handled;
     }
     if (_playlistPlaybackSpaceActivator.accepts(
@@ -107,10 +129,38 @@ class PlaylistPlaybackView extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        IconButton.filledTonal(
-                          tooltip: 'Back to library',
-                          onPressed: onClose,
-                          icon: const Icon(Icons.keyboard_arrow_down),
+                        Row(
+                          children: [
+                            IconButton.filledTonal(
+                              tooltip: 'Back to library',
+                              onPressed: onClose,
+                              icon: const Icon(Icons.keyboard_arrow_down),
+                            ),
+                            if (onOpenNowPlaying != null) ...[
+                              const SizedBox(width: 8),
+                              IconButton.filledTonal(
+                                tooltip: 'Back to now playing',
+                                onPressed: onOpenNowPlaying,
+                                icon: const Icon(Icons.graphic_eq),
+                              ),
+                            ],
+                            const Spacer(),
+                            IconButton.filledTonal(
+                              tooltip: 'Previous playlist',
+                              onPressed: canSwitchPreviousPlaylist
+                                  ? onSwitchPreviousPlaylist
+                                  : null,
+                              icon: const Icon(Icons.chevron_left),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton.filledTonal(
+                              tooltip: 'Next playlist',
+                              onPressed: canSwitchNextPlaylist
+                                  ? onSwitchNextPlaylist
+                                  : null,
+                              icon: const Icon(Icons.chevron_right),
+                            ),
+                          ],
                         ),
                         const SizedBox(height: 18),
                         Expanded(
@@ -479,12 +529,10 @@ class _DockPlaylistIdentity extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Row(
-      mainAxisSize: MainAxisSize.min,
       children: [
         PlaylistCoverCollage(paths: coverPaths, size: 64, radius: 8),
         const SizedBox(width: 12),
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 220),
+        Expanded(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,

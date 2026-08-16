@@ -21,6 +21,45 @@ class LibraryAlbumPlaybackSwitchTarget {
   final List<Track> tracks;
 }
 
+class LibraryPlaylistPlaybackSwitchTarget {
+  const LibraryPlaylistPlaybackSwitchTarget({
+    required this.folder,
+    required this.tracks,
+  });
+
+  final FolderSummary folder;
+  final List<Track> tracks;
+}
+
+class LibraryPlaybackOverlay {
+  const LibraryPlaybackOverlay.album({
+    required this.album,
+    required this.tracks,
+  }) : kind = LibraryNowPlayingKind.album,
+       folder = null;
+
+  const LibraryPlaybackOverlay.playlist({
+    required this.folder,
+    required this.tracks,
+  }) : kind = LibraryNowPlayingKind.playlist,
+       album = null;
+
+  const LibraryPlaybackOverlay.favorites()
+    : kind = LibraryNowPlayingKind.favorites,
+      album = null,
+      folder = null,
+      tracks = const [];
+
+  final LibraryNowPlayingKind kind;
+  final AlbumSummary? album;
+  final FolderSummary? folder;
+  final List<Track> tracks;
+
+  bool get isAlbum => kind == LibraryNowPlayingKind.album;
+  bool get isPlaylist => kind == LibraryNowPlayingKind.playlist;
+  bool get isFavorites => kind == LibraryNowPlayingKind.favorites;
+}
+
 class LibraryActivePlaylistPlayback {
   const LibraryActivePlaylistPlayback({
     required this.folderPath,

@@ -45,7 +45,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   late final bool _ownsPlayback;
   final _scrollMemory = LibraryScrollMemory();
 
-  LibraryActiveAlbumPlayback? _activeAlbumPlayback;
+  LibraryPlaybackOverlay? _overlay;
   LibraryActivePlaylistPlayback? _activePlaylistPlayback;
   LibraryActiveFavoritesPlayback? _activeFavoritesPlayback;
   String? _lastPlaybackPath;
@@ -57,7 +57,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   bool _lastPlaybackRestoring = false;
   bool _audioOutputSettingsApplied = false;
   LibraryView _view = LibraryView.albums;
-  String? _activePlaylistOverlayPath;
   bool _rescanDialogOpen = false;
   bool _settingsDialogOpen = false;
   int? _lastShownPlaybackErrorRevision;
@@ -118,6 +117,37 @@ class _LibraryScreenState extends State<LibraryScreen>
     setState(update);
   }
 
+  LibraryActiveAlbumPlayback? get _activeAlbumPlayback {
+    final overlay = _overlay;
+    final album = overlay?.album;
+    if (overlay == null || !overlay.isAlbum || album == null) {
+      return null;
+    }
+    return LibraryActiveAlbumPlayback(album: album, tracks: overlay.tracks);
+  }
+
+  FolderSummary? get _activePlaylistOverlayFolder {
+    final overlay = _overlay;
+    if (overlay == null || !overlay.isPlaylist) {
+      return null;
+    }
+    return livePlaylistOverlayFolder(
+      stored: overlay.folder,
+      folders: _library.folders,
+    );
+  }
+
+  String? get _activePlaylistOverlayPath => _activePlaylistOverlayFolder?.path;
+
+  bool get _favoritesOverlayOpen => _overlay?.isFavorites ?? false;
+
+  LibraryView get _sidebarSelected {
+    if (_favoritesOverlayOpen) {
+      return LibraryView.favorites;
+    }
+    return _view == LibraryView.favorites ? LibraryView.albums : _view;
+  }
+
   @override
   Widget build(BuildContext context) {
     final activeAlbumPlayback = _activeAlbumPlayback;
@@ -160,20 +190,19 @@ class _LibraryScreenState extends State<LibraryScreen>
         ? _currentTrackForAlbum(activeAlbumPlayback)
         : null;
     final nowPlayingTarget = _nowPlayingTarget;
-    final LibraryNowPlayingTarget? dockNowPlayingAlbumTarget;
-    if (activeAlbumPlayback != null &&
-        nowPlayingTarget != null &&
-        nowPlayingTarget.kind == LibraryNowPlayingKind.album &&
-        nowPlayingTarget.album?.folderPath !=
-            activeAlbumPlayback.album.folderPath) {
-      dockNowPlayingAlbumTarget = nowPlayingTarget;
-    } else {
-      dockNowPlayingAlbumTarget = null;
-    }
+    final dockNowPlayingAlbumTarget = _dockNowPlayingAlbumTarget(
+      nowPlayingTarget: nowPlayingTarget,
+      activeAlbumPlayback: activeAlbumPlayback,
+    );
 
     return LibraryScreenView(
       model: LibraryScreenViewModel(
-        selectedView: _view,
+        selectedView: _sidebarSelected,
+        browseView: _sidebarSelected == LibraryView.favorites
+            ? (_view == LibraryView.playlists
+                  ? LibraryView.playlists
+                  : LibraryView.albums)
+            : _sidebarSelected,
         loading: _library.loading,
         albums: _library.albums,
         playlistFolders: _playlistFolders,
@@ -193,6 +222,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         activePlaylistOverlayTracks: activePlaylistOverlayTracks,
         activePlaylistTrack: activePlaylistTrack,
         playlistOverlayPlaybackActive: playlistOverlayPlaybackActive,
+        favoritesOverlayOpen: _favoritesOverlayOpen,
         playbackCurrentTrack: _playback.currentTrack,
         playbackPlaying: _playback.playing,
         albumGridScrollController: _scrollMemory.albumGridScrollController,
@@ -204,6 +234,14 @@ class _LibraryScreenState extends State<LibraryScreen>
         canSwitchNextAlbum:
             activeAlbumPlayback != null &&
             _albumPlaybackSwitchTarget(activeAlbumPlayback.album, 1) != null,
+        canSwitchPreviousPlaylist:
+            activePlaylistOverlayFolder != null &&
+            _playlistPlaybackSwitchTarget(activePlaylistOverlayFolder, -1) !=
+                null,
+        canSwitchNextPlaylist:
+            activePlaylistOverlayFolder != null &&
+            _playlistPlaybackSwitchTarget(activePlaylistOverlayFolder, 1) !=
+                null,
       ),
       actions: LibraryScreenViewActions(
         onOpenLibrary: settingsLoaded ? _openRescanModal : null,
@@ -231,7 +269,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             : () => unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
         onOpenNowPlayingAlbum: dockNowPlayingAlbumTarget == null
             ? null
-            : () => _openNowPlaying(dockNowPlayingAlbumTarget!),
+            : () => _openNowPlaying(dockNowPlayingAlbumTarget),
         onSwitchPreviousAlbum: activeAlbumPlayback == null
             ? null
             : () => _switchAlbumPlayback(-1),
@@ -268,7 +306,26 @@ class _LibraryScreenState extends State<LibraryScreen>
             ? () => unawaited(_playback.skip(1, favoritesPlaybackQueue))
             : null,
         onOpenPlaylistPlayback: _openPlaylistPlayback,
+        onCloseFavoritesPlayback: _closeFavoritesOverlay,
+        onOpenNowPlayingFromFavorites:
+            nowPlayingTarget == null ||
+                nowPlayingTarget.kind == LibraryNowPlayingKind.favorites
+            ? null
+            : () => _openNowPlaying(nowPlayingTarget),
         onClosePlaylistPlayback: _closePlaylistPlayback,
+        onSwitchPreviousPlaylist: activePlaylistOverlayFolder == null
+            ? null
+            : () => _switchPlaylistPlayback(-1),
+        onSwitchNextPlaylist: activePlaylistOverlayFolder == null
+            ? null
+            : () => _switchPlaylistPlayback(1),
+        onOpenNowPlayingFromPlaylist:
+            nowPlayingTarget == null ||
+                (nowPlayingTarget.kind == LibraryNowPlayingKind.playlist &&
+                    nowPlayingTarget.folder?.path ==
+                        activePlaylistOverlayFolder?.path)
+            ? null
+            : () => _openNowPlaying(nowPlayingTarget),
         onPlaylistPlayAll:
             activePlaylistOverlayFolder == null ||
                 activePlaylistOverlayTracks.isEmpty

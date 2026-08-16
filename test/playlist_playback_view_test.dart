@@ -189,6 +189,55 @@ void main() {
 
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('playlist overlay switches neighbors and jumps to now playing', (
+    tester,
+  ) async {
+    var previousCount = 0;
+    var nextCount = 0;
+    var nowPlayingCount = 0;
+
+    await tester.pumpWidget(
+      _Host(
+        child: PlaylistPlaybackView(
+          folder: _folder(trackCount: 1),
+          tracks: [_track(1)],
+          trackCoverCache: const {},
+          currentTrack: null,
+          playbackActive: false,
+          playing: false,
+          onClose: () {},
+          onPlayAll: () {},
+          onShuffleAll: () {},
+          onPrevious: null,
+          onTogglePlayback: null,
+          onNext: null,
+          onPlayTrack: (_) {},
+          canSwitchPreviousPlaylist: true,
+          canSwitchNextPlaylist: true,
+          onSwitchPreviousPlaylist: () => previousCount += 1,
+          onSwitchNextPlaylist: () => nextCount += 1,
+          onOpenNowPlaying: () => nowPlayingCount += 1,
+        ),
+      ),
+    );
+
+    await tester.tap(find.byTooltip('Next playlist'));
+    await tester.tap(find.byTooltip('Previous playlist'));
+    await tester.tap(find.byTooltip('Back to now playing'));
+    await tester.pump();
+
+    expect(nextCount, 1);
+    expect(previousCount, 1);
+    expect(nowPlayingCount, 1);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
+    await tester.pump();
+
+    expect(nextCount, 2);
+    expect(previousCount, 2);
+  });
 }
 
 Finder _iconButtonFor(IconData icon) {

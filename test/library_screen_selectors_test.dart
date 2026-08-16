@@ -34,6 +34,71 @@ void main() {
     expect(wrapped?.album.folderPath, albums[0].folderPath);
   });
 
+  test('playlist switch target skips empty folders and wraps', () {
+    final folders = [
+      _folder('/music/a'),
+      _folder('/music/b'),
+      _folder('/music/c'),
+    ];
+    final tracksByFolder = {
+      folders[0].path: [_track(folders[0].path)],
+      folders[2].path: [_track(folders[2].path)],
+    };
+
+    final next = playlistPlaybackSwitchTarget(
+      folder: folders[0],
+      delta: 1,
+      folders: folders,
+      tracksByFolder: tracksByFolder,
+    );
+    final wrapped = playlistPlaybackSwitchTarget(
+      folder: folders[2],
+      delta: 1,
+      folders: folders,
+      tracksByFolder: tracksByFolder,
+    );
+
+    expect(next?.folder.path, folders[2].path);
+    expect(wrapped?.folder.path, folders[0].path);
+  });
+
+  test('playlist overlay folder prefers the live library summary', () {
+    final stored = FolderSummary(
+      path: '/music/mix',
+      name: 'Old Name',
+      kind: FolderKind.playlist,
+      confidence: 0.8,
+      trackCount: 1,
+      albumCount: 1,
+      albumArtistCount: 1,
+      artistCount: 1,
+      yearCount: 1,
+      coverArtPath: null,
+    );
+    final live = FolderSummary(
+      path: stored.path,
+      name: 'New Name',
+      kind: FolderKind.playlist,
+      confidence: 0.8,
+      trackCount: 4,
+      albumCount: 2,
+      albumArtistCount: 1,
+      artistCount: 2,
+      yearCount: 1,
+      coverArtPath: '/covers/mix.jpg',
+    );
+
+    final resolved = livePlaylistOverlayFolder(stored: stored, folders: [live]);
+    final missing = livePlaylistOverlayFolder(
+      stored: stored,
+      folders: const [],
+    );
+
+    expect(resolved?.name, 'New Name');
+    expect(resolved?.trackCount, 4);
+    expect(missing?.name, 'Old Name');
+  });
+
   test('playlist artwork uses track cache before folder fallback', () {
     final folder = _folder('/music/mix', coverArtPath: '/covers/folder.jpg');
     final tracks = [

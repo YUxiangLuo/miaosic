@@ -4,10 +4,12 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
 import 'package:miaosic/album_playback_view.dart';
 import 'package:miaosic/audio_output_settings.dart';
+import 'package:miaosic/favorites_playback_view.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_screen.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/playback_controller.dart';
+import 'package:miaosic/playlist_playback_view.dart';
 
 void main() {
   setUpAll(MediaKit.ensureInitialized);
@@ -194,6 +196,172 @@ void main() {
     await _disposeLibraryScreen(tester, library, playback);
   });
 
+  testWidgets('auto-opens playlist now playing after thirty seconds away', (
+    tester,
+  ) async {
+    final folder = FolderSummary(
+      path: '/music/mix',
+      name: 'Road Mix',
+      kind: FolderKind.playlist,
+      confidence: 0.8,
+      trackCount: 1,
+      albumCount: 2,
+      albumArtistCount: 2,
+      artistCount: 2,
+      yearCount: 2,
+      coverArtPath: null,
+    );
+    final tracks = [
+      _track(
+        '/music/mix/01.flac',
+        folderPath: folder.path,
+        title: 'Mix Track',
+        album: 'Other',
+        artist: 'Artist',
+      ),
+    ];
+    var now = DateTime(2026);
+    final library = _InjectedLibraryController(
+      tracks: tracks,
+      folders: [folder],
+      tracksByFolder: {folder.path: tracks},
+    );
+    final playback = _InjectedPlaybackController();
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: () => now,
+    );
+
+    await tester.tap(find.widgetWithText(InkWell, 'Playlists'));
+    await tester.pump();
+    await tester.tap(find.text('Road Mix'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Play'));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.byType(PlaylistPlaybackView), findsNothing);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    now = now.add(const Duration(seconds: 31));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(find.byType(PlaylistPlaybackView), findsOneWidget);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets('playlist overlay switches to the neighboring playlist', (
+    tester,
+  ) async {
+    final first = _playlistFolder('/music/mix-a', 'Road Mix');
+    final second = _playlistFolder('/music/mix-b', 'Night Mix');
+    final firstTracks = [
+      _track(
+        '/music/mix-a/01.flac',
+        folderPath: first.path,
+        title: 'Road Track',
+        album: 'A',
+        artist: 'Artist',
+      ),
+    ];
+    final secondTracks = [
+      _track(
+        '/music/mix-b/01.flac',
+        folderPath: second.path,
+        title: 'Night Track',
+        album: 'B',
+        artist: 'Artist',
+      ),
+    ];
+    final library = _InjectedLibraryController(
+      tracks: [...firstTracks, ...secondTracks],
+      folders: [first, second],
+      tracksByFolder: {first.path: firstTracks, second.path: secondTracks},
+    );
+    final playback = _InjectedPlaybackController();
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+
+    await tester.tap(find.widgetWithText(InkWell, 'Playlists'));
+    await tester.pump();
+    await tester.tap(find.text('Road Mix'));
+    await tester.pump();
+    expect(
+      tester
+          .widget<PlaylistPlaybackView>(find.byType(PlaylistPlaybackView))
+          .folder
+          .path,
+      first.path,
+    );
+
+    await tester.tap(find.byTooltip('Next playlist'));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<PlaylistPlaybackView>(find.byType(PlaylistPlaybackView))
+          .folder
+          .path,
+      second.path,
+    );
+    expect(find.text('Night Mix'), findsWidgets);
+    expect(playback.currentTrack, isNull);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets(
+    'thirty seconds away returns from favorites overlay to album overlay',
+    (tester) async {
+      final fixture = _LibraryFixture.album();
+      final favorites = _favoriteTracks(1);
+      var now = DateTime(2026);
+      final library = _InjectedLibraryController(
+        tracks: [...fixture.tracks, ...favorites],
+        albums: [fixture.album],
+        favoriteTracks: favorites,
+        tracksByFolder: {fixture.album.folderPath: fixture.tracks},
+      );
+      final playback = _InjectedPlaybackController(
+        currentTrack: fixture.tracks.first,
+        playing: true,
+        currentQueue: fixture.tracks,
+      );
+
+      await _pumpLibraryScreen(
+        tester,
+        library: library,
+        playback: playback,
+        now: () => now,
+      );
+
+      await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+      await tester.pump();
+      expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+      expect(find.byTooltip('Back to now playing'), findsOneWidget);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      now = now.add(const Duration(seconds: 31));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      expect(find.byType(AlbumPlaybackView), findsOneWidget);
+      expect(find.byType(FavoritesPlaybackView), findsNothing);
+
+      await _disposeLibraryScreen(tester, library, playback);
+    },
+  );
+
   testWidgets('does not auto-open now playing while playback is paused', (
     tester,
   ) async {
@@ -292,6 +460,7 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
 
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
     expect(find.text('1 favorite track'), findsOneWidget);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
@@ -335,13 +504,16 @@ void main() {
       false,
     );
 
-    await tester.tap(find.widgetWithText(InkWell, 'Albums'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
     await tester.pump();
+    expect(find.byType(FavoritesPlaybackView), findsNothing);
+
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     now = now.add(const Duration(seconds: 31));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
 
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
     expect(
       find.text('${favoriteTracks.length} favorite tracks'),
       findsOneWidget,
@@ -390,6 +562,125 @@ void main() {
       favoriteTracks.map((track) => track.path),
     );
     expect(playback.playing, isFalse);
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets(
+    'favorites sidebar hydrates same-queue now playing without restarting',
+    (tester) async {
+      final favoriteTracks = _favoriteTracks(3);
+      final library = _InjectedLibraryController(
+        tracks: favoriteTracks,
+        favoriteTracks: favoriteTracks,
+      );
+      final playback = _InjectedPlaybackController(
+        currentTrack: favoriteTracks[1],
+        playing: true,
+        currentQueue: favoriteTracks,
+      );
+
+      await _pumpLibraryScreen(
+        tester,
+        library: library,
+        playback: playback,
+        now: DateTime.now,
+      );
+
+      await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+      await tester.pump();
+
+      expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+      expect(find.byTooltip('Pause'), findsWidgets);
+      expect(playback.currentTrack?.path, favoriteTracks[1].path);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+
+      expect(playback.toggleCount, 1);
+      expect(playback.playing, isFalse);
+      expect(playback.currentTrack?.path, favoriteTracks[1].path);
+      expect(
+        playback.currentQueueForTest.map((track) => track.path),
+        favoriteTracks.map((track) => track.path),
+      );
+
+      await _disposeLibraryScreen(tester, library, playback);
+    },
+  );
+
+  testWidgets('thirty seconds hydrates an inactive favorites overlay', (
+    tester,
+  ) async {
+    final favoriteTracks = _favoriteTracks(3);
+    var now = DateTime(2026);
+    final library = _InjectedLibraryController(
+      tracks: favoriteTracks,
+      favoriteTracks: favoriteTracks,
+    );
+    final playback = _InjectedPlaybackController();
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: () => now,
+    );
+
+    await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+    await tester.pump();
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(playback.currentTrack, isNull);
+
+    await playback.playQueueFrom(favoriteTracks, favoriteTracks[1]);
+    await tester.pump();
+    expect(find.byTooltip('Pause'), findsNothing);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    now = now.add(const Duration(seconds: 31));
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(find.byTooltip('Pause'), findsWidgets);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.space);
+    await tester.pump();
+
+    expect(playback.toggleCount, 1);
+    expect(playback.currentTrack?.path, favoriteTracks[1].path);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets('favorites sidebar opens overlay without starting playback', (
+    tester,
+  ) async {
+    final favoriteTracks = _favoriteTracks(2);
+    final library = _InjectedLibraryController(
+      tracks: favoriteTracks,
+      favoriteTracks: favoriteTracks,
+    );
+    final playback = _InjectedPlaybackController();
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+
+    await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+    await tester.pump();
+
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(playback.currentTrack, isNull);
+    expect(playback.playing, isFalse);
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.byType(FavoritesPlaybackView), findsNothing);
 
     await _disposeLibraryScreen(tester, library, playback);
   });
@@ -481,6 +772,21 @@ Future<void> _disposeLibraryScreen(
   await tester.pump();
   playback.disposeForTest();
   library.disposeForTest();
+}
+
+FolderSummary _playlistFolder(String path, String name) {
+  return FolderSummary(
+    path: path,
+    name: name,
+    kind: FolderKind.playlist,
+    confidence: 0.8,
+    trackCount: 1,
+    albumCount: 1,
+    albumArtistCount: 1,
+    artistCount: 1,
+    yearCount: 1,
+    coverArtPath: null,
+  );
 }
 
 Track _track(
