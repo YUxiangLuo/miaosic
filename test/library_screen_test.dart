@@ -307,7 +307,7 @@ void main() {
       first.path,
     );
 
-    await tester.tap(find.byTooltip('Next playlist'));
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.pump();
 
     expect(

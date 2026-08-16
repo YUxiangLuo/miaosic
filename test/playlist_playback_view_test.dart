@@ -12,23 +12,22 @@ void main() {
     final tracks = [_track(1), _track(2), _track(3)];
     Track? playedTrack;
 
-    await tester.pumpWidget(
-      _Host(
-        child: PlaylistPlaybackView(
-          folder: folder,
-          tracks: tracks,
-          trackCoverCache: const {},
-          currentTrack: tracks[1],
-          playbackActive: true,
-          playing: true,
-          onClose: () {},
-          onPlayAll: () {},
-          onShuffleAll: () {},
-          onPrevious: () {},
-          onTogglePlayback: () {},
-          onNext: () {},
-          onPlayTrack: (track) => playedTrack = track,
-        ),
+    await _pumpPlaylistOverlay(
+      tester,
+      child: PlaylistPlaybackView(
+        folder: folder,
+        tracks: tracks,
+        trackCoverCache: const {},
+        currentTrack: tracks[1],
+        playbackActive: true,
+        playing: true,
+        onClose: () {},
+        onPlayAll: () {},
+        onShuffleAll: () {},
+        onPrevious: () {},
+        onTogglePlayback: () {},
+        onNext: () {},
+        onPlayTrack: (track) => playedTrack = track,
       ),
     );
 
@@ -38,7 +37,8 @@ void main() {
     expect(find.text('ARTIST'), findsOneWidget);
     expect(find.text('ALBUM'), findsOneWidget);
     expect(find.text('Track 1'), findsOneWidget);
-    expect(find.text('Track 2'), findsOneWidget);
+    expect(find.text('NOW PLAYING'), findsOneWidget);
+    expect(find.text('Track 2'), findsWidgets);
     expect(find.text('Album 2'), findsOneWidget);
 
     await tester.tap(find.text('Track 3'));
@@ -56,23 +56,22 @@ void main() {
     var playCount = 0;
     var toggleCount = 0;
 
-    await tester.pumpWidget(
-      _Host(
-        child: PlaylistPlaybackView(
-          folder: folder,
-          tracks: tracks,
-          trackCoverCache: const {},
-          currentTrack: null,
-          playbackActive: false,
-          playing: false,
-          onClose: () => closeCount += 1,
-          onPlayAll: () => playCount += 1,
-          onShuffleAll: () {},
-          onPrevious: null,
-          onTogglePlayback: () => toggleCount += 1,
-          onNext: null,
-          onPlayTrack: (_) {},
-        ),
+    await _pumpPlaylistOverlay(
+      tester,
+      child: PlaylistPlaybackView(
+        folder: folder,
+        tracks: tracks,
+        trackCoverCache: const {},
+        currentTrack: null,
+        playbackActive: false,
+        playing: false,
+        onClose: () => closeCount += 1,
+        onPlayAll: () => playCount += 1,
+        onShuffleAll: () {},
+        onPrevious: null,
+        onTogglePlayback: () => toggleCount += 1,
+        onNext: null,
+        onPlayTrack: (_) {},
       ),
     );
 
@@ -93,25 +92,24 @@ void main() {
     final tracks = [_track(1), _track(2)];
     Track? toggledTrack;
 
-    await tester.pumpWidget(
-      _Host(
-        child: PlaylistPlaybackView(
-          folder: folder,
-          tracks: tracks,
-          trackCoverCache: const {},
-          currentTrack: tracks[0],
-          playbackActive: true,
-          playing: true,
-          onClose: () {},
-          onPlayAll: () {},
-          onShuffleAll: () {},
-          onPrevious: () {},
-          onTogglePlayback: () {},
-          onNext: () {},
-          favoriteTrackPaths: {tracks[0].path},
-          onPlayTrack: (_) {},
-          onToggleFavoriteTrack: (track) => toggledTrack = track,
-        ),
+    await _pumpPlaylistOverlay(
+      tester,
+      child: PlaylistPlaybackView(
+        folder: folder,
+        tracks: tracks,
+        trackCoverCache: const {},
+        currentTrack: tracks[0],
+        playbackActive: true,
+        playing: true,
+        onClose: () {},
+        onPlayAll: () {},
+        onShuffleAll: () {},
+        onPrevious: () {},
+        onTogglePlayback: () {},
+        onNext: () {},
+        favoriteTrackPaths: {tracks[0].path},
+        onPlayTrack: (_) {},
+        onToggleFavoriteTrack: (track) => toggledTrack = track,
       ),
     );
 
@@ -127,23 +125,22 @@ void main() {
   testWidgets('empty playlist disables playback commands', (tester) async {
     final folder = _folder(trackCount: 0);
 
-    await tester.pumpWidget(
-      _Host(
-        child: PlaylistPlaybackView(
-          folder: folder,
-          tracks: const [],
-          trackCoverCache: const {},
-          currentTrack: null,
-          playbackActive: false,
-          playing: false,
-          onClose: () {},
-          onPlayAll: null,
-          onShuffleAll: null,
-          onPrevious: null,
-          onTogglePlayback: null,
-          onNext: null,
-          onPlayTrack: (_) {},
-        ),
+    await _pumpPlaylistOverlay(
+      tester,
+      child: PlaylistPlaybackView(
+        folder: folder,
+        tracks: const [],
+        trackCoverCache: const {},
+        currentTrack: null,
+        playbackActive: false,
+        playing: false,
+        onClose: () {},
+        onPlayAll: null,
+        onShuffleAll: null,
+        onPrevious: null,
+        onTogglePlayback: null,
+        onNext: null,
+        onPlayTrack: (_) {},
       ),
     );
 
@@ -164,25 +161,85 @@ void main() {
     final folder = _folder(trackCount: 1);
     final tracks = [_track(1)];
 
-    await tester.pumpWidget(
-      _Host(
-        width: 360,
-        height: 640,
-        child: PlaylistPlaybackView(
-          folder: folder,
-          tracks: tracks,
-          trackCoverCache: const {},
-          currentTrack: tracks.single,
-          playbackActive: true,
-          playing: true,
-          onClose: () {},
-          onPlayAll: () {},
-          onShuffleAll: () {},
-          onPrevious: () {},
-          onTogglePlayback: () {},
-          onNext: () {},
-          onPlayTrack: (_) {},
-        ),
+    await _pumpPlaylistOverlay(
+      tester,
+      size: const Size(360, 640),
+      child: PlaylistPlaybackView(
+        folder: folder,
+        tracks: tracks,
+        trackCoverCache: const {},
+        currentTrack: tracks.single,
+        playbackActive: true,
+        playing: true,
+        onClose: () {},
+        onPlayAll: () {},
+        onShuffleAll: () {},
+        onPrevious: () {},
+        onTogglePlayback: () {},
+        onNext: () {},
+        onPlayTrack: (_) {},
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('active playlist overlay fits a short wide window', (
+    tester,
+  ) async {
+    final folder = _folder(trackCount: 1);
+    final tracks = [_track(1)];
+
+    await _pumpPlaylistOverlay(
+      tester,
+      size: const Size(1100, 560),
+      child: PlaylistPlaybackView(
+        folder: folder,
+        tracks: tracks,
+        trackCoverCache: const {},
+        currentTrack: tracks.single,
+        playbackActive: true,
+        playing: true,
+        onClose: () {},
+        onPlayAll: () {},
+        onShuffleAll: () {},
+        onPrevious: () {},
+        onTogglePlayback: () {},
+        onNext: () {},
+        onPlayTrack: (_) {},
+      ),
+    );
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('NOW PLAYING'), findsOneWidget);
+    expect(find.text('TITLE'), findsOneWidget);
+  });
+
+  testWidgets('active playlist overlay fits a short narrow window', (
+    tester,
+  ) async {
+    final folder = _folder(trackCount: 1);
+    final tracks = [_track(1)];
+
+    await _pumpPlaylistOverlay(
+      tester,
+      size: const Size(360, 400),
+      child: PlaylistPlaybackView(
+        folder: folder,
+        tracks: tracks,
+        trackCoverCache: const {},
+        currentTrack: tracks.single,
+        playbackActive: true,
+        playing: true,
+        onClose: () {},
+        onPlayAll: () {},
+        onShuffleAll: () {},
+        onPrevious: () {},
+        onTogglePlayback: () {},
+        onNext: () {},
+        onPlayTrack: (_) {},
       ),
     );
     await tester.pump();
@@ -197,46 +254,43 @@ void main() {
     var nextCount = 0;
     var nowPlayingCount = 0;
 
-    await tester.pumpWidget(
-      _Host(
-        child: PlaylistPlaybackView(
-          folder: _folder(trackCount: 1),
-          tracks: [_track(1)],
-          trackCoverCache: const {},
-          currentTrack: null,
-          playbackActive: false,
-          playing: false,
-          onClose: () {},
-          onPlayAll: () {},
-          onShuffleAll: () {},
-          onPrevious: null,
-          onTogglePlayback: null,
-          onNext: null,
-          onPlayTrack: (_) {},
-          canSwitchPreviousPlaylist: true,
-          canSwitchNextPlaylist: true,
-          onSwitchPreviousPlaylist: () => previousCount += 1,
-          onSwitchNextPlaylist: () => nextCount += 1,
-          onOpenNowPlaying: () => nowPlayingCount += 1,
-        ),
+    await _pumpPlaylistOverlay(
+      tester,
+      child: PlaylistPlaybackView(
+        folder: _folder(trackCount: 1),
+        tracks: [_track(1)],
+        trackCoverCache: const {},
+        currentTrack: null,
+        playbackActive: false,
+        playing: false,
+        onClose: () {},
+        onPlayAll: () {},
+        onShuffleAll: () {},
+        onPrevious: null,
+        onTogglePlayback: null,
+        onNext: null,
+        onPlayTrack: (_) {},
+        canSwitchPreviousPlaylist: true,
+        canSwitchNextPlaylist: true,
+        onSwitchPreviousPlaylist: () => previousCount += 1,
+        onSwitchNextPlaylist: () => nextCount += 1,
+        onOpenNowPlaying: () => nowPlayingCount += 1,
       ),
     );
 
-    await tester.tap(find.byTooltip('Next playlist'));
-    await tester.tap(find.byTooltip('Previous playlist'));
+    expect(find.byTooltip('Next playlist'), findsNothing);
+    expect(find.byTooltip('Previous playlist'), findsNothing);
+
     await tester.tap(find.byTooltip('Back to now playing'));
     await tester.pump();
-
-    expect(nextCount, 1);
-    expect(previousCount, 1);
     expect(nowPlayingCount, 1);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
     await tester.sendKeyEvent(LogicalKeyboardKey.arrowLeft);
     await tester.pump();
 
-    expect(nextCount, 2);
-    expect(previousCount, 2);
+    expect(nextCount, 1);
+    expect(previousCount, 1);
   });
 }
 
@@ -247,19 +301,22 @@ Finder _iconButtonFor(IconData icon) {
   );
 }
 
-class _Host extends StatelessWidget {
-  const _Host({this.width = 1100, this.height = 720, required this.child});
-
-  final double width;
-  final double height;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      home: SizedBox(width: width, height: height, child: child),
-    );
-  }
+Future<void> _pumpPlaylistOverlay(
+  WidgetTester tester, {
+  required Widget child,
+  Size size = const Size(1100, 720),
+}) async {
+  tester.view.devicePixelRatio = 1;
+  tester.view.physicalSize = size;
+  addTearDown(() {
+    tester.view.resetDevicePixelRatio();
+    tester.view.resetPhysicalSize();
+  });
+  await tester.pumpWidget(
+    MaterialApp(
+      home: SizedBox(width: size.width, height: size.height, child: child),
+    ),
+  );
 }
 
 FolderSummary _folder({required int trackCount}) {

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -112,15 +113,9 @@ class PlaylistPlaybackView extends StatelessWidget {
             );
             return Stack(
               children: [
-                const Positioned.fill(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [Color(0xff14211f), Color(0xff050706)],
-                      ),
-                    ),
+                Positioned.fill(
+                  child: _PlaylistPlaybackBackground(
+                    coverPath: _stageCoverPath(coverPaths),
                   ),
                 ),
                 SafeArea(
@@ -144,22 +139,6 @@ class PlaylistPlaybackView extends StatelessWidget {
                                 icon: const Icon(Icons.graphic_eq),
                               ),
                             ],
-                            const Spacer(),
-                            IconButton.filledTonal(
-                              tooltip: 'Previous playlist',
-                              onPressed: canSwitchPreviousPlaylist
-                                  ? onSwitchPreviousPlaylist
-                                  : null,
-                              icon: const Icon(Icons.chevron_left),
-                            ),
-                            const SizedBox(width: 8),
-                            IconButton.filledTonal(
-                              tooltip: 'Next playlist',
-                              onPressed: canSwitchNextPlaylist
-                                  ? onSwitchNextPlaylist
-                                  : null,
-                              icon: const Icon(Icons.chevron_right),
-                            ),
                           ],
                         ),
                         const SizedBox(height: 18),
@@ -173,6 +152,7 @@ class PlaylistPlaybackView extends StatelessWidget {
                                   trackCoverCache: trackCoverCache,
                                   currentTrack: currentTrack,
                                   playing: playing,
+                                  playbackActive: playbackActive,
                                   favoriteTrackPaths: favoriteTrackPaths,
                                   onPlayTrack: onPlayTrack,
                                   onToggleFavoriteTrack: onToggleFavoriteTrack,
@@ -226,6 +206,68 @@ class PlaylistPlaybackView extends StatelessWidget {
     }
     return paths;
   }
+
+  String? _stageCoverPath(List<String> coverPaths) {
+    if (currentTrack != null) {
+      final current = resolveTrackArtwork(currentTrack!, trackCoverCache);
+      if (current != null && current.isNotEmpty) {
+        return current;
+      }
+    }
+    if (coverPaths.isNotEmpty) {
+      return coverPaths.first;
+    }
+    final folderCover = folder.coverArtPath;
+    if (folderCover != null && folderCover.isNotEmpty) {
+      return folderCover;
+    }
+    return null;
+  }
+}
+
+class _PlaylistPlaybackBackground extends StatelessWidget {
+  const _PlaylistPlaybackBackground({required this.coverPath});
+
+  final String? coverPath;
+
+  @override
+  Widget build(BuildContext context) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        const ColoredBox(color: Color(0xff050706)),
+        if (coverPath != null)
+          RepaintBoundary(
+            key: ValueKey(coverPath),
+            child: ImageFiltered(
+              imageFilter: ui.ImageFilter.blur(sigmaX: 36, sigmaY: 36),
+              child: Transform.scale(
+                scale: 1.08,
+                child: Image.file(
+                  File(coverPath!),
+                  fit: BoxFit.cover,
+                  // Blurred fill; skip() swaps this path so keep the decode small.
+                  cacheWidth: 256,
+                  filterQuality: FilterQuality.low,
+                  gaplessPlayback: true,
+                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                ),
+              ),
+            ),
+          ),
+        const DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Color(0x66000000), Color(0xd9000000)],
+            ),
+          ),
+        ),
+        const ColoredBox(color: Color(0x47000000)),
+      ],
+    );
+  }
 }
 
 class _PlaylistPlaybackBody extends StatelessWidget {
@@ -236,6 +278,7 @@ class _PlaylistPlaybackBody extends StatelessWidget {
     required this.trackCoverCache,
     required this.currentTrack,
     required this.playing,
+    required this.playbackActive,
     required this.favoriteTrackPaths,
     required this.onPlayTrack,
     required this.onToggleFavoriteTrack,
@@ -247,6 +290,7 @@ class _PlaylistPlaybackBody extends StatelessWidget {
   final Map<String, String?> trackCoverCache;
   final Track? currentTrack;
   final bool playing;
+  final bool playbackActive;
   final Set<String> favoriteTrackPaths;
   final ValueChanged<Track> onPlayTrack;
   final ValueChanged<Track>? onToggleFavoriteTrack;
@@ -257,10 +301,20 @@ class _PlaylistPlaybackBody extends StatelessWidget {
       builder: (context, constraints) {
         final compact = constraints.maxWidth < 840;
         if (compact) {
+          final headerMaxHeight = math.max(64.0, constraints.maxHeight * 0.40);
+          final headerGap = constraints.maxHeight < 280 ? 10.0 : 18.0;
           return Column(
             children: [
-              _PlaylistCompactHeader(folder: folder, coverPaths: coverPaths),
-              const SizedBox(height: 18),
+              ConstrainedBox(
+                constraints: BoxConstraints(maxHeight: headerMaxHeight),
+                child: _PlaylistCompactHeader(
+                  folder: folder,
+                  coverPaths: coverPaths,
+                  currentTrack: playbackActive ? currentTrack : null,
+                  playing: playing,
+                ),
+              ),
+              SizedBox(height: headerGap),
               Expanded(
                 child: _PlaylistPlaybackTable(
                   tracks: tracks,
@@ -285,7 +339,12 @@ class _PlaylistPlaybackBody extends StatelessWidget {
           children: [
             SizedBox(
               width: panelWidth,
-              child: _PlaylistHeroPanel(folder: folder, coverPaths: coverPaths),
+              child: _PlaylistHeroStage(
+                folder: folder,
+                coverPaths: coverPaths,
+                currentTrack: playbackActive ? currentTrack : null,
+                playing: playing,
+              ),
             ),
             const SizedBox(width: 26),
             Expanded(
@@ -306,62 +365,56 @@ class _PlaylistPlaybackBody extends StatelessWidget {
   }
 }
 
-class _PlaylistHeroPanel extends StatelessWidget {
-  const _PlaylistHeroPanel({required this.folder, required this.coverPaths});
+class _PlaylistHeroStage extends StatelessWidget {
+  const _PlaylistHeroStage({
+    required this.folder,
+    required this.coverPaths,
+    required this.currentTrack,
+    required this.playing,
+  });
 
   final FolderSummary folder;
   final List<String> coverPaths;
+  final Track? currentTrack;
+  final bool playing;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.07),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.12)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final coverSize = math.min(
-              constraints.maxWidth,
-              math.max(180.0, constraints.maxHeight * 0.42),
-            );
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final showNowPlaying =
+            currentTrack != null && constraints.maxHeight >= 200;
+        final tight = constraints.maxHeight < 280;
+        final gap = tight ? 10.0 : 22.0;
+        final coverSize = math.min(
+          constraints.maxWidth,
+          math.max(72.0, constraints.maxHeight * 0.52),
+        );
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.center,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
               children: [
-                Center(
-                  child: PlaylistCoverCollage(
-                    paths: coverPaths,
-                    size: coverSize,
-                    radius: 8,
-                  ),
+                PlaylistCoverCollage(
+                  paths: coverPaths,
+                  size: coverSize,
+                  radius: 14,
                 ),
-                const SizedBox(height: 22),
-                Text(
-                  'PLAYLIST',
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: _playlistControlAccent,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 1.4,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                _PlaylistPlaybackTitle(folder: folder),
-                const Spacer(),
-                Text(
-                  'A local mix collected from this folder.',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Colors.white.withValues(alpha: 0.54),
-                    fontWeight: FontWeight.w600,
-                  ),
+                SizedBox(height: gap),
+                _PlaylistStageIdentity(
+                  folder: folder,
+                  currentTrack: showNowPlaying ? currentTrack : null,
+                  playing: playing,
+                  compact: false,
                 ),
               ],
-            );
-          },
-        ),
-      ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -370,18 +423,129 @@ class _PlaylistCompactHeader extends StatelessWidget {
   const _PlaylistCompactHeader({
     required this.folder,
     required this.coverPaths,
+    required this.currentTrack,
+    required this.playing,
   });
 
   final FolderSummary folder;
   final List<String> coverPaths;
+  final Track? currentTrack;
+  final bool playing;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxH = constraints.maxHeight;
+        final coverSize = maxH.isFinite
+            ? math.min(120.0, math.max(56.0, maxH))
+            : 120.0;
+        final showNowPlaying =
+            currentTrack != null && (!maxH.isFinite || maxH >= 124);
+        return FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                PlaylistCoverCollage(
+                  paths: coverPaths,
+                  size: coverSize,
+                  radius: 12,
+                ),
+                const SizedBox(width: 18),
+                Expanded(
+                  child: _PlaylistStageIdentity(
+                    folder: folder,
+                    currentTrack: showNowPlaying ? currentTrack : null,
+                    playing: playing,
+                    compact: true,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PlaylistStageIdentity extends StatelessWidget {
+  const _PlaylistStageIdentity({
+    required this.folder,
+    required this.currentTrack,
+    required this.playing,
+    required this.compact,
+  });
+
+  final FolderSummary folder;
+  final Track? currentTrack;
+  final bool playing;
+  final bool compact;
+
+  @override
+  Widget build(BuildContext context) {
+    final nowPlaying = currentTrack;
+    return Column(
+      crossAxisAlignment: compact
+          ? CrossAxisAlignment.start
+          : CrossAxisAlignment.center,
+      mainAxisSize: MainAxisSize.min,
       children: [
-        PlaylistCoverCollage(paths: coverPaths, size: 88, radius: 8),
-        const SizedBox(width: 18),
-        Expanded(child: _PlaylistPlaybackTitle(folder: folder)),
+        Text(
+          folder.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: compact ? TextAlign.left : TextAlign.center,
+          style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+            color: Colors.white,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '${folder.trackCount} tracks',
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: Colors.white.withValues(alpha: 0.58),
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        if (nowPlaying != null) ...[
+          const SizedBox(height: 16),
+          Text(
+            playing ? 'NOW PLAYING' : 'PAUSED',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: _playlistControlAccent,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 1.4,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            nowPlaying.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: compact ? TextAlign.left : TextAlign.center,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            nowPlaying.artist,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            textAlign: compact ? TextAlign.left : TextAlign.center,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: Colors.white.withValues(alpha: 0.62),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
       ],
     );
   }
@@ -610,50 +774,6 @@ class _DockCurrentTrack extends StatelessWidget {
   }
 }
 
-class _PlaylistPlaybackTitle extends StatelessWidget {
-  const _PlaylistPlaybackTitle({required this.folder});
-
-  final FolderSummary folder;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          folder.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-            color: Colors.white,
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Wrap(
-          spacing: 18,
-          runSpacing: 8,
-          children: [
-            _HeaderMetric(
-              icon: Icons.music_note,
-              label: '${folder.trackCount} tracks',
-            ),
-            _HeaderMetric(
-              icon: Icons.album,
-              label: '${folder.albumCount} albums',
-            ),
-            _HeaderMetric(
-              icon: Icons.person,
-              label: '${folder.artistCount} artists',
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
 class _PlaylistPlaybackControls extends StatelessWidget {
   const _PlaylistPlaybackControls({
     required this.playbackActive,
@@ -802,12 +922,24 @@ class _PlaylistPlaybackTable extends StatelessWidget {
       builder: (context, constraints) {
         final showArtist = constraints.maxWidth >= 520;
         final showAlbum = constraints.maxWidth >= 620;
+        final showDuration = constraints.maxWidth >= 400;
+        final horizontalPadding = constraints.maxWidth < 420 ? 10.0 : 28.0;
         return Column(
           children: [
-            _PlaylistTableHeader(showArtist: showArtist, showAlbum: showAlbum),
+            _PlaylistTableHeader(
+              showArtist: showArtist,
+              showAlbum: showAlbum,
+              showDuration: showDuration,
+              horizontalPadding: horizontalPadding,
+            ),
             Expanded(
               child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
+                padding: EdgeInsets.fromLTRB(
+                  horizontalPadding,
+                  0,
+                  horizontalPadding,
+                  28,
+                ),
                 itemCount: tracks.length,
                 separatorBuilder: (_, _) => Divider(
                   height: 1,
@@ -824,6 +956,7 @@ class _PlaylistPlaybackTable extends StatelessWidget {
                     playing: selected && playing,
                     showArtist: showArtist,
                     showAlbum: showAlbum,
+                    showDuration: showDuration,
                     favorite: favoriteTrackPaths.contains(track.path),
                     onTap: () => onPlayTrack(track),
                     onToggleFavorite: onToggleFavoriteTrack == null
@@ -844,10 +977,14 @@ class _PlaylistTableHeader extends StatelessWidget {
   const _PlaylistTableHeader({
     required this.showArtist,
     required this.showAlbum,
+    required this.showDuration,
+    required this.horizontalPadding,
   });
 
   final bool showArtist;
   final bool showAlbum;
+  final bool showDuration;
+  final double horizontalPadding;
 
   @override
   Widget build(BuildContext context) {
@@ -857,26 +994,66 @@ class _PlaylistTableHeader extends StatelessWidget {
       letterSpacing: 0.8,
     );
     return Padding(
-      padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
+      padding: EdgeInsets.fromLTRB(horizontalPadding, 0, horizontalPadding, 8),
       child: Row(
         children: [
-          SizedBox(width: 44, child: Text('#', style: style)),
+          SizedBox(
+            width: 44,
+            child: Text(
+              '#',
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: style,
+            ),
+          ),
           const SizedBox(width: 52),
           const SizedBox(width: 14),
-          Expanded(flex: 5, child: Text('TITLE', style: style)),
+          Expanded(
+            flex: 5,
+            child: Text(
+              'TITLE',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: style,
+            ),
+          ),
           if (showArtist) ...[
             const SizedBox(width: 16),
-            Expanded(flex: 3, child: Text('ARTIST', style: style)),
+            Expanded(
+              flex: 3,
+              child: Text(
+                'ARTIST',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: style,
+              ),
+            ),
           ],
           if (showAlbum) ...[
             const SizedBox(width: 16),
-            Expanded(flex: 3, child: Text('ALBUM', style: style)),
+            Expanded(
+              flex: 3,
+              child: Text(
+                'ALBUM',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: style,
+              ),
+            ),
           ],
-          const SizedBox(width: 16),
-          SizedBox(
-            width: 68,
-            child: Text('TIME', textAlign: TextAlign.right, style: style),
-          ),
+          if (showDuration) ...[
+            const SizedBox(width: 16),
+            SizedBox(
+              width: 68,
+              child: Text(
+                'TIME',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.right,
+                style: style,
+              ),
+            ),
+          ],
           const SizedBox(width: 8),
           const SizedBox(width: 44),
         ],
@@ -894,6 +1071,7 @@ class _PlaylistTableRow extends StatelessWidget {
     required this.playing,
     required this.showArtist,
     required this.showAlbum,
+    required this.showDuration,
     required this.favorite,
     required this.onTap,
     required this.onToggleFavorite,
@@ -906,16 +1084,17 @@ class _PlaylistTableRow extends StatelessWidget {
   final bool playing;
   final bool showArtist;
   final bool showAlbum;
+  final bool showDuration;
   final bool favorite;
   final VoidCallback onTap;
   final VoidCallback? onToggleFavorite;
 
   @override
   Widget build(BuildContext context) {
-    final primary = Colors.white.withValues(alpha: selected ? 1 : 0.88);
-    final secondary = Colors.white.withValues(alpha: selected ? 0.78 : 0.55);
+    final primary = Colors.white.withValues(alpha: selected ? 1 : 0.82);
+    final secondary = Colors.white.withValues(alpha: selected ? 0.82 : 0.52);
     final background = selected
-        ? Colors.white.withValues(alpha: 0.10)
+        ? _playlistControlAccent.withValues(alpha: 0.16)
         : Colors.transparent;
     return Material(
       color: background,
@@ -924,91 +1103,111 @@ class _PlaylistTableRow extends StatelessWidget {
         hoverColor: Colors.white.withValues(alpha: selected ? 0.08 : 0.06),
         splashColor: Colors.white.withValues(alpha: 0.10),
         highlightColor: Colors.white.withValues(alpha: 0.08),
-        child: SizedBox(
-          height: 58,
-          child: Row(
-            children: [
-              SizedBox(
-                width: 44,
-                child: Center(
-                  child: playing
-                      ? Icon(Icons.graphic_eq, size: 18, color: primary)
-                      : Text(
-                          (index + 1).toString().padLeft(2, '0'),
-                          style: Theme.of(context).textTheme.labelLarge
-                              ?.copyWith(
-                                color: secondary,
-                                fontWeight: FontWeight.w800,
-                              ),
-                        ),
-                ),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border(
+              left: BorderSide(
+                color: selected ? _playlistControlAccent : Colors.transparent,
+                width: 3,
               ),
-              Artwork(path: artworkPath, size: 42, icon: Icons.music_note),
-              const SizedBox(width: 14),
-              Expanded(
-                flex: 5,
-                child: _TrackCell(
-                  title: track.title,
-                  subtitle: showArtist ? track.fileName : track.artist,
-                  titleColor: primary,
-                  subtitleColor: secondary,
+            ),
+          ),
+          child: SizedBox(
+            height: 58,
+            child: Row(
+              children: [
+                SizedBox(
+                  width: 44,
+                  child: Center(
+                    child: playing
+                        ? Icon(
+                            Icons.graphic_eq,
+                            size: 20,
+                            color: _playlistControlAccent,
+                          )
+                        : Text(
+                            (index + 1).toString().padLeft(2, '0'),
+                            style: Theme.of(context).textTheme.labelLarge
+                                ?.copyWith(
+                                  color: secondary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
+                  ),
                 ),
-              ),
-              if (showArtist) ...[
-                const SizedBox(width: 16),
+                Artwork(path: artworkPath, size: 42, icon: Icons.music_note),
+                const SizedBox(width: 14),
                 Expanded(
-                  flex: 3,
-                  child: Text(
-                    track.artist,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: secondary,
-                      fontWeight: FontWeight.w600,
+                  flex: 5,
+                  child: _TrackCell(
+                    title: track.title,
+                    subtitle: showArtist ? track.fileName : track.artist,
+                    titleColor: primary,
+                    subtitleColor: secondary,
+                  ),
+                ),
+                if (showArtist) ...[
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      track.artist,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: secondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
-              ],
-              if (showAlbum) ...[
-                const SizedBox(width: 16),
-                Expanded(
-                  flex: 3,
-                  child: Text(
-                    track.album.isEmpty ? track.folderName : track.album,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: secondary,
-                      fontWeight: FontWeight.w600,
+                ],
+                if (showAlbum) ...[
+                  const SizedBox(width: 16),
+                  Expanded(
+                    flex: 3,
+                    child: Text(
+                      track.album.isEmpty ? track.folderName : track.album,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: secondary,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                   ),
-                ),
-              ],
-              const SizedBox(width: 16),
-              SizedBox(
-                width: 68,
-                child: Text(
-                  formatDurationMs(track.durationMs),
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    color: secondary,
-                    fontWeight: FontWeight.w700,
+                ],
+                if (showDuration) ...[
+                  const SizedBox(width: 16),
+                  SizedBox(
+                    width: 68,
+                    child: Text(
+                      formatDurationMs(track.durationMs),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.right,
+                      style: TextStyle(
+                        color: secondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (onToggleFavorite == null)
-                const SizedBox(width: 44)
-              else
-                IconButton(
-                  tooltip: favorite
-                      ? 'Remove from favorites'
-                      : 'Add to favorites',
-                  onPressed: onToggleFavorite,
-                  icon: Icon(favorite ? Icons.favorite : Icons.favorite_border),
-                  color: favorite ? Colors.redAccent : secondary,
-                ),
-            ],
+                ],
+                const SizedBox(width: 8),
+                if (onToggleFavorite == null)
+                  const SizedBox(width: 44)
+                else
+                  IconButton(
+                    tooltip: favorite
+                        ? 'Remove from favorites'
+                        : 'Add to favorites',
+                    onPressed: onToggleFavorite,
+                    icon: Icon(
+                      favorite ? Icons.favorite : Icons.favorite_border,
+                    ),
+                    color: favorite ? Colors.redAccent : secondary,
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1052,35 +1251,6 @@ class _TrackCell extends StatelessWidget {
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: subtitleColor,
             fontWeight: FontWeight.w600,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _HeaderMetric extends StatelessWidget {
-  const _HeaderMetric({required this.icon, required this.label});
-
-  final IconData icon;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 16, color: Colors.white.withValues(alpha: 0.62)),
-        const SizedBox(width: 6),
-        Flexible(
-          child: Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: Colors.white.withValues(alpha: 0.64),
-              fontWeight: FontWeight.w700,
-            ),
           ),
         ),
       ],
