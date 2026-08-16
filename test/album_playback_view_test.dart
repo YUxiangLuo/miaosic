@@ -353,7 +353,7 @@ void main() {
     );
     await tester.pump();
 
-    final shortcut = find.byTooltip('Back to now playing album');
+    final shortcut = find.byTooltip('Back to now playing');
     final play = find.byTooltip('Play');
     expect(shortcut, findsOneWidget);
     expect(play, findsOneWidget);

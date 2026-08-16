@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:media_kit/media_kit.dart' hide Track;
 import 'package:miaosic/album_playback_view.dart';
+import 'package:miaosic/album_views.dart';
 import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/favorites_playback_view.dart';
 import 'package:miaosic/library_controller.dart';
@@ -685,6 +686,221 @@ void main() {
     await _disposeLibraryScreen(tester, library, playback);
   });
 
+  testWidgets(
+    'closing a fully favorited album still returns to the album overlay',
+    (tester) async {
+      final fixture = _LibraryFixture.album();
+      var now = DateTime(2026);
+      final library = _InjectedLibraryController(
+        tracks: fixture.tracks,
+        albums: [fixture.album],
+        favoriteTracks: fixture.tracks,
+        tracksByFolder: {fixture.album.folderPath: fixture.tracks},
+      );
+      final playback = _InjectedPlaybackController();
+
+      await _pumpLibraryScreen(
+        tester,
+        library: library,
+        playback: playback,
+        now: () => now,
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlbumGrid),
+          matching: find.byType(InkWell),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byTooltip('Play'));
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      expect(find.byType(AlbumPlaybackView), findsNothing);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      now = now.add(const Duration(seconds: 31));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+
+      expect(find.byType(AlbumPlaybackView), findsOneWidget);
+      expect(find.byType(FavoritesPlaybackView), findsNothing);
+
+      await _disposeLibraryScreen(tester, library, playback);
+    },
+  );
+
+  testWidgets('album overlay can jump back to a playing playlist', (
+    tester,
+  ) async {
+    final fixture = _LibraryFixture.album();
+    final folder = _playlistFolder('/music/mix', 'Road Mix');
+    final playlistTracks = [
+      _track(
+        '/music/mix/01.flac',
+        folderPath: folder.path,
+        title: 'Mix Track',
+        album: 'Other',
+        artist: 'Artist',
+      ),
+    ];
+    final library = _InjectedLibraryController(
+      tracks: [...fixture.tracks, ...playlistTracks],
+      albums: [fixture.album],
+      folders: [folder],
+      tracksByFolder: {
+        fixture.album.folderPath: fixture.tracks,
+        folder.path: playlistTracks,
+      },
+    );
+    final playback = _InjectedPlaybackController();
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+
+    await tester.tap(find.widgetWithText(InkWell, 'Playlists'));
+    await tester.pump();
+    await tester.tap(find.text('Road Mix'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Play'));
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+
+    await tester.tap(find.widgetWithText(InkWell, 'Albums'));
+    await tester.pump();
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlbumGrid),
+        matching: find.byType(InkWell),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.byType(AlbumPlaybackView), findsOneWidget);
+    expect(find.byTooltip('Back to now playing'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Back to now playing'));
+    await tester.pump();
+
+    expect(find.byType(PlaylistPlaybackView), findsOneWidget);
+    expect(playback.currentTrack?.path, playlistTracks.first.path);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets('unfavoriting the current track stops playback', (tester) async {
+    final favoriteTracks = _favoriteTracks(2);
+    final library = _InjectedLibraryController(
+      tracks: favoriteTracks,
+      favoriteTracks: favoriteTracks,
+    );
+    final playback = _InjectedPlaybackController(
+      currentTrack: favoriteTracks.first,
+      playing: true,
+      currentQueue: favoriteTracks,
+    );
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+
+    await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Remove from favorites').first);
+    await tester.pump();
+
+    expect(playback.stopIfCurrentRemovedCount, 1);
+    expect(playback.currentTrack, isNull);
+    expect(playback.playing, isFalse);
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(find.text('1 favorite track'), findsOneWidget);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets('unfavoriting the last favorite stops playback', (tester) async {
+    final favoriteTracks = _favoriteTracks(1);
+    final library = _InjectedLibraryController(
+      tracks: favoriteTracks,
+      favoriteTracks: favoriteTracks,
+    );
+    final playback = _InjectedPlaybackController(
+      currentTrack: favoriteTracks.single,
+      playing: true,
+      currentQueue: favoriteTracks,
+    );
+
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+
+    await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+    await tester.pump();
+    await tester.tap(find.byTooltip('Remove from favorites'));
+    await tester.pump();
+
+    expect(playback.stopIfCurrentRemovedCount, 1);
+    expect(playback.currentTrack, isNull);
+    expect(find.byType(FavoritesPlaybackView), findsOneWidget);
+    expect(find.text('No favorite tracks yet'), findsOneWidget);
+
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets(
+    'unfavoriting a playing album track does not stop album playback',
+    (tester) async {
+      final fixture = _LibraryFixture.album();
+      final library = _InjectedLibraryController(
+        tracks: fixture.tracks,
+        albums: [fixture.album],
+        favoriteTracks: fixture.tracks,
+        tracksByFolder: {fixture.album.folderPath: fixture.tracks},
+      );
+      final playback = _InjectedPlaybackController(
+        currentTrack: fixture.tracks.first,
+        playing: true,
+        currentQueue: fixture.tracks,
+      );
+
+      await _pumpLibraryScreen(
+        tester,
+        library: library,
+        playback: playback,
+        now: DateTime.now,
+      );
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlbumGrid),
+          matching: find.byType(InkWell),
+        ),
+      );
+      await tester.pump();
+      await tester.tap(find.byTooltip('Remove from favorites'));
+      await tester.pump();
+
+      expect(playback.stopIfCurrentRemovedCount, 0);
+      expect(playback.currentTrack?.path, fixture.tracks.first.path);
+      expect(playback.playing, isTrue);
+      expect(find.byType(AlbumPlaybackView), findsOneWidget);
+
+      await _disposeLibraryScreen(tester, library, playback);
+    },
+  );
+
   testWidgets('shows repeated playback failures as separate events', (
     tester,
   ) async {
@@ -852,7 +1068,7 @@ class _InjectedLibraryController extends LibraryController {
   }) : _tracks = List.unmodifiable(tracks),
        _folders = List.unmodifiable(folders),
        _albums = List.unmodifiable(albums),
-       _favoriteTracks = List.unmodifiable(favoriteTracks),
+       _favoriteTracks = List<Track>.from(favoriteTracks),
        _tracksByFolder = Map.unmodifiable(tracksByFolder);
 
   bool opened = false;
@@ -861,7 +1077,7 @@ class _InjectedLibraryController extends LibraryController {
   final List<Track> _tracks;
   final List<FolderSummary> _folders;
   final List<AlbumSummary> _albums;
-  final List<Track> _favoriteTracks;
+  List<Track> _favoriteTracks;
   final Map<String, List<Track>> _tracksByFolder;
   final LastPlaybackState? lastPlaybackState;
   final bool canRestorePlayback;
@@ -909,7 +1125,22 @@ class _InjectedLibraryController extends LibraryController {
   List<AlbumSummary> get albums => _albums;
 
   @override
-  List<Track> get favoriteTracks => _favoriteTracks;
+  Future<void> toggleFavoriteTrack(Track track) async {
+    final exists = _favoriteTracks.any(
+      (favorite) => favorite.path == track.path,
+    );
+    if (exists) {
+      _favoriteTracks = _favoriteTracks
+          .where((favorite) => favorite.path != track.path)
+          .toList(growable: false);
+    } else {
+      _favoriteTracks = [track, ..._favoriteTracks];
+    }
+    notifyListeners();
+  }
+
+  @override
+  List<Track> get favoriteTracks => List.unmodifiable(_favoriteTracks);
 
   @override
   Set<String> get favoriteTrackPaths =>
@@ -969,6 +1200,7 @@ class _InjectedPlaybackController extends PlaybackController {
   AudioOutputSettings? appliedAudioOutputSettings;
   int toggleCount = 0;
   int restoreCount = 0;
+  int stopIfCurrentRemovedCount = 0;
   Track? _currentTrack;
   bool _playing = false;
   List<Track> _currentQueue = const [];
@@ -1037,6 +1269,32 @@ class _InjectedPlaybackController extends PlaybackController {
     _currentQueue = queue;
     _currentTrack = track;
     _playing = true;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> stopIfCurrentRemoved(Iterable<String> removedPaths) async {
+    final current = _currentTrack;
+    if (current == null || !removedPaths.contains(current.path)) {
+      return;
+    }
+    stopIfCurrentRemovedCount += 1;
+    _currentQueue = const [];
+    _currentTrack = null;
+    _playing = false;
+    notifyListeners();
+  }
+
+  @override
+  Future<void> replaceQueueKeepingPosition(List<Track> queue) async {
+    final current = _currentTrack;
+    if (queue.isEmpty ||
+        current == null ||
+        !queue.any((track) => track.path == current.path)) {
+      await stopIfCurrentRemoved([if (current != null) current.path]);
+      return;
+    }
+    _currentQueue = List.unmodifiable(queue);
     notifyListeners();
   }
 

@@ -207,16 +207,7 @@ class LibraryScreenView extends StatelessWidget {
                     model.activeAlbumTrack != null && model.playbackPlaying,
                 nowPlayingAlbum: model.dockNowPlayingAlbumTarget == null
                     ? null
-                    : AlbumPlaybackNowPlaying(
-                        coverArtPath: model
-                            .dockNowPlayingAlbumTarget!
-                            .album
-                            ?.coverArtPath,
-                        playing: model
-                            .dockNowPlayingAlbumTarget!
-                            .sidebarItem
-                            .playing,
-                      ),
+                    : _albumNowPlayingChip(model.dockNowPlayingAlbumTarget!),
                 onClose: actions.onCloseAlbumPlayback,
                 onPrevious: actions.onAlbumPrevious!,
                 onToggle: actions.onAlbumToggle!,
@@ -307,6 +298,20 @@ class LibraryScreenView extends StatelessWidget {
       onOpenPlaylistPlayback: actions.onOpenPlaylistPlayback,
     );
   }
+}
+
+AlbumPlaybackNowPlaying _albumNowPlayingChip(LibraryNowPlayingTarget target) {
+  final sidebar = target.sidebarItem;
+  final collage = sidebar.playlistCoverArtPaths
+      .whereType<String>()
+      .where((path) => path.isNotEmpty)
+      .toList(growable: false);
+  return AlbumPlaybackNowPlaying(
+    coverArtPath:
+        target.album?.coverArtPath ?? (collage.isEmpty ? null : collage.first),
+    collagePaths: collage,
+    playing: sidebar.playing,
+  );
 }
 
 class _LibraryContentCache extends StatefulWidget {

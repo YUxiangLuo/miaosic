@@ -229,6 +229,24 @@ class PlaybackController extends ChangeNotifier {
     return applyAudioOutputSettings(AudioOutputSettings.fromDevice(device));
   }
 
+  Future<void> replaceQueueKeepingPosition(List<Track> queue) async {
+    final current = _currentTrack;
+    if (queue.isEmpty || current == null) {
+      if (current != null) {
+        await stopIfCurrentRemoved([current.path]);
+      }
+      return;
+    }
+    final index = queue.indexWhere((track) => track.path == current.path);
+    if (index < 0) {
+      await stopIfCurrentRemoved([current.path]);
+      return;
+    }
+    _queue = List.unmodifiable(queue);
+    _queueIndex = index;
+    notifyListeners();
+  }
+
   Future<void> stopIfCurrentRemoved(Iterable<String> removedPaths) async {
     final current = _currentTrack;
     if (current == null || !removedPaths.contains(current.path)) {

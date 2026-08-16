@@ -129,6 +129,7 @@ void main() {
     final activePlaylist = LibraryActivePlaylistPlayback(
       folderPath: playlist.path,
       tracks: [playlistTrack],
+      queue: [playlistTrack],
       shuffled: false,
     );
     final activeAlbum = LibraryActiveAlbumPlayback(
@@ -180,6 +181,29 @@ void main() {
     expect(target?.queue.single.path, favoriteTrack.path);
     expect(target?.shuffled, isFalse);
     expect(target?.sidebarItem.kind, SidebarNowPlayingKind.playlist);
+  });
+
+  test('now playing prefers album identity over matching favorite tracks', () {
+    final album = _album('/music/album', 'Album');
+    final track = _track(album.folderPath);
+    final tracks = [track];
+
+    final target = nowPlayingTarget(
+      currentTrack: track,
+      playing: true,
+      activePlaylist: null,
+      activeAlbum: LibraryActiveAlbumPlayback(album: album, tracks: tracks),
+      activeFavorites: null,
+      albums: [album],
+      folders: const [],
+      favoriteTracks: tracks,
+      tracksByFolder: {album.folderPath: tracks},
+      trackCoverCache: const {},
+      isCurrentQueue: (_) => true,
+    );
+
+    expect(target?.kind, LibraryNowPlayingKind.album);
+    expect(target?.album?.folderPath, album.folderPath);
   });
 
   test('now playing preserves active shuffled favorites queue', () {

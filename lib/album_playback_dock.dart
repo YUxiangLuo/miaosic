@@ -160,7 +160,7 @@ class _DockNowPlayingAlbumState extends State<_DockNowPlayingAlbum>
   @override
   Widget build(BuildContext context) {
     return Tooltip(
-      message: 'Back to now playing album',
+      message: 'Back to now playing',
       child: AnimatedBuilder(
         animation: _controller,
         child: Material(
@@ -180,12 +180,17 @@ class _DockNowPlayingAlbumState extends State<_DockNowPlayingAlbum>
                 children: [
                   ClipRRect(
                     borderRadius: BorderRadius.circular(7),
-                    child: Artwork(
-                      path: widget.nowPlaying.coverArtPath,
-                      size: double.infinity,
-                      icon: Icons.album,
-                      radius: 0,
-                    ),
+                    child: widget.nowPlaying.collagePaths.isNotEmpty
+                        ? PlaylistCoverCollage(
+                            paths: widget.nowPlaying.collagePaths,
+                            radius: 0,
+                          )
+                        : Artwork(
+                            path: widget.nowPlaying.coverArtPath,
+                            size: double.infinity,
+                            icon: Icons.album,
+                            radius: 0,
+                          ),
                   ),
                   if (widget.nowPlaying.playing)
                     Center(

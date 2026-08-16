@@ -90,6 +90,19 @@ extension _LibraryScreenActions on _LibraryScreenState {
     }
   }
 
+  void _bindAlbumPlayback(AlbumSummary album, List<Track> tracks) {
+    final current = _activeAlbumPlayback;
+    if (current != null &&
+        current.album.folderPath == album.folderPath &&
+        _playback.isCurrentQueue(current.tracks)) {
+      return;
+    }
+    _activeAlbumPlayback = LibraryActiveAlbumPlayback(
+      album: album,
+      tracks: tracks,
+    );
+  }
+
   void _bindFavoritesPlayback(LibraryNowPlayingTarget target) {
     if (target.kind != LibraryNowPlayingKind.favorites ||
         target.tracks.isEmpty ||
@@ -118,6 +131,13 @@ extension _LibraryScreenActions on _LibraryScreenState {
     }
 
     final currentTrackPaths = tracks.map((track) => track.path).toSet();
+    final overlayAlbum = _overlay?.album;
+    if (_overlay?.isAlbum == true &&
+        overlayAlbum != null &&
+        !albums.any((album) => album.folderPath == overlayAlbum.folderPath)) {
+      _overlay = null;
+    }
+
     final activeAlbum = _activeAlbumPlayback;
     if (activeAlbum != null &&
         !activeAlbumStillAvailable(
@@ -125,7 +145,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
           albums: albums,
           currentTrackPaths: currentTrackPaths,
         )) {
-      _overlay = null;
+      _activeAlbumPlayback = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
     }
@@ -331,6 +351,10 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final track = trackByPathOrFirst(tracks, state.trackPath);
     _mutate(() {
       _showAlbumOverlay(album, tracks);
+      _activeAlbumPlayback = LibraryActiveAlbumPlayback(
+        album: album,
+        tracks: tracks,
+      );
       _activePlaylistPlayback = null;
       _activeFavoritesPlayback = null;
       _lastPlaybackPath = null;
@@ -352,9 +376,11 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final track = trackByPathOrFirst(queue, state.trackPath);
     _mutate(() {
       _showPlaylistOverlay(folder, tracks);
+      _activeAlbumPlayback = null;
       _activePlaylistPlayback = LibraryActivePlaylistPlayback(
         folderPath: folder.path,
         tracks: tracks,
+        queue: queue,
         shuffled: state.shuffled,
       );
       _activeFavoritesPlayback = null;
@@ -373,6 +399,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final track = trackByPathOrFirst(queue, state.trackPath);
     _mutate(() {
       _showFavoritesOverlay();
+      _activeAlbumPlayback = null;
       _activePlaylistPlayback = null;
       _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
         tracks: tracks,
@@ -459,6 +486,9 @@ extension _LibraryScreenActions on _LibraryScreenState {
       );
       _mutate(() {
         _overlay = null;
+        _activeAlbumPlayback = null;
+        _activePlaylistPlayback = null;
+        _activeFavoritesPlayback = null;
       });
     }
   }
@@ -468,7 +498,43 @@ extension _LibraryScreenActions on _LibraryScreenState {
   }
 
   void _toggleFavoriteTrack(Track track) {
-    unawaited(_library.toggleFavoriteTrack(track));
+    _favoriteMutation = _favoriteMutation
+        .then((_) => _toggleFavoriteTrackAndSyncQueue(track))
+        .catchError((_) {});
+    unawaited(_favoriteMutation);
+  }
+
+  Future<void> _toggleFavoriteTrackAndSyncQueue(Track track) async {
+    final removing = _library.favoriteTrackPaths.contains(track.path);
+    final session = _activeFavoritesPlayback;
+    final favoritesSessionActive =
+        session != null && _playback.isCurrentQueue(session.queue);
+
+    await _library.toggleFavoriteTrack(track);
+    if (!mounted || !removing || !favoritesSessionActive) {
+      return;
+    }
+
+    final nextTracks = session.tracks
+        .where((candidate) => candidate.path != track.path)
+        .toList(growable: false);
+    final nextQueue = session.queue
+        .where((candidate) => candidate.path != track.path)
+        .toList(growable: false);
+    _mutate(() {
+      _activeFavoritesPlayback = nextQueue.isEmpty
+          ? null
+          : LibraryActiveFavoritesPlayback(
+              tracks: nextTracks,
+              queue: nextQueue,
+              shuffled: session.shuffled,
+            );
+    });
+    if (nextQueue.isEmpty || _playback.currentTrack?.path == track.path) {
+      await _playback.stopIfCurrentRemoved([track.path]);
+      return;
+    }
+    await _playback.replaceQueueKeepingPosition(nextQueue);
   }
 
   Future<void> _restoreQueueFrom(
@@ -490,6 +556,10 @@ extension _LibraryScreenActions on _LibraryScreenState {
     _saveAlbumGridScrollOffset();
     _mutate(() {
       _showAlbumOverlay(album, tracks);
+      _activeAlbumPlayback = LibraryActiveAlbumPlayback(
+        album: album,
+        tracks: tracks,
+      );
       _activePlaylistPlayback = null;
       _activeFavoritesPlayback = null;
       _lastPlaybackPath = null;
@@ -512,11 +582,16 @@ extension _LibraryScreenActions on _LibraryScreenState {
     _saveAlbumGridScrollOffset();
     _mutate(() {
       _showAlbumOverlay(album, tracks);
-      final currentAlbumTrack = _currentTrackForAlbum(_activeAlbumPlayback!);
-      final showingCurrentAlbum = _playback.isCurrentQueue(tracks);
-      _lastPlaybackPath = showingCurrentAlbum ? currentAlbumTrack?.path : null;
-      _lastPlaybackPlaying =
-          showingCurrentAlbum && currentAlbumTrack != null && _playback.playing;
+      final identity = _activeAlbumPlayback;
+      final showingCurrentAlbum =
+          identity != null &&
+          identity.album.folderPath == album.folderPath &&
+          _playback.isCurrentQueue(identity.tracks);
+      final currentAlbumTrack = showingCurrentAlbum
+          ? _currentTrackForAlbum(identity)
+          : null;
+      _lastPlaybackPath = currentAlbumTrack?.path;
+      _lastPlaybackPlaying = currentAlbumTrack != null && _playback.playing;
     });
   }
 
@@ -533,21 +608,26 @@ extension _LibraryScreenActions on _LibraryScreenState {
   }
 
   void _switchAlbumPlayback(int delta) {
-    final activeAlbumPlayback = _activeAlbumPlayback;
-    if (activeAlbumPlayback == null) {
+    final viewed = _viewedAlbumPlayback;
+    if (viewed == null) {
       return;
     }
-    final target = _albumPlaybackSwitchTarget(activeAlbumPlayback.album, delta);
+    final target = _albumPlaybackSwitchTarget(viewed.album, delta);
     if (target == null) {
       return;
     }
     _mutate(() {
       _showAlbumOverlay(target.album, target.tracks);
-      final currentAlbumTrack = _currentTrackForAlbum(_activeAlbumPlayback!);
-      final showingCurrentAlbum = _playback.isCurrentQueue(target.tracks);
-      _lastPlaybackPath = showingCurrentAlbum ? currentAlbumTrack?.path : null;
-      _lastPlaybackPlaying =
-          showingCurrentAlbum && currentAlbumTrack != null && _playback.playing;
+      final identity = _activeAlbumPlayback;
+      final showingCurrentAlbum =
+          identity != null &&
+          identity.album.folderPath == target.album.folderPath &&
+          _playback.isCurrentQueue(identity.tracks);
+      final currentAlbumTrack = showingCurrentAlbum
+          ? _currentTrackForAlbum(identity)
+          : null;
+      _lastPlaybackPath = currentAlbumTrack?.path;
+      _lastPlaybackPlaying = currentAlbumTrack != null && _playback.playing;
     });
   }
 
@@ -561,9 +641,11 @@ extension _LibraryScreenActions on _LibraryScreenState {
     }
     _mutate(() {
       _showPlaylistOverlay(folder, tracks);
+      _activeAlbumPlayback = null;
       _activePlaylistPlayback = LibraryActivePlaylistPlayback(
         folderPath: folder.path,
         tracks: tracks,
+        queue: tracks,
         shuffled: false,
       );
       _activeFavoritesPlayback = null;
@@ -583,9 +665,11 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final shuffled = shuffledTracks(tracks);
     _mutate(() {
       _showPlaylistOverlay(folder, tracks);
+      _activeAlbumPlayback = null;
       _activePlaylistPlayback = LibraryActivePlaylistPlayback(
         folderPath: folder.path,
         tracks: tracks,
+        queue: shuffled,
         shuffled: true,
       );
       _activeFavoritesPlayback = null;
@@ -602,6 +686,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final queue = tracks.toList(growable: false);
     _mutate(() {
       _showFavoritesOverlay();
+      _activeAlbumPlayback = null;
       _activePlaylistPlayback = null;
       _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
         tracks: tracks,
@@ -621,6 +706,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final queue = shuffledTracks(tracks);
     _mutate(() {
       _showFavoritesOverlay();
+      _activeAlbumPlayback = null;
       _activePlaylistPlayback = null;
       _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
         tracks: tracks,
@@ -670,6 +756,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
         _saveAlbumGridScrollOffset();
         _mutate(() {
           _showAlbumOverlay(album, tracks);
+          _bindAlbumPlayback(album, tracks);
           _lastPlaybackPath = _playback.currentTrack?.path;
           _lastPlaybackPlaying = _playback.playing;
         });
@@ -771,15 +858,15 @@ extension _LibraryScreenActions on _LibraryScreenState {
     }
   }
 
-  LibraryNowPlayingTarget? _dockNowPlayingAlbumTarget({
+  LibraryNowPlayingTarget? _dockNowPlayingTarget({
     required LibraryNowPlayingTarget? nowPlayingTarget,
-    required LibraryActiveAlbumPlayback? activeAlbumPlayback,
+    required AlbumSummary? viewedAlbum,
   }) {
-    if (activeAlbumPlayback == null ||
-        nowPlayingTarget == null ||
-        nowPlayingTarget.kind != LibraryNowPlayingKind.album ||
-        nowPlayingTarget.album?.folderPath ==
-            activeAlbumPlayback.album.folderPath) {
+    if (viewedAlbum == null || nowPlayingTarget == null) {
+      return null;
+    }
+    if (nowPlayingTarget.kind == LibraryNowPlayingKind.album &&
+        nowPlayingTarget.album?.folderPath == viewedAlbum.folderPath) {
       return null;
     }
     return nowPlayingTarget;

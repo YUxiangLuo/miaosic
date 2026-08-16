@@ -120,6 +120,7 @@ class FavoritesPlaybackView extends StatelessWidget {
                   onNext: onNext,
                   onPlayTrack: onPlayTrack,
                   onToggleFavorite: onToggleFavorite,
+                  keyboardShortcutsEnabled: false,
                 ),
               ),
             ],

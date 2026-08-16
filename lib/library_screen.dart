@@ -46,6 +46,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   final _scrollMemory = LibraryScrollMemory();
 
   LibraryPlaybackOverlay? _overlay;
+  LibraryActiveAlbumPlayback? _activeAlbumPlayback;
   LibraryActivePlaylistPlayback? _activePlaylistPlayback;
   LibraryActiveFavoritesPlayback? _activeFavoritesPlayback;
   String? _lastPlaybackPath;
@@ -62,6 +63,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   int? _lastShownPlaybackErrorRevision;
   String? _lastShownBackgroundWarning;
   DateTime? _appLeftAt;
+  Future<void> _favoriteMutation = Future<void>.value();
 
   @override
   void initState() {
@@ -117,13 +119,14 @@ class _LibraryScreenState extends State<LibraryScreen>
     setState(update);
   }
 
-  LibraryActiveAlbumPlayback? get _activeAlbumPlayback {
+  LibraryActiveAlbumPlayback? get _viewedAlbumPlayback {
     final overlay = _overlay;
     final album = overlay?.album;
     if (overlay == null || !overlay.isAlbum || album == null) {
       return null;
     }
-    return LibraryActiveAlbumPlayback(album: album, tracks: overlay.tracks);
+    final tracks = _tracksByFolder[album.folderPath] ?? overlay.tracks;
+    return LibraryActiveAlbumPlayback(album: album, tracks: tracks);
   }
 
   FolderSummary? get _activePlaylistOverlayFolder {
@@ -150,7 +153,8 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   @override
   Widget build(BuildContext context) {
-    final activeAlbumPlayback = _activeAlbumPlayback;
+    final viewedAlbumPlayback = _viewedAlbumPlayback;
+    final albumQueue = _activeAlbumPlayback;
     final activePlaylistOverlayFolder = _activePlaylistOverlayFolder;
     final activePlaylistOverlayTracks = activePlaylistOverlayFolder == null
         ? const <Track>[]
@@ -183,17 +187,28 @@ class _LibraryScreenState extends State<LibraryScreen>
             (track) => track.path == activeFavoritesPlaybackTrack.path,
           );
     final settingsLoaded = _library.settingsLoaded;
-    final albumPlaybackActive =
-        activeAlbumPlayback != null &&
-        _playback.isCurrentQueue(activeAlbumPlayback.tracks);
-    final activeAlbumTrack = albumPlaybackActive
-        ? _currentTrackForAlbum(activeAlbumPlayback)
+    final viewingNowPlayingAlbum =
+        viewedAlbumPlayback != null &&
+        albumQueue != null &&
+        viewedAlbumPlayback.album.folderPath == albumQueue.album.folderPath &&
+        _playback.isCurrentQueue(albumQueue.tracks);
+    final albumControlTracks = viewingNowPlayingAlbum
+        ? albumQueue.tracks
+        : viewedAlbumPlayback?.tracks ?? const <Track>[];
+    final activeAlbumTrack = viewingNowPlayingAlbum
+        ? _currentTrackForAlbum(albumQueue)
         : null;
     final nowPlayingTarget = _nowPlayingTarget;
-    final dockNowPlayingAlbumTarget = _dockNowPlayingAlbumTarget(
+    final dockNowPlayingTarget = _dockNowPlayingTarget(
       nowPlayingTarget: nowPlayingTarget,
-      activeAlbumPlayback: activeAlbumPlayback,
+      viewedAlbum: viewedAlbumPlayback?.album,
     );
+    final playlistQueue = activePlaylistPlayback?.queue ?? const <Track>[];
+    final playlistPlaybackIndex = activePlaylistPlaybackTrack == null
+        ? -1
+        : playlistQueue.indexWhere(
+            (track) => track.path == activePlaylistPlaybackTrack.path,
+          );
 
     return LibraryScreenView(
       model: LibraryScreenViewModel(
@@ -215,9 +230,9 @@ class _LibraryScreenState extends State<LibraryScreen>
         trackCoverCache: _library.trackCoverCache,
         themeMode: widget.themeMode,
         nowPlayingTarget: nowPlayingTarget,
-        activeAlbumPlayback: activeAlbumPlayback,
+        activeAlbumPlayback: viewedAlbumPlayback,
         activeAlbumTrack: activeAlbumTrack,
-        dockNowPlayingAlbumTarget: dockNowPlayingAlbumTarget,
+        dockNowPlayingAlbumTarget: dockNowPlayingTarget,
         activePlaylistOverlayFolder: activePlaylistOverlayFolder,
         activePlaylistOverlayTracks: activePlaylistOverlayTracks,
         activePlaylistTrack: activePlaylistTrack,
@@ -229,11 +244,11 @@ class _LibraryScreenState extends State<LibraryScreen>
         playlistListScrollController:
             _scrollMemory.playlistListScrollController,
         canSwitchPreviousAlbum:
-            activeAlbumPlayback != null &&
-            _albumPlaybackSwitchTarget(activeAlbumPlayback.album, -1) != null,
+            viewedAlbumPlayback != null &&
+            _albumPlaybackSwitchTarget(viewedAlbumPlayback.album, -1) != null,
         canSwitchNextAlbum:
-            activeAlbumPlayback != null &&
-            _albumPlaybackSwitchTarget(activeAlbumPlayback.album, 1) != null,
+            viewedAlbumPlayback != null &&
+            _albumPlaybackSwitchTarget(viewedAlbumPlayback.album, 1) != null,
         canSwitchPreviousPlaylist:
             activePlaylistOverlayFolder != null &&
             _playlistPlaybackSwitchTarget(activePlaylistOverlayFolder, -1) !=
@@ -251,39 +266,37 @@ class _LibraryScreenState extends State<LibraryScreen>
         onSelectedView: _selectLibraryView,
         onOpenAlbum: _openAlbumPlayback,
         onCloseAlbumPlayback: _closeAlbumPlayback,
-        onAlbumPrevious: activeAlbumPlayback == null
+        onAlbumPrevious: viewedAlbumPlayback == null
             ? null
-            : () => unawaited(_playback.skip(-1, activeAlbumPlayback.tracks)),
-        onAlbumToggle: activeAlbumPlayback == null
+            : () => unawaited(_playback.skip(-1, albumControlTracks)),
+        onAlbumToggle: viewedAlbumPlayback == null
             ? null
             : () => unawaited(
-                albumPlaybackActive
-                    ? _playback.togglePlayPause(activeAlbumPlayback.tracks)
+                viewingNowPlayingAlbum
+                    ? _playback.togglePlayPause(albumControlTracks)
                     : _playAlbum(
-                        activeAlbumPlayback.album,
-                        activeAlbumPlayback.tracks,
+                        viewedAlbumPlayback.album,
+                        viewedAlbumPlayback.tracks,
                       ),
               ),
-        onAlbumNext: activeAlbumPlayback == null
+        onAlbumNext: viewedAlbumPlayback == null
             ? null
-            : () => unawaited(_playback.skip(1, activeAlbumPlayback.tracks)),
-        onOpenNowPlayingAlbum: dockNowPlayingAlbumTarget == null
+            : () => unawaited(_playback.skip(1, albumControlTracks)),
+        onOpenNowPlayingAlbum: dockNowPlayingTarget == null
             ? null
-            : () => _openNowPlaying(dockNowPlayingAlbumTarget),
-        onSwitchPreviousAlbum: activeAlbumPlayback == null
+            : () => _openNowPlaying(dockNowPlayingTarget),
+        onSwitchPreviousAlbum: viewedAlbumPlayback == null
             ? null
             : () => _switchAlbumPlayback(-1),
-        onSwitchNextAlbum: activeAlbumPlayback == null
+        onSwitchNextAlbum: viewedAlbumPlayback == null
             ? null
             : () => _switchAlbumPlayback(1),
         onPlayAlbumTrack: (track) {
-          final albumPlayback = _activeAlbumPlayback;
-          if (albumPlayback == null) {
+          final viewed = _viewedAlbumPlayback;
+          if (viewed == null) {
             return;
           }
-          unawaited(
-            _playAlbumFrom(albumPlayback.album, albumPlayback.tracks, track),
-          );
+          unawaited(_playAlbumFrom(viewed.album, viewed.tracks, track));
         },
         onToggleFavoriteTrack: _toggleFavoriteTrack,
         onFavoritePlayAll: _library.favoriteTracks.isEmpty
@@ -346,16 +359,18 @@ class _LibraryScreenState extends State<LibraryScreen>
                   activePlaylistOverlayTracks,
                 ),
               ),
-        onPlaylistPrevious: playlistOverlayPlaybackActive
-            ? () => unawaited(_playback.skip(-1, activePlaylistPlayback.tracks))
+        onPlaylistPrevious:
+            playlistOverlayPlaybackActive && playlistPlaybackIndex > 0
+            ? () => unawaited(_playback.skip(-1, playlistQueue))
             : null,
         onPlaylistTogglePlayback: playlistOverlayPlaybackActive
-            ? () => unawaited(
-                _playback.togglePlayPause(activePlaylistPlayback.tracks),
-              )
+            ? () => unawaited(_playback.togglePlayPause(playlistQueue))
             : null,
-        onPlaylistNext: playlistOverlayPlaybackActive
-            ? () => unawaited(_playback.skip(1, activePlaylistPlayback.tracks))
+        onPlaylistNext:
+            playlistOverlayPlaybackActive &&
+                playlistPlaybackIndex >= 0 &&
+                playlistPlaybackIndex < playlistQueue.length - 1
+            ? () => unawaited(_playback.skip(1, playlistQueue))
             : null,
         onPlayPlaylistTrack: (track) {
           final folder = _activePlaylistOverlayFolder;

@@ -64,11 +64,13 @@ class LibraryActivePlaylistPlayback {
   const LibraryActivePlaylistPlayback({
     required this.folderPath,
     required this.tracks,
+    required this.queue,
     required this.shuffled,
   });
 
   final String folderPath;
   final List<Track> tracks;
+  final List<Track> queue;
   final bool shuffled;
 }
 

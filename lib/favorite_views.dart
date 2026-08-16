@@ -27,6 +27,7 @@ class FavoriteTrackList extends StatelessWidget {
     required this.onPlayTrack,
     required this.onToggleFavorite,
     this.focusRequestToken,
+    this.keyboardShortcutsEnabled = true,
   });
 
   final List<Track> tracks;
@@ -42,6 +43,7 @@ class FavoriteTrackList extends StatelessWidget {
   final ValueChanged<Track> onPlayTrack;
   final ValueChanged<Track> onToggleFavorite;
   final Object? focusRequestToken;
+  final bool keyboardShortcutsEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -49,6 +51,78 @@ class FavoriteTrackList extends StatelessWidget {
       return const EmptyState(message: 'No favorite tracks yet');
     }
 
+    final list = LayoutBuilder(
+      builder: (context, constraints) {
+        final showArtist = constraints.maxWidth >= 600;
+        final showAlbum = constraints.maxWidth >= 780;
+        final compactHeader = constraints.maxWidth < 780;
+        final controls = _FavoritePlaybackControls(
+          playbackActive: playbackActive,
+          playing: playing,
+          onPlayAll: onPlayAll,
+          onShuffleAll: onShuffleAll,
+          onPrevious: onPrevious,
+          onTogglePlayback: onTogglePlayback,
+          onNext: onNext,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 24, 28, 14),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: _FavoriteTitleBlock(trackCount: tracks.length),
+                      ),
+                      if (!compactHeader) ...[
+                        const SizedBox(width: 16),
+                        controls,
+                      ],
+                    ],
+                  ),
+                  if (compactHeader) ...[const SizedBox(height: 14), controls],
+                ],
+              ),
+            ),
+            _FavoriteTableHeader(showArtist: showArtist, showAlbum: showAlbum),
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
+                itemCount: tracks.length,
+                separatorBuilder: (_, _) => Divider(
+                  height: 1,
+                  color: Theme.of(
+                    context,
+                  ).colorScheme.outlineVariant.withValues(alpha: 0.7),
+                ),
+                itemBuilder: (context, index) {
+                  final track = tracks[index];
+                  final selected = currentTrack?.path == track.path;
+                  return _FavoriteTrackRow(
+                    index: index,
+                    track: track,
+                    artworkPath: resolveTrackArtwork(track, trackCoverCache),
+                    selected: selected,
+                    playing: selected && playing,
+                    showArtist: showArtist,
+                    showAlbum: showAlbum,
+                    onTap: () => onPlayTrack(track),
+                    onToggleFavorite: () => onToggleFavorite(track),
+                  );
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+    if (!keyboardShortcutsEnabled) {
+      return list;
+    }
     return _FavoriteShortcutScope(
       focusRequestToken: focusRequestToken,
       bindings: {
@@ -57,81 +131,7 @@ class FavoriteTrackList extends StatelessWidget {
           action?.call();
         },
       },
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final showArtist = constraints.maxWidth >= 600;
-          final showAlbum = constraints.maxWidth >= 780;
-          final compactHeader = constraints.maxWidth < 780;
-          final controls = _FavoritePlaybackControls(
-            playbackActive: playbackActive,
-            playing: playing,
-            onPlayAll: onPlayAll,
-            onShuffleAll: onShuffleAll,
-            onPrevious: onPrevious,
-            onTogglePlayback: onTogglePlayback,
-            onNext: onNext,
-          );
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(28, 24, 28, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _FavoriteTitleBlock(trackCount: tracks.length),
-                        ),
-                        if (!compactHeader) ...[
-                          const SizedBox(width: 16),
-                          controls,
-                        ],
-                      ],
-                    ),
-                    if (compactHeader) ...[
-                      const SizedBox(height: 14),
-                      controls,
-                    ],
-                  ],
-                ),
-              ),
-              _FavoriteTableHeader(
-                showArtist: showArtist,
-                showAlbum: showAlbum,
-              ),
-              Expanded(
-                child: ListView.separated(
-                  padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
-                  itemCount: tracks.length,
-                  separatorBuilder: (_, _) => Divider(
-                    height: 1,
-                    color: Theme.of(
-                      context,
-                    ).colorScheme.outlineVariant.withValues(alpha: 0.7),
-                  ),
-                  itemBuilder: (context, index) {
-                    final track = tracks[index];
-                    final selected = currentTrack?.path == track.path;
-                    return _FavoriteTrackRow(
-                      index: index,
-                      track: track,
-                      artworkPath: resolveTrackArtwork(track, trackCoverCache),
-                      selected: selected,
-                      playing: selected && playing,
-                      showArtist: showArtist,
-                      showAlbum: showAlbum,
-                      onTap: () => onPlayTrack(track),
-                      onToggleFavorite: () => onToggleFavorite(track),
-                    );
-                  },
-                ),
-              ),
-            ],
-          );
-        },
-      ),
+      child: list,
     );
   }
 }

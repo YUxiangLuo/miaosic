@@ -74,11 +74,13 @@ class _WideAlbumMetrics {
 
 class AlbumPlaybackNowPlaying {
   const AlbumPlaybackNowPlaying({
-    required this.coverArtPath,
+    this.coverArtPath,
+    this.collagePaths = const [],
     required this.playing,
   });
 
   final String? coverArtPath;
+  final List<String> collagePaths;
   final bool playing;
 }
 
