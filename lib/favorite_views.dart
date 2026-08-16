@@ -1,196 +1,11 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'artwork_resolver.dart';
 import 'library_formatters.dart';
 import 'library_widgets.dart';
 import 'models.dart';
 
-const _favoritePlaybackSpaceActivator = SingleActivator(
-  LogicalKeyboardKey.space,
-  includeRepeats: false,
-);
-
-class FavoriteTrackList extends StatelessWidget {
-  const FavoriteTrackList({
-    super.key,
-    required this.tracks,
-    required this.trackCoverCache,
-    required this.currentTrack,
-    required this.playbackActive,
-    required this.playing,
-    required this.onPlayAll,
-    required this.onShuffleAll,
-    required this.onPrevious,
-    required this.onTogglePlayback,
-    required this.onNext,
-    required this.onPlayTrack,
-    required this.onToggleFavorite,
-    this.focusRequestToken,
-    this.keyboardShortcutsEnabled = true,
-  });
-
-  final List<Track> tracks;
-  final Map<String, String?> trackCoverCache;
-  final Track? currentTrack;
-  final bool playbackActive;
-  final bool playing;
-  final VoidCallback? onPlayAll;
-  final VoidCallback? onShuffleAll;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onTogglePlayback;
-  final VoidCallback? onNext;
-  final ValueChanged<Track> onPlayTrack;
-  final ValueChanged<Track> onToggleFavorite;
-  final Object? focusRequestToken;
-  final bool keyboardShortcutsEnabled;
-
-  @override
-  Widget build(BuildContext context) {
-    if (tracks.isEmpty) {
-      return const EmptyState(message: 'No favorite tracks yet');
-    }
-
-    final list = LayoutBuilder(
-      builder: (context, constraints) {
-        final showArtist = constraints.maxWidth >= 600;
-        final showAlbum = constraints.maxWidth >= 780;
-        final compactHeader = constraints.maxWidth < 780;
-        final controls = _FavoritePlaybackControls(
-          playbackActive: playbackActive,
-          playing: playing,
-          onPlayAll: onPlayAll,
-          onShuffleAll: onShuffleAll,
-          onPrevious: onPrevious,
-          onTogglePlayback: onTogglePlayback,
-          onNext: onNext,
-        );
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(28, 24, 28, 14),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _FavoriteTitleBlock(trackCount: tracks.length),
-                      ),
-                      if (!compactHeader) ...[
-                        const SizedBox(width: 16),
-                        controls,
-                      ],
-                    ],
-                  ),
-                  if (compactHeader) ...[const SizedBox(height: 14), controls],
-                ],
-              ),
-            ),
-            _FavoriteTableHeader(showArtist: showArtist, showAlbum: showAlbum),
-            Expanded(
-              child: ListView.separated(
-                padding: const EdgeInsets.fromLTRB(28, 0, 28, 28),
-                itemCount: tracks.length,
-                separatorBuilder: (_, _) => Divider(
-                  height: 1,
-                  color: Theme.of(
-                    context,
-                  ).colorScheme.outlineVariant.withValues(alpha: 0.7),
-                ),
-                itemBuilder: (context, index) {
-                  final track = tracks[index];
-                  final selected = currentTrack?.path == track.path;
-                  return _FavoriteTrackRow(
-                    index: index,
-                    track: track,
-                    artworkPath: resolveTrackArtwork(track, trackCoverCache),
-                    selected: selected,
-                    playing: selected && playing,
-                    showArtist: showArtist,
-                    showAlbum: showAlbum,
-                    onTap: () => onPlayTrack(track),
-                    onToggleFavorite: () => onToggleFavorite(track),
-                  );
-                },
-              ),
-            ),
-          ],
-        );
-      },
-    );
-    if (!keyboardShortcutsEnabled) {
-      return list;
-    }
-    return _FavoriteShortcutScope(
-      focusRequestToken: focusRequestToken,
-      bindings: {
-        _favoritePlaybackSpaceActivator: () {
-          final action = playbackActive ? onTogglePlayback : onPlayAll;
-          action?.call();
-        },
-      },
-      child: list,
-    );
-  }
-}
-
-class _FavoriteShortcutScope extends StatefulWidget {
-  const _FavoriteShortcutScope({
-    required this.bindings,
-    required this.child,
-    this.focusRequestToken,
-  });
-
-  final Map<ShortcutActivator, VoidCallback> bindings;
-  final Widget child;
-  final Object? focusRequestToken;
-
-  @override
-  State<_FavoriteShortcutScope> createState() => _FavoriteShortcutScopeState();
-}
-
-class _FavoriteShortcutScopeState extends State<_FavoriteShortcutScope> {
-  late final FocusNode _focusNode;
-
-  @override
-  void initState() {
-    super.initState();
-    _focusNode = FocusNode(debugLabel: 'FavoriteTrackListShortcuts');
-    _scheduleFocusRequest();
-  }
-
-  @override
-  void didUpdateWidget(covariant _FavoriteShortcutScope oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.focusRequestToken != widget.focusRequestToken) {
-      _scheduleFocusRequest();
-    }
-  }
-
-  @override
-  void dispose() {
-    _focusNode.dispose();
-    super.dispose();
-  }
-
-  void _scheduleFocusRequest() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _focusNode.requestFocus();
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return CallbackShortcuts(
-      bindings: widget.bindings,
-      child: Focus(focusNode: _focusNode, autofocus: true, child: widget.child),
-    );
-  }
-}
+const _favoriteBrowsePlaySlotWidth = 44.0;
 
 class FavoriteBrowseList extends StatelessWidget {
   const FavoriteBrowseList({
@@ -245,14 +60,12 @@ class FavoriteBrowseList extends StatelessWidget {
                   final track = tracks[index];
                   final selected = currentTrack?.path == track.path;
                   return _FavoriteTrackRow(
-                    index: index,
                     track: track,
                     artworkPath: resolveTrackArtwork(track, trackCoverCache),
                     selected: selected,
                     playing: selected && playing,
                     showArtist: showArtist,
                     showAlbum: showAlbum,
-                    showPlayButton: true,
                     onPlay: () => onPlayTrack(track),
                     onDoubleTap: () => onPlayTrack(track),
                     onToggleFavorite: () => onToggleFavorite(track),
@@ -297,153 +110,6 @@ class _FavoriteTitleBlock extends StatelessWidget {
   }
 }
 
-class _FavoritePlaybackControls extends StatelessWidget {
-  const _FavoritePlaybackControls({
-    required this.playbackActive,
-    required this.playing,
-    required this.onPlayAll,
-    required this.onShuffleAll,
-    required this.onPrevious,
-    required this.onTogglePlayback,
-    required this.onNext,
-  });
-
-  final bool playbackActive;
-  final bool playing;
-  final VoidCallback? onPlayAll;
-  final VoidCallback? onShuffleAll;
-  final VoidCallback? onPrevious;
-  final VoidCallback? onTogglePlayback;
-  final VoidCallback? onNext;
-
-  @override
-  Widget build(BuildContext context) {
-    if (!playbackActive) {
-      return _FavoriteControlBar(
-        children: [
-          _FavoriteControlButton(
-            tooltip: 'Play favorites',
-            icon: Icons.play_arrow_rounded,
-            onPressed: onPlayAll,
-            prominent: true,
-          ),
-          const _FavoriteControlDivider(),
-          _FavoriteControlButton(
-            tooltip: 'Shuffle favorites',
-            icon: Icons.shuffle_rounded,
-            onPressed: onShuffleAll,
-          ),
-        ],
-      );
-    }
-
-    return _FavoriteControlBar(
-      children: [
-        _FavoriteControlButton(
-          tooltip: 'Previous',
-          icon: Icons.skip_previous_rounded,
-          onPressed: onPrevious,
-        ),
-        const _FavoriteControlDivider(),
-        _FavoriteControlButton(
-          tooltip: playing ? 'Pause' : 'Play',
-          icon: playing ? Icons.pause_rounded : Icons.play_arrow_rounded,
-          onPressed: onTogglePlayback,
-          prominent: true,
-        ),
-        const _FavoriteControlDivider(),
-        _FavoriteControlButton(
-          tooltip: 'Next',
-          icon: Icons.skip_next_rounded,
-          onPressed: onNext,
-        ),
-        const _FavoriteControlDivider(),
-        _FavoriteControlButton(
-          tooltip: 'Shuffle favorites',
-          icon: Icons.shuffle_rounded,
-          onPressed: onShuffleAll,
-        ),
-      ],
-    );
-  }
-}
-
-class _FavoriteControlBar extends StatelessWidget {
-  const _FavoriteControlBar({required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerHighest.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(3),
-        child: Row(mainAxisSize: MainAxisSize.min, children: children),
-      ),
-    );
-  }
-}
-
-class _FavoriteControlButton extends StatelessWidget {
-  const _FavoriteControlButton({
-    required this.tooltip,
-    required this.icon,
-    required this.onPressed,
-    this.prominent = false,
-  });
-
-  final String tooltip;
-  final IconData icon;
-  final VoidCallback? onPressed;
-  final bool prominent;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      icon: Icon(icon),
-      style: IconButton.styleFrom(
-        fixedSize: const Size.square(48),
-        minimumSize: const Size.square(48),
-        maximumSize: const Size.square(48),
-        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        padding: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-        backgroundColor: prominent ? scheme.primary : Colors.transparent,
-        foregroundColor: prominent ? scheme.onPrimary : scheme.onSurface,
-        disabledBackgroundColor: prominent
-            ? scheme.onSurface.withValues(alpha: 0.08)
-            : Colors.transparent,
-        disabledForegroundColor: scheme.onSurface.withValues(alpha: 0.28),
-      ),
-    );
-  }
-}
-
-class _FavoriteControlDivider extends StatelessWidget {
-  const _FavoriteControlDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 28,
-      child: VerticalDivider(
-        width: 1,
-        thickness: 1,
-        color: Theme.of(context).colorScheme.outlineVariant,
-      ),
-    );
-  }
-}
-
 class _FavoriteTableHeader extends StatelessWidget {
   const _FavoriteTableHeader({
     required this.showArtist,
@@ -464,8 +130,8 @@ class _FavoriteTableHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(28, 0, 28, 8),
       child: Row(
         children: [
-          SizedBox(width: 44, child: Text('#', style: style)),
-          const SizedBox(width: 52),
+          const SizedBox(width: _favoriteBrowsePlaySlotWidth),
+          const SizedBox(width: 42),
           const SizedBox(width: 14),
           Expanded(flex: 5, child: Text('TITLE', style: style)),
           if (showArtist) ...[
@@ -491,31 +157,25 @@ class _FavoriteTableHeader extends StatelessWidget {
 
 class _FavoriteTrackRow extends StatelessWidget {
   const _FavoriteTrackRow({
-    required this.index,
     required this.track,
     required this.artworkPath,
     required this.selected,
     required this.playing,
     required this.showArtist,
     required this.showAlbum,
-    this.showPlayButton = false,
-    this.onTap,
-    this.onPlay,
-    this.onDoubleTap,
+    required this.onPlay,
+    required this.onDoubleTap,
     required this.onToggleFavorite,
   });
 
-  final int index;
   final Track track;
   final String? artworkPath;
   final bool selected;
   final bool playing;
   final bool showArtist;
   final bool showAlbum;
-  final bool showPlayButton;
-  final VoidCallback? onTap;
-  final VoidCallback? onPlay;
-  final VoidCallback? onDoubleTap;
+  final VoidCallback onPlay;
+  final VoidCallback onDoubleTap;
   final VoidCallback onToggleFavorite;
 
   @override
@@ -526,19 +186,8 @@ class _FavoriteTrackRow extends StatelessWidget {
     final background = selected
         ? scheme.primaryContainer.withValues(alpha: 0.55)
         : Colors.transparent;
-    final indexOrEq = playing
-        ? Icon(Icons.graphic_eq, size: 18, color: primary)
-        : Text(
-            (index + 1).toString().padLeft(2, '0'),
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: secondary,
-              fontWeight: FontWeight.w800,
-            ),
-          );
     final details = Row(
       children: [
-        if (!showPlayButton)
-          SizedBox(width: 44, child: Center(child: indexOrEq)),
         Artwork(path: artworkPath, size: 42, icon: Icons.music_note),
         const SizedBox(width: 14),
         Expanded(
@@ -598,8 +247,9 @@ class _FavoriteTrackRow extends StatelessWidget {
         height: 58,
         child: Row(
           children: [
-            if (showPlayButton)
-              IconButton(
+            SizedBox(
+              width: _favoriteBrowsePlaySlotWidth,
+              child: IconButton(
                 key: Key('favorite-play-${track.path}'),
                 tooltip: 'Play favorite',
                 visualDensity: VisualDensity.compact,
@@ -609,12 +259,9 @@ class _FavoriteTrackRow extends StatelessWidget {
                 ),
                 color: primary,
               ),
+            ),
             Expanded(
-              child: InkWell(
-                onTap: onTap,
-                onDoubleTap: onDoubleTap,
-                child: details,
-              ),
+              child: InkWell(onDoubleTap: onDoubleTap, child: details),
             ),
           ],
         ),

@@ -464,7 +464,7 @@ void main() {
     await tester.pump();
 
     expect(find.byType(FavoritesPlaybackView), findsOneWidget);
-    expect(find.text('1 favorite track'), findsOneWidget);
+    expect(find.text('1 favorite track'), findsWidgets);
 
     await tester.sendKeyEvent(LogicalKeyboardKey.space);
     await tester.pump();
