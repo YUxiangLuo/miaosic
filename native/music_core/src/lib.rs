@@ -22,11 +22,20 @@ mod tests {
     use crate::flac::{read_picture_data, read_streaminfo_duration, read_vorbis_comments};
     use crate::models::{IncrementalScanRequest, ScanIssues, Track, TrackCoverRequest};
     use crate::scan::{extract_track_covers, scan_library, scan_library_incremental};
-    use crate::util::is_disc_folder;
+    use crate::util::{is_disc_folder, parse_year};
     use std::ffi::{CStr, CString};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn parse_year_handles_non_ascii_dates_without_panic() {
+        assert_eq!(parse_year(Some("1998-03-14")), Some(1998));
+        assert_eq!(parse_year(Some("发行于2003年")), Some(2003));
+        assert_eq!(parse_year(Some("２００１年")), None);
+        assert_eq!(parse_year(Some("unknown")), None);
+        assert_eq!(parse_year(None), None);
+    }
 
     #[test]
     fn extracts_flac_picture_payload() {

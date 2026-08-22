@@ -1,4 +1,4 @@
-use crate::cover::first_cover_path;
+use crate::cover::{first_cover_path, first_cover_path_refs};
 use crate::models::{AlbumSummary, FolderSummary, Track};
 use crate::util::basename;
 use std::collections::{HashMap, HashSet};
@@ -295,8 +295,4 @@ fn is_playlist_name(value: &str) -> bool {
 
 fn confidence(winner: i32, loser: i32) -> f64 {
     (0.5 + ((winner - loser).clamp(0, 8) as f64 / 16.0)).clamp(0.5, 0.99)
-}
-
-fn first_cover_path_refs(tracks: &[&Track]) -> Option<String> {
-    tracks.iter().find_map(|track| track.cover_art_path.clone())
 }

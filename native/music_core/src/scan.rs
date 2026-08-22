@@ -42,10 +42,6 @@ impl ProgressReporter {
     }
 
     pub(crate) fn emit_path(&self, current_path: &Path) {
-        self.emit(current_path);
-    }
-
-    fn emit(&self, current_path: &Path) {
         let Some(callback) = self.callback else {
             return;
         };

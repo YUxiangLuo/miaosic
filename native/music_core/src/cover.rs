@@ -141,3 +141,7 @@ fn cover_extension_for_path(path: &Path) -> Option<&'static str> {
 pub(crate) fn first_cover_path(tracks: &[Track]) -> Option<String> {
     tracks.iter().find_map(|track| track.cover_art_path.clone())
 }
+
+pub(crate) fn first_cover_path_refs(tracks: &[&Track]) -> Option<String> {
+    tracks.iter().find_map(|track| track.cover_art_path.clone())
+}

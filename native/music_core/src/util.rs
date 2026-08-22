@@ -65,7 +65,10 @@ pub(crate) fn parse_number(value: Option<&str>) -> Option<i64> {
 
 pub(crate) fn parse_year(value: Option<&str>) -> Option<i64> {
     let value = value?;
-    for index in 0..value.len().saturating_sub(3) {
+    for index in 0..=value.len().saturating_sub(4) {
+        if !value.is_char_boundary(index) || !value.is_char_boundary(index + 4) {
+            continue;
+        }
         let candidate = &value[index..index + 4];
         if candidate.starts_with("19") || candidate.starts_with("20") {
             if let Ok(year) = candidate.parse::<i64>() {
