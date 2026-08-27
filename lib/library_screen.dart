@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -16,14 +15,6 @@ part 'library_screen_actions.dart';
 
 typedef LibraryScreenClock = DateTime Function();
 
-/// Picks an album index from [count] available albums. Used to choose a
-/// random album to play at startup when there is no playback to restore.
-typedef LibraryScreenRandomAlbumPicker = int Function(int count);
-
-int _defaultRandomAlbumPicker(int count) {
-  return math.Random().nextInt(count);
-}
-
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
@@ -32,7 +23,6 @@ class LibraryScreen extends StatefulWidget {
     this.libraryController,
     this.playbackController,
     this.now = DateTime.now,
-    this.randomAlbumPicker = _defaultRandomAlbumPicker,
   });
 
   final ThemeMode themeMode;
@@ -40,7 +30,6 @@ class LibraryScreen extends StatefulWidget {
   final LibraryController? libraryController;
   final PlaybackController? playbackController;
   final LibraryScreenClock now;
-  final LibraryScreenRandomAlbumPicker randomAlbumPicker;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();

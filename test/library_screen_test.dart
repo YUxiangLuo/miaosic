@@ -568,60 +568,14 @@ void main() {
       playback.currentQueueForTest.map((track) => track.path),
       favoriteTracks.map((track) => track.path),
     );
-    expect(playback.playing, isFalse);
+    // The saved state was paused, but Miaosic always plays on launch.
+    expect(playback.playing, isTrue);
     expect(find.byType(FavoritesPlaybackView), findsOneWidget);
 
     await _disposeLibraryScreen(tester, library, playback);
   });
 
-  testWidgets('plays a random album when there is no playback to restore', (
-    tester,
-  ) async {
-    final albums = [
-      _albumSummary('/music/A/Album A', 'Album A'),
-      _albumSummary('/music/B/Album B', 'Album B'),
-      _albumSummary('/music/C/Album C', 'Album C'),
-    ];
-    final tracksByFolder = {
-      for (final album in albums)
-        album.folderPath: [
-          _track(
-            '${album.folderPath}/01.flac',
-            folderPath: album.folderPath,
-            title: album.title,
-            album: album.title,
-            artist: album.albumArtist,
-          ),
-        ],
-    };
-    final allTracks = [for (final tracks in tracksByFolder.values) ...tracks];
-    final library = _InjectedLibraryController(
-      tracks: allTracks,
-      albums: albums,
-      tracksByFolder: tracksByFolder,
-      canRestorePlayback: true,
-    );
-    final playback = _InjectedPlaybackController();
-
-    await _pumpLibraryScreen(
-      tester,
-      library: library,
-      playback: playback,
-      now: DateTime.now,
-      randomAlbumPicker: (count) => 1,
-    );
-    await tester.pump();
-
-    final expected = albums[1];
-    expect(playback.currentTrack?.path, '${expected.folderPath}/01.flac');
-    expect(playback.playing, isTrue);
-    expect(find.byType(AlbumPlaybackView), findsOneWidget);
-    expect(find.text(expected.title), findsWidgets);
-
-    await _disposeLibraryScreen(tester, library, playback);
-  });
-
-  testWidgets('falls back to a random album when the saved album is gone', (
+  testWidgets('plays a saved album on launch even when it was paused', (
     tester,
   ) async {
     final album = _albumSummary('/music/A/Album A', 'Album A');
@@ -640,9 +594,9 @@ void main() {
       },
       lastPlaybackState: LastPlaybackState(
         kind: LastPlaybackKind.album,
-        folderPath: '/music/Gone/Album',
-        trackPath: '/music/Gone/Album/01.flac',
-        playing: true,
+        folderPath: album.folderPath,
+        trackPath: track.path,
+        playing: false,
         shuffled: false,
       ),
       canRestorePlayback: true,
@@ -654,10 +608,10 @@ void main() {
       library: library,
       playback: playback,
       now: DateTime.now,
-      randomAlbumPicker: (count) => 0,
     );
     await tester.pump();
 
+    expect(playback.restoreCount, 1);
     expect(playback.currentTrack?.path, track.path);
     expect(playback.playing, isTrue);
     expect(find.byType(AlbumPlaybackView), findsOneWidget);
@@ -665,22 +619,23 @@ void main() {
     await _disposeLibraryScreen(tester, library, playback);
   });
 
-  testWidgets('does not play a random album when no album has tracks', (
+  testWidgets('does not play when there is no saved playback state', (
     tester,
   ) async {
     final album = _albumSummary('/music/A/Album A', 'Album A');
+    final track = _track(
+      '${album.folderPath}/01.flac',
+      folderPath: album.folderPath,
+      title: album.title,
+      album: album.title,
+      artist: album.albumArtist,
+    );
     final library = _InjectedLibraryController(
-      tracks: [
-        _track(
-          '${album.folderPath}/01.flac',
-          folderPath: album.folderPath,
-          title: album.title,
-          album: album.title,
-          artist: album.albumArtist,
-        ),
-      ],
+      tracks: [track],
       albums: [album],
-      tracksByFolder: const {},
+      tracksByFolder: {
+        album.folderPath: [track],
+      },
       canRestorePlayback: true,
     );
     final playback = _InjectedPlaybackController();
@@ -1147,7 +1102,6 @@ Future<void> _pumpLibraryScreen(
   required _InjectedLibraryController library,
   required _InjectedPlaybackController playback,
   required LibraryScreenClock now,
-  LibraryScreenRandomAlbumPicker? randomAlbumPicker,
 }) async {
   await tester.pumpWidget(
     MaterialApp(
@@ -1157,7 +1111,6 @@ Future<void> _pumpLibraryScreen(
         libraryController: library,
         playbackController: playback,
         now: now,
-        randomAlbumPicker: randomAlbumPicker ?? (count) => 0,
       ),
     ),
   );

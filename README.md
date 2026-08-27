@@ -18,8 +18,7 @@ folder, stores the library in SQLite, caches artwork, and plays tracks with
 - Linux playback through `media_kit`.
 - Single-instance guard: launching Miaosic while another instance is already
   running exits immediately instead of starting a second copy.
-- On first launch with no saved playback, Miaosic picks a random album and
-  starts playing it.
+- Miaosic resumes saved playback on launch, playing even if it was paused.
 
 ## Scope
 
