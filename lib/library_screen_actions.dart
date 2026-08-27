@@ -318,38 +318,55 @@ extension _LibraryScreenActions on _LibraryScreenState {
       return;
     }
 
-    final state = _library.lastPlayback;
-    if (state == null) {
-      _lastPlaybackRestoreAttempted = true;
-      return;
-    }
-
     _lastPlaybackRestoreAttempted = true;
     _lastPlaybackRestoring = true;
     try {
-      switch (state.kind) {
-        case LastPlaybackKind.album:
-          await _restoreAlbumPlayback(state);
-        case LastPlaybackKind.playlist:
-          await _restorePlaylistPlayback(state);
-        case LastPlaybackKind.favorites:
-          await _restoreFavoritesPlayback(state);
+      final state = _library.lastPlayback;
+      if (state == null) {
+        await _playRandomAlbumIfAvailable();
+        return;
+      }
+      final restored = switch (state.kind) {
+        LastPlaybackKind.album => await _restoreAlbumPlayback(state),
+        LastPlaybackKind.playlist => await _restorePlaylistPlayback(state),
+        LastPlaybackKind.favorites => await _restoreFavoritesPlayback(state),
+      };
+      if (!restored) {
+        await _playRandomAlbumIfAvailable();
       }
     } finally {
       _lastPlaybackRestoring = false;
     }
   }
 
-  Future<void> _restoreAlbumPlayback(LastPlaybackState state) async {
+  Future<void> _playRandomAlbumIfAvailable() async {
+    if (!mounted) {
+      return;
+    }
+    final albums = _library.albums
+        .where(
+          (album) =>
+              (_tracksByFolder[album.folderPath] ?? const <Track>[]).isNotEmpty,
+        )
+        .toList(growable: false);
+    if (albums.isEmpty) {
+      return;
+    }
+    final album = albums[widget.randomAlbumPicker(albums.length)];
+    final tracks = _tracksByFolder[album.folderPath] ?? const <Track>[];
+    await _playAlbum(album, tracks);
+  }
+
+  Future<bool> _restoreAlbumPlayback(LastPlaybackState state) async {
     final album = _library.albums
         .where((album) => album.folderPath == state.folderPath)
         .firstOrNull;
     if (album == null) {
-      return;
+      return false;
     }
     final tracks = _tracksByFolder[album.folderPath] ?? const <Track>[];
     if (tracks.isEmpty || !mounted) {
-      return;
+      return false;
     }
     final track = trackByPathOrFirst(tracks, state.trackPath);
     _mutate(() {
@@ -364,16 +381,17 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _lastPlaybackPlaying = false;
     });
     await _restoreQueueFrom(tracks, track, play: state.playing);
+    return true;
   }
 
-  Future<void> _restorePlaylistPlayback(LastPlaybackState state) async {
+  Future<bool> _restorePlaylistPlayback(LastPlaybackState state) async {
     final folder = playlistFolderForPath(state.folderPath, _library.folders);
     if (folder == null) {
-      return;
+      return false;
     }
     final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
     if (tracks.isEmpty || !mounted) {
-      return;
+      return false;
     }
     final queue = state.shuffled ? shuffledTracks(tracks) : tracks;
     final track = trackByPathOrFirst(queue, state.trackPath);
@@ -391,12 +409,13 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _lastPlaybackPlaying = false;
     });
     await _restoreQueueFrom(queue, track, play: state.playing);
+    return true;
   }
 
-  Future<void> _restoreFavoritesPlayback(LastPlaybackState state) async {
+  Future<bool> _restoreFavoritesPlayback(LastPlaybackState state) async {
     final tracks = _library.favoriteTracks;
     if (tracks.isEmpty || !mounted) {
-      return;
+      return false;
     }
     final queue = state.shuffled ? shuffledTracks(tracks) : tracks;
     final track = trackByPathOrFirst(queue, state.trackPath);
@@ -413,6 +432,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _lastPlaybackPlaying = false;
     });
     await _restoreQueueFrom(queue, track, play: state.playing);
+    return true;
   }
 
   void _saveCurrentPlaybackStateIfChanged() {
