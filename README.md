@@ -16,6 +16,8 @@ folder, stores the library in SQLite, caches artwork, and plays tracks with
 - Full rescan when metadata needs to be force-refreshed.
 - Local cover art caching for smooth grids and lists.
 - Linux playback through `media_kit`.
+- Single-instance guard: launching Miaosic while another instance is already
+  running exits immediately instead of starting a second copy.
 
 ## Scope
 
