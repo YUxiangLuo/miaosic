@@ -28,7 +28,7 @@ class CoverCacheMigration {
 Future<String> coverCacheDir() async {
   try {
     final appDir = await getApplicationSupportDirectory();
-    return _ensureCoverDir(p.join(appDir.path, 'covers'));
+    return await _ensureCoverDir(p.join(appDir.path, 'covers'));
   } catch (_) {
     return fallbackCoverCacheDir();
   }

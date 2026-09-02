@@ -32,21 +32,23 @@ class _LargeAlbumArtwork extends StatelessWidget {
           });
         }
       },
-      child: SizedBox.square(
-        dimension: artworkSize,
-        child: AnimatedSwitcher(
-          duration: _albumCoverTransitionDuration,
-          switchInCurve: Curves.easeOutCubic,
-          switchOutCurve: Curves.easeInCubic,
-          transitionBuilder: _coverTransitionBuilder,
-          child: KeyedSubtree(
-            key: ValueKey(album.folderPath),
-            child: _MorphingAlbumDisc(
-              key: const ValueKey('album-morphing-artwork'),
-              coverArtPath: album.coverArtPath,
-              size: artworkSize,
-              active: active,
-              playing: playing,
+      child: RepaintBoundary(
+        child: SizedBox.square(
+          dimension: artworkSize,
+          child: AnimatedSwitcher(
+            duration: _albumCoverTransitionDuration,
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: _coverTransitionBuilder,
+            child: KeyedSubtree(
+              key: ValueKey(album.folderPath),
+              child: _MorphingAlbumDisc(
+                key: const ValueKey('album-morphing-artwork'),
+                coverArtPath: album.coverArtPath,
+                size: artworkSize,
+                active: active,
+                playing: playing,
+              ),
             ),
           ),
         ),
@@ -175,25 +177,24 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
               children: [
                 RotationTransition(
                   turns: _rotationController,
-                  filterQuality: FilterQuality.medium,
                   child: RepaintBoundary(
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        _AlbumDiscFill(
-                          coverArtPath: widget.coverArtPath,
-                          size: widget.size,
-                        ),
-                        if (discProgress > 0)
-                          Opacity(
-                            key: const ValueKey('album-disc-sheen'),
-                            opacity: discProgress,
-                            child: const CustomPaint(painter: _DiscPainter()),
-                          ),
-                      ],
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(radius),
+                      child: _AlbumDiscFill(
+                        coverArtPath: widget.coverArtPath,
+                        size: widget.size,
+                      ),
                     ),
                   ),
                 ),
+                if (discProgress > 0)
+                  IgnorePointer(
+                    child: Opacity(
+                      key: const ValueKey('album-disc-sheen'),
+                      opacity: discProgress,
+                      child: const CustomPaint(painter: _DiscPainter()),
+                    ),
+                  ),
                 if (discProgress > 0)
                   Center(
                     child: Opacity(

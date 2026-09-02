@@ -188,7 +188,6 @@ extension _LibraryScreenActions on _LibraryScreenState {
       return;
     }
     _showPlaybackErrorIfNeeded();
-    _saveCurrentPlaybackStateIfChanged();
     final displayTrack = activeAlbumPlayback == null
         ? activePlaylistPlayback == null
               ? activeFavoritesPlayback == null
@@ -207,6 +206,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
         nextNowPlayingPlaying == _lastNowPlayingPlaying) {
       return;
     }
+    _saveCurrentPlaybackStateIfChanged();
     _mutate(() {
       _lastPlaybackPath = nextPath;
       _lastPlaybackPlaying = nextPlaying;
