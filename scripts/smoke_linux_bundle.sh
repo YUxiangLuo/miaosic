@@ -13,11 +13,17 @@ if ! command -v xvfb-run >/dev/null 2>&1; then
   exit 1
 fi
 
-log_file="$(mktemp)"
-trap 'rm -f "$log_file"' EXIT
+smoke_dir="$(mktemp -d)"
+log_file="$smoke_dir/run.log"
+trap 'rm -rf "$smoke_dir"' EXIT
 
 set +e
-timeout --signal=TERM 8s xvfb-run -a "$binary" >"$log_file" 2>&1
+timeout --signal=TERM 8s xvfb-run -a env \
+  GDK_BACKEND=x11 \
+  XDG_DATA_HOME="$smoke_dir/data" \
+  XDG_CONFIG_HOME="$smoke_dir/config" \
+  XDG_CACHE_HOME="$smoke_dir/cache" \
+  "$binary" >"$log_file" 2>&1
 status=$?
 set -e
 

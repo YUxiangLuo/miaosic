@@ -110,10 +110,16 @@ Future<Color> _extractThemeColor(String path) async {
     }
     final bytes = await file.readAsBytes();
     final codec = await ui.instantiateImageCodec(bytes, targetWidth: 40);
-    final frame = await codec.getNextFrame();
+    final ui.FrameInfo frame;
+    try {
+      frame = await codec.getNextFrame();
+    } finally {
+      codec.dispose();
+    }
     final image = frame.image;
-    final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    image.dispose();
+    final data = await image
+        .toByteData(format: ui.ImageByteFormat.rawRgba)
+        .whenComplete(image.dispose);
     if (data == null) {
       return _fallbackAlbumColor;
     }

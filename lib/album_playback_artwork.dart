@@ -107,29 +107,18 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
       vsync: this,
       duration: _albumDiscRotationDuration,
     );
-    if (widget.playing) {
-      _rotationController.repeat();
-    }
+    _syncRotation();
   }
 
   @override
   void didUpdateWidget(covariant _MorphingAlbumDisc oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.playing != widget.playing) {
-      if (widget.playing) {
-        _rotationController.repeat();
-      } else {
-        _rotationController.stop();
-      }
-    }
+    _syncRotation();
 
     if (oldWidget.active == widget.active) {
       return;
     }
     if (widget.active) {
-      if (widget.playing) {
-        _rotationController.repeat();
-      }
       _morphController.forward();
     } else {
       _morphController.reverse().then((_) {
@@ -138,6 +127,16 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
           _rotationController.reset();
         }
       });
+    }
+  }
+
+  void _syncRotation() {
+    if (widget.active && widget.playing) {
+      if (!_rotationController.isAnimating) {
+        _rotationController.repeat();
+      }
+    } else {
+      _rotationController.stop();
     }
   }
 
@@ -281,7 +280,8 @@ class _AlbumDiscFill extends StatelessWidget {
       );
     }
 
-    final cacheSize = size.isFinite ? (size * 2).round() : null;
+    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
+    final cacheSize = size.isFinite ? (size * pixelRatio).ceil() : null;
     return Image.file(
       File(path),
       fit: BoxFit.cover,

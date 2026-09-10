@@ -50,19 +50,31 @@ the following packages provide the development and runtime libraries used by
 the build:
 
 ```sh
-sudo apt install clang cmake libgtk-3-dev libmpv-dev ninja-build pkg-config
+sudo apt install clang cmake libgtk-3-dev libfontconfig1-dev fonts-noto-cjk libwayland-dev libegl1-mesa-dev libmpv-dev ninja-build pkg-config python3 git
 ```
 
-Use Flutter 3.44.4 and Rust 1.96.0 to match CI. The Rust version is selected
+Use Flutter 3.47.1, CMake 3.19 or newer, and Rust 1.96.0 to match CI. The Rust version is selected
 automatically through `rust-toolchain.toml`.
 
+Miaosic carries a pinned Linux engine patch to synchronize animation and actual
+presentation with Wayland's display clock. Prepare the engine once per build
+mode; subsequent builds reuse it. The first preparation downloads engine build
+dependencies and compiles native code, requiring several GB of disk space and
+considerably more time than an ordinary app build. It leaves your Flutter SDK
+unchanged. See [frame synchronization](docs/performance/cd-rotation.md).
+
+The engine uses Fontconfig for system font fallback. Displaying Chinese requires
+a CJK font installed on the system, such as Noto Sans CJK or Source Han Sans.
+
 ```sh
+python3 scripts/build_linux_engine.py --mode debug
 flutter run -d linux
 ```
 
 ## Build
 
 ```sh
+python3 scripts/build_linux_engine.py --mode release
 flutter build linux --release
 ```
 
@@ -73,7 +85,7 @@ build/linux/x64/release/bundle/
 ```
 
 The tar bundle includes Miaosic's Rust scanner, Flutter libraries, and SQLite,
-but it does not bundle GTK 3 or `libmpv`. Those libraries must be installed on
+but it does not bundle GTK 3, Wayland client/EGL libraries, or `libmpv`. Those libraries must be installed on
 the target Linux system.
 
 If Flutter reports a stale CMake cache path after moving or copying the checkout,
@@ -100,3 +112,15 @@ The scanner can also be run without opening the UI:
 ```sh
 dart run tool/scan_dev.dart
 ```
+
+The native Chinese font check runs against the bundled engine (ordinary Flutter
+widget tests use the SDK's test engine). Install a CJK font first, then run:
+
+```sh
+flutter build linux --release --target tool/font_probe.dart
+scripts/check_linux_fonts.sh
+flutter build linux --release
+```
+
+The last command restores the regular player after building the diagnostic entry
+point. CI runs this check before packaging the player.

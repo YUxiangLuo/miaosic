@@ -25,7 +25,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.44.4"
+          flutter-version: "3.47.1"
           cache: true
 
       - name: Set up Rust
@@ -41,6 +41,10 @@ jobs:
             clang \
             cmake \
             libgtk-3-dev \
+            libfontconfig1-dev \
+            fonts-noto-cjk \
+            libwayland-dev \
+            libegl1-mesa-dev \
             liblzma-dev \
             libmpv-dev \
             libsqlite3-dev \
@@ -65,6 +69,20 @@ jobs:
 
       - name: Run Rust tests
         run: cargo test --locked --manifest-path native/music_core/Cargo.toml
+
+      - name: Cache patched Flutter engine
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/miaosic/flutter-engine/artifacts
+          key: wayland-engine-linux-x64-${{ hashFiles('patches/flutter/engine.json', 'patches/flutter/linux-wayland-frame-sync.patch', 'scripts/build_linux_engine.py') }}
+
+      - name: Prepare Wayland Flutter engine
+        run: python3 scripts/build_linux_engine.py --mode release --jobs 4
+
+      - name: Check native Chinese font fallback
+        run: |
+          flutter build linux --release --target tool/font_probe.dart
+          scripts/check_linux_fonts.sh
 
       - name: Build Linux release
         run: flutter build linux --release

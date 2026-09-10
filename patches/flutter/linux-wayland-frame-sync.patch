@@ -1,0 +1,1436 @@
+diff --git a/engine/src/flutter/shell/platform/linux/BUILD.gn b/engine/src/flutter/shell/platform/linux/BUILD.gn
+index 66797b32883..d95cbaeee5f 100644
+--- a/engine/src/flutter/shell/platform/linux/BUILD.gn
++++ b/engine/src/flutter/shell/platform/linux/BUILD.gn
+@@ -107,6 +107,8 @@ source_set("flutter_linux_sources") {
+ 
+   public_configs = [ ":disable_warnings" ]
+ 
++  libs = [ "wayland-client", "wayland-egl" ]
++
+   sources = [
+     "fl_accessibility_channel.cc",
+     "fl_accessibility_handler.cc",
+@@ -174,6 +176,8 @@ source_set("flutter_linux_sources") {
+     "fl_view_accessible.cc",
+     "fl_view_monitor.cc",
+     "fl_view_renderer.cc",
++    "fl_wayland_surface.cc",
++    "fl_wayland_presentation.g.cc",
+     "fl_window_monitor.cc",
+     "fl_window_state_monitor.cc",
+   ]
+diff --git a/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.cc b/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.cc
+index ebcad245e3f..084a7dc9c39 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.cc
+@@ -348,3 +348,26 @@ FlCompositorOpenGL* fl_compositor_opengl_new(FlTaskRunner* task_runner,
+ 
+   return self;
+ }
++
++// Runs on the platform thread with the independent window context current.
++gboolean fl_compositor_opengl_blit(FlCompositorOpenGL* self,
++                                   int width,
++                                   int height) {
++  g_autoptr(GMutexLocker) locker = g_mutex_locker_new(&self->frame_mutex);
++  if (!self->framebuffer || !fl_framebuffer_get_shareable(self->framebuffer) ||
++      fl_framebuffer_get_width(self->framebuffer) !=
++          static_cast<size_t>(width) ||
++      fl_framebuffer_get_height(self->framebuffer) !=
++          static_cast<size_t>(height)) {
++    return FALSE;
++  }
++  g_autoptr(FlFramebuffer) sibling =
++      fl_framebuffer_create_sibling(self->framebuffer);
++  glBindFramebuffer(GL_READ_FRAMEBUFFER, fl_framebuffer_get_id(sibling));
++  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
++  glDisable(GL_SCISSOR_TEST);
++  glBlitFramebuffer(0, 0, width, height, 0, 0, width, height,
++                    GL_COLOR_BUFFER_BIT, GL_NEAREST);
++  glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
++  return TRUE;
++}
+diff --git a/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.h b/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.h
+index 77641a7aa9c..13fa6875b6a 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.h
++++ b/engine/src/flutter/shell/platform/linux/fl_compositor_opengl.h
+@@ -42,6 +42,12 @@ FlCompositorOpenGL* fl_compositor_opengl_new(FlTaskRunner* task_runner,
+                                              FlOpenGLManager* opengl_manager,
+                                              gboolean shareable);
+ 
++// Blit the latest shared frame into the current EGL window framebuffer.
++// Returns FALSE when a resize is still waiting for a matching Flutter frame.
++gboolean fl_compositor_opengl_blit(FlCompositorOpenGL* compositor,
++                                   int width,
++                                   int height);
++
+ G_END_DECLS
+ 
+ #endif  // FLUTTER_SHELL_PLATFORM_LINUX_FL_COMPOSITOR_OPENGL_H_
+diff --git a/engine/src/flutter/shell/platform/linux/fl_engine.cc b/engine/src/flutter/shell/platform/linux/fl_engine.cc
+index f88d08cb05f..00c28b9d46c 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_engine.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_engine.cc
+@@ -756,6 +756,51 @@ FlDisplayMonitor* fl_engine_get_display_monitor(FlEngine* self) {
+   return self->display_monitor;
+ }
+ 
++// The engine may request vsync on its UI thread. Resolve the window and talk
++// to Wayland only on the GTK thread. This transient reference protects engine
++// initialization/shutdown until the request has been dispatched.
++static void fl_engine_vsync_cb(void* user_data, intptr_t baton) {
++  struct Request {
++    FlEngine* engine;
++    intptr_t baton;
++  };
++  auto* request = new Request{FL_ENGINE(g_object_ref(user_data)), baton};
++  g_idle_add_full(
++      G_PRIORITY_DEFAULT,
++      [](gpointer data) -> gboolean {
++        auto* request = static_cast<Request*>(data);
++        FlEngine* self = request->engine;
++        g_autoptr(FlRenderable) view =
++            get_renderable(self, flutter::kFlutterImplicitViewId);
++        if (!view || !fl_renderable_request_vsync(view, request->baton)) {
++          // Headless, X11 and the first frame retain a bounded bootstrap path.
++          // VsyncWaiterEmbedder waits until this future timestamp internally.
++          uint64_t now = self->embedder_api.GetCurrentTime();
++          constexpr uint64_t interval = 16666667;
++          uint64_t start = ((now / interval) + 1) * interval;
++          fl_engine_on_vsync(self, request->baton, start, start + interval);
++        }
++        return G_SOURCE_REMOVE;
++      },
++      request,
++      [](gpointer data) {
++        auto* request = static_cast<Request*>(data);
++        g_object_unref(request->engine);
++        delete request;
++      });
++}
++
++void fl_engine_on_vsync(FlEngine* self,
++                        intptr_t baton,
++                        uint64_t frame_start,
++                        uint64_t frame_target) {
++  if (self->engine &&
++      self->embedder_api.OnVsync(self->engine, baton, frame_start,
++                                 frame_target) != kSuccess) {
++    g_warning("Failed to notify Flutter vsync");
++  }
++}
++
+ gboolean fl_engine_start(FlEngine* self, GError** error) {
+   g_return_val_if_fail(FL_IS_ENGINE(self), FALSE);
+ 
+@@ -869,6 +914,7 @@ gboolean fl_engine_start(FlEngine* self, GError** error) {
+   args.command_line_argv =
+       reinterpret_cast<const char* const*>(command_line_args->pdata);
+   args.platform_message_callback = fl_engine_platform_message_cb;
++  args.vsync_callback = fl_engine_vsync_cb;
+   args.update_semantics_callback2 = fl_engine_update_semantics_cb;
+   args.custom_task_runners = &custom_task_runners;
+   args.shutdown_dart_vm_when_done = true;
+diff --git a/engine/src/flutter/shell/platform/linux/fl_engine_private.h b/engine/src/flutter/shell/platform/linux/fl_engine_private.h
+index bb36656da98..12fa7f2a84a 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_engine_private.h
++++ b/engine/src/flutter/shell/platform/linux/fl_engine_private.h
+@@ -639,6 +639,12 @@ FlMouseCursorHandler* fl_engine_get_mouse_cursor_handler(FlEngine* engine);
+  */
+ FlEngine* fl_engine_for_id(int64_t handle);
+ 
++// Complete a requested vsync on the platform thread.
++void fl_engine_on_vsync(FlEngine* engine,
++                        intptr_t baton,
++                        uint64_t frame_start,
++                        uint64_t frame_target);
++
+ G_END_DECLS
+ 
+ #endif  // FLUTTER_SHELL_PLATFORM_LINUX_FL_ENGINE_PRIVATE_H_
+diff --git a/engine/src/flutter/shell/platform/linux/fl_renderable.cc b/engine/src/flutter/shell/platform/linux/fl_renderable.cc
+index 8d7be986ea1..d671ade7eeb 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_renderable.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_renderable.cc
+@@ -15,3 +15,9 @@ void fl_renderable_present_layers(FlRenderable* self,
+ 
+   FL_RENDERABLE_GET_IFACE(self)->present_layers(self, layers, layers_count);
+ }
++
++gboolean fl_renderable_request_vsync(FlRenderable* self, intptr_t baton) {
++  g_return_val_if_fail(FL_IS_RENDERABLE(self), FALSE);
++  auto callback = FL_RENDERABLE_GET_IFACE(self)->request_vsync;
++  return callback ? callback(self, baton) : FALSE;
++}
+diff --git a/engine/src/flutter/shell/platform/linux/fl_renderable.h b/engine/src/flutter/shell/platform/linux/fl_renderable.h
+index 7bc9e46bb26..c9336db60de 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_renderable.h
++++ b/engine/src/flutter/shell/platform/linux/fl_renderable.h
+@@ -25,6 +25,9 @@ G_DECLARE_INTERFACE(FlRenderable, fl_renderable, FL, RENDERABLE, GObject);
+ struct _FlRenderableInterface {
+   GTypeInterface g_iface;
+ 
++  // Called only on the platform thread. TRUE means the baton was accepted.
++  gboolean (*request_vsync)(FlRenderable* renderable, intptr_t baton);
++
+   void (*present_layers)(FlRenderable* renderable,
+                          const FlutterLayer** layers,
+                          size_t layers_count);
+@@ -42,6 +45,8 @@ void fl_renderable_present_layers(FlRenderable* renderable,
+                                   const FlutterLayer** layers,
+                                   size_t layers_count);
+ 
++gboolean fl_renderable_request_vsync(FlRenderable* renderable, intptr_t baton);
++
+ G_END_DECLS
+ 
+ #endif  // FLUTTER_SHELL_PLATFORM_LINUX_FL_RENDERABLE_H_
+diff --git a/engine/src/flutter/shell/platform/linux/fl_view.cc b/engine/src/flutter/shell/platform/linux/fl_view.cc
+index 43407460958..aca4b73de19 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_view.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_view.cc
+@@ -271,7 +271,13 @@ static FlPluginRegistrar* fl_view_get_registrar_for_plugin(
+                                  fl_engine_get_texture_registrar(self->engine));
+ }
+ 
++static gboolean fl_view_request_vsync(FlRenderable* renderable,
++                                      intptr_t baton) {
++  return fl_view_renderer_request_vsync(FL_VIEW(renderable)->renderer, baton);
++}
++
+ static void fl_renderable_iface_init(FlRenderableInterface* iface) {
++  iface->request_vsync = fl_view_request_vsync;
+   iface->present_layers = fl_view_present_layers;
+ }
+ 
+diff --git a/engine/src/flutter/shell/platform/linux/fl_view_renderer.cc b/engine/src/flutter/shell/platform/linux/fl_view_renderer.cc
+index dba92d94dc3..d5eb6349f8b 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_view_renderer.cc
++++ b/engine/src/flutter/shell/platform/linux/fl_view_renderer.cc
+@@ -11,6 +11,7 @@
+ #include "flutter/shell/platform/linux/fl_compositor_software.h"
+ #include "flutter/shell/platform/linux/fl_engine_private.h"
+ #include "flutter/shell/platform/linux/fl_opengl_manager.h"
++#include "flutter/shell/platform/linux/fl_wayland_surface.h"
+ 
+ struct _FlViewRenderer {
+   GtkDrawingArea parent_instance;
+@@ -24,6 +25,10 @@ struct _FlViewRenderer {
+   // Combines layers into frame.
+   FlCompositor* compositor;
+ 
++  // Native Wayland presentation and display-driven animation clock.
++  FlWaylandSurface* wayland_surface;
++  gboolean wayland_recreate_pending;
++
+   // Background color.
+   GdkRGBA* background_color;
+ 
+@@ -76,6 +81,24 @@ static gboolean redraw_cb(gpointer user_data) {
+     return G_SOURCE_REMOVE;
+   }
+ 
++  if (self->wayland_recreate_pending && gtk_widget_get_mapped(render_widget)) {
++    self->wayland_recreate_pending = FALSE;
++    if (self->render_context && FL_IS_COMPOSITOR_OPENGL(self->compositor)) {
++      gdk_gl_context_clear_current();
++      self->wayland_surface =
++          FlWaylandSurface::Create(render_widget, self->render_context);
++      gdk_gl_context_clear_current();
++    }
++  }
++  if (self->wayland_surface) {
++    if (self->wayland_surface->Present(
++            FL_COMPOSITOR_OPENGL(self->compositor))) {
++      return G_SOURCE_REMOVE;
++    }
++    delete self->wayland_surface;
++    self->wayland_surface = nullptr;
++    g_warning("Wayland presentation failed; using GTK rendering");
++  }
+   gtk_widget_queue_draw(render_widget);
+ 
+   return G_SOURCE_REMOVE;
+@@ -104,6 +127,11 @@ static void setup_opengl(FlViewRenderer* self) {
+   self->compositor = FL_COMPOSITOR(fl_compositor_opengl_new(
+       fl_engine_get_task_runner(self->engine),
+       fl_engine_get_opengl_manager(self->engine), shareable));
++  if (shareable) {
++    self->wayland_surface =
++        FlWaylandSurface::Create(GTK_WIDGET(self), self->render_context);
++    gdk_gl_context_clear_current();
++  }
+ }
+ 
+ static void setup_software(FlViewRenderer* self) {
+@@ -146,6 +174,9 @@ static gboolean fl_view_renderer_draw(GtkWidget* widget, cairo_t* cr) {
+   FlViewRenderer* self = FL_VIEW_RENDERER(widget);
+ 
+   paint_background(self, cr);
++  if (self->wayland_surface) {
++    return TRUE;
++  }
+ 
+   // The compositor is created when the widget is realized; if it is not yet
+   // available there is nothing to render beyond the background.
+@@ -171,6 +202,8 @@ static gboolean fl_view_renderer_draw(GtkWidget* widget, cairo_t* cr) {
+ static void fl_view_renderer_dispose(GObject* object) {
+   FlViewRenderer* self = FL_VIEW_RENDERER(object);
+ 
++  delete self->wayland_surface;
++  self->wayland_surface = nullptr;
+   g_clear_object(&self->render_context);
+   g_clear_object(&self->engine);
+   g_clear_pointer(&self->background_color, gdk_rgba_free);
+@@ -191,6 +224,30 @@ static void fl_view_renderer_finalize(GObject* object) {
+   G_OBJECT_CLASS(fl_view_renderer_parent_class)->finalize(object);
+ }
+ 
++static void fl_view_renderer_map(GtkWidget* widget) {
++  GTK_WIDGET_CLASS(fl_view_renderer_parent_class)->map(widget);
++  FlViewRenderer* self = FL_VIEW_RENDERER(widget);
++  // GTK recreates its parent wl_surface after mapping the children. Defer
++  // child recreation until that mapping call has completely returned. Repaint
++  // the last Flutter buffer even if this is a paused/idle scene.
++  g_idle_add(redraw_cb, g_object_ref(self));
++}
++
++static void fl_view_renderer_unmap(GtkWidget* widget) {
++  FlViewRenderer* self = FL_VIEW_RENDERER(widget);
++  self->wayland_recreate_pending = TRUE;
++  delete self->wayland_surface;
++  self->wayland_surface = nullptr;
++  GTK_WIDGET_CLASS(fl_view_renderer_parent_class)->unmap(widget);
++}
++
++static void fl_view_renderer_unrealize(GtkWidget* widget) {
++  FlViewRenderer* self = FL_VIEW_RENDERER(widget);
++  delete self->wayland_surface;
++  self->wayland_surface = nullptr;
++  GTK_WIDGET_CLASS(fl_view_renderer_parent_class)->unrealize(widget);
++}
++
+ static void fl_view_renderer_class_init(FlViewRendererClass* klass) {
+   G_OBJECT_CLASS(klass)->dispose = fl_view_renderer_dispose;
+   G_OBJECT_CLASS(klass)->finalize = fl_view_renderer_finalize;
+@@ -198,6 +255,9 @@ static void fl_view_renderer_class_init(FlViewRendererClass* klass) {
+   GtkWidgetClass* widget_class = GTK_WIDGET_CLASS(klass);
+   widget_class->realize = fl_view_renderer_realize;
+   widget_class->draw = fl_view_renderer_draw;
++  widget_class->map = fl_view_renderer_map;
++  widget_class->unmap = fl_view_renderer_unmap;
++  widget_class->unrealize = fl_view_renderer_unrealize;
+ 
+   fl_view_renderer_signals[SIGNAL_FIRST_FRAME] =
+       g_signal_new("first-frame", fl_view_renderer_get_type(),
+@@ -246,3 +306,13 @@ void fl_view_renderer_present_layers(FlViewRenderer* self,
+   // Perform the redraw in the GTK thread.
+   g_idle_add(redraw_cb, g_object_ref(self));
+ }
++
++gboolean fl_view_renderer_request_vsync(FlViewRenderer* self, intptr_t baton) {
++  if (!self->wayland_surface || !self->engine)
++    return FALSE;
++  self->wayland_surface->RequestVsync(
++      [self, baton](uint64_t start, uint64_t target) {
++        fl_engine_on_vsync(self->engine, baton, start, target);
++      });
++  return TRUE;
++}
+diff --git a/engine/src/flutter/shell/platform/linux/fl_view_renderer.h b/engine/src/flutter/shell/platform/linux/fl_view_renderer.h
+index 238a9d812c4..6e6d8162929 100644
+--- a/engine/src/flutter/shell/platform/linux/fl_view_renderer.h
++++ b/engine/src/flutter/shell/platform/linux/fl_view_renderer.h
+@@ -62,6 +62,9 @@ void fl_view_renderer_present_layers(FlViewRenderer* renderer,
+                                      const FlutterLayer** layers,
+                                      size_t layers_count);
+ 
++gboolean fl_view_renderer_request_vsync(FlViewRenderer* renderer,
++                                        intptr_t baton);
++
+ G_END_DECLS
+ 
+ #endif  // FLUTTER_SHELL_PLATFORM_LINUX_FL_VIEW_RENDERER_H_
+diff --git a/engine/src/flutter/shell/platform/linux/fl_wayland_presentation.g.cc b/engine/src/flutter/shell/platform/linux/fl_wayland_presentation.g.cc
+new file mode 100644
+index 00000000000..f9a18d0c456
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/linux/fl_wayland_presentation.g.cc
+@@ -0,0 +1,84 @@
++/* Generated by wayland-scanner 1.26.0 */
++
++/*
++ * Copyright © 2013-2014 Collabora, Ltd.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ */
++
++#include <stdbool.h>
++#include <stdlib.h>
++#include <stdint.h>
++#include "wayland-util.h"
++#include "fl_wayland_presentation.g.h"
++
++#ifndef __has_attribute
++# define __has_attribute(x) 0  /* Compatibility with non-clang compilers. */
++#endif
++
++#if (__has_attribute(visibility) || defined(__GNUC__) && __GNUC__ >= 4)
++#define WL_PRIVATE __attribute__ ((visibility("hidden")))
++#else
++#define WL_PRIVATE
++#endif
++
++extern const struct wl_interface wl_output_interface;
++extern const struct wl_interface wl_surface_interface;
++extern const struct wl_interface wp_presentation_feedback_interface;
++
++static const struct wl_interface *presentation_time_types[] = {
++	NULL,
++	NULL,
++	NULL,
++	NULL,
++	NULL,
++	NULL,
++	NULL,
++	&wl_surface_interface,
++	&wp_presentation_feedback_interface,
++	&wl_output_interface,
++};
++
++static const struct wl_message wp_presentation_requests[] = {
++	{ "destroy", "", presentation_time_types + 0 },
++	{ "feedback", "on", presentation_time_types + 7 },
++};
++
++static const struct wl_message wp_presentation_events[] = {
++	{ "clock_id", "u", presentation_time_types + 0 },
++};
++
++WL_PRIVATE const struct wl_interface wp_presentation_interface = {
++	"wp_presentation", 2,
++	2, wp_presentation_requests,
++	1, wp_presentation_events,
++};
++
++static const struct wl_message wp_presentation_feedback_events[] = {
++	{ "sync_output", "o", presentation_time_types + 9 },
++	{ "presented", "uuuuuuu", presentation_time_types + 0 },
++	{ "discarded", "", presentation_time_types + 0 },
++};
++
++WL_PRIVATE const struct wl_interface wp_presentation_feedback_interface = {
++	"wp_presentation_feedback", 2,
++	0, NULL,
++	3, wp_presentation_feedback_events,
++};
+diff --git a/engine/src/flutter/shell/platform/linux/fl_wayland_presentation.g.h b/engine/src/flutter/shell/platform/linux/fl_wayland_presentation.g.h
+new file mode 100644
+index 00000000000..8d9989c6e09
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/linux/fl_wayland_presentation.g.h
+@@ -0,0 +1,498 @@
++/* Generated by wayland-scanner 1.26.0 */
++
++#ifndef PRESENTATION_TIME_CLIENT_PROTOCOL_H
++#define PRESENTATION_TIME_CLIENT_PROTOCOL_H
++
++#include <stdint.h>
++#include <stddef.h>
++#include "wayland-client.h"
++
++#ifdef  __cplusplus
++extern "C" {
++#endif
++
++/**
++ * @page page_presentation_time The presentation_time protocol
++ * @section page_ifaces_presentation_time Interfaces
++ * - @subpage page_iface_wp_presentation - timed presentation related wl_surface requests
++ * - @subpage page_iface_wp_presentation_feedback - presentation time feedback event
++ * @section page_copyright_presentation_time Copyright
++ * <pre>
++ *
++ * Copyright © 2013-2014 Collabora, Ltd.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice (including the next
++ * paragraph) shall be included in all copies or substantial portions of the
++ * Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ * </pre>
++ */
++struct wl_output;
++struct wl_surface;
++struct wp_presentation;
++struct wp_presentation_feedback;
++
++#ifndef WP_PRESENTATION_INTERFACE
++#define WP_PRESENTATION_INTERFACE
++/**
++ * @page page_iface_wp_presentation wp_presentation
++ * @section page_iface_wp_presentation_desc Description
++ *
++ *
++ *
++ *
++ * The main feature of this interface is accurate presentation
++ * timing feedback to ensure smooth video playback while maintaining
++ * audio/video synchronization. Some features use the concept of a
++ * presentation clock, which is defined in the
++ * presentation.clock_id event.
++ *
++ * A content update for a wl_surface is submitted by a
++ * wl_surface.commit request. Request 'feedback' associates with
++ * the wl_surface.commit and provides feedback on the content
++ * update, particularly the final realized presentation time.
++ *
++ *
++ *
++ * When the final realized presentation time is available, e.g.
++ * after a framebuffer flip completes, the requested
++ * presentation_feedback.presented events are sent. The final
++ * presentation time can differ from the compositor's predicted
++ * display update time and the update's target time, especially
++ * when the compositor misses its target vertical blanking period.
++ * @section page_iface_wp_presentation_api API
++ * See @ref iface_wp_presentation.
++ */
++/**
++ * @defgroup iface_wp_presentation The wp_presentation interface
++ *
++ *
++ *
++ *
++ * The main feature of this interface is accurate presentation
++ * timing feedback to ensure smooth video playback while maintaining
++ * audio/video synchronization. Some features use the concept of a
++ * presentation clock, which is defined in the
++ * presentation.clock_id event.
++ *
++ * A content update for a wl_surface is submitted by a
++ * wl_surface.commit request. Request 'feedback' associates with
++ * the wl_surface.commit and provides feedback on the content
++ * update, particularly the final realized presentation time.
++ *
++ *
++ *
++ * When the final realized presentation time is available, e.g.
++ * after a framebuffer flip completes, the requested
++ * presentation_feedback.presented events are sent. The final
++ * presentation time can differ from the compositor's predicted
++ * display update time and the update's target time, especially
++ * when the compositor misses its target vertical blanking period.
++ */
++extern const struct wl_interface wp_presentation_interface;
++#endif
++#ifndef WP_PRESENTATION_FEEDBACK_INTERFACE
++#define WP_PRESENTATION_FEEDBACK_INTERFACE
++/**
++ * @page page_iface_wp_presentation_feedback wp_presentation_feedback
++ * @section page_iface_wp_presentation_feedback_desc Description
++ *
++ * A presentation_feedback object returns an indication that a
++ * wl_surface content update has become visible to the user.
++ * One object corresponds to one content update submission
++ * (wl_surface.commit). There are two possible outcomes: the
++ * content update is presented to the user, and a presentation
++ * timestamp delivered; or, the user did not see the content
++ * update because it was superseded or its surface destroyed,
++ * and the content update is discarded.
++ *
++ * Once a presentation_feedback object has delivered a 'presented'
++ * or 'discarded' event it is automatically destroyed.
++ * @section page_iface_wp_presentation_feedback_api API
++ * See @ref iface_wp_presentation_feedback.
++ */
++/**
++ * @defgroup iface_wp_presentation_feedback The wp_presentation_feedback interface
++ *
++ * A presentation_feedback object returns an indication that a
++ * wl_surface content update has become visible to the user.
++ * One object corresponds to one content update submission
++ * (wl_surface.commit). There are two possible outcomes: the
++ * content update is presented to the user, and a presentation
++ * timestamp delivered; or, the user did not see the content
++ * update because it was superseded or its surface destroyed,
++ * and the content update is discarded.
++ *
++ * Once a presentation_feedback object has delivered a 'presented'
++ * or 'discarded' event it is automatically destroyed.
++ */
++extern const struct wl_interface wp_presentation_feedback_interface;
++#endif
++
++#ifndef WP_PRESENTATION_ERROR_ENUM
++#define WP_PRESENTATION_ERROR_ENUM
++/**
++ * @ingroup iface_wp_presentation
++ * fatal presentation errors
++ *
++ * These fatal protocol errors may be emitted in response to
++ * illegal presentation requests.
++ */
++enum wp_presentation_error {
++	/**
++	 * invalid value in tv_nsec
++	 */
++	WP_PRESENTATION_ERROR_INVALID_TIMESTAMP = 0,
++	/**
++	 * invalid flag
++	 */
++	WP_PRESENTATION_ERROR_INVALID_FLAG = 1,
++};
++#endif /* WP_PRESENTATION_ERROR_ENUM */
++
++/**
++ * @ingroup iface_wp_presentation
++ * @struct wp_presentation_listener
++ */
++struct wp_presentation_listener {
++	/**
++	 * clock ID for timestamps
++	 *
++	 * This event tells the client in which clock domain the
++	 * compositor interprets the timestamps used by the presentation
++	 * extension. This clock is called the presentation clock.
++	 *
++	 * The compositor sends this event when the client binds to the
++	 * presentation interface. The presentation clock does not change
++	 * during the lifetime of the client connection.
++	 *
++	 * The clock identifier is platform dependent. On POSIX platforms,
++	 * the identifier value is one of the clockid_t values accepted by
++	 * clock_gettime(). clock_gettime() is defined by POSIX.1-2001.
++	 *
++	 * Timestamps in this clock domain are expressed as tv_sec_hi,
++	 * tv_sec_lo, tv_nsec triples, each component being an unsigned
++	 * 32-bit value. Whole seconds are in tv_sec which is a 64-bit
++	 * value combined from tv_sec_hi and tv_sec_lo, and the additional
++	 * fractional part in tv_nsec as nanoseconds. Hence, for valid
++	 * timestamps tv_nsec must be in [0, 999999999].
++	 *
++	 * Note that clock_id applies only to the presentation clock, and
++	 * implies nothing about e.g. the timestamps used in the Wayland
++	 * core protocol input events.
++	 *
++	 * Compositors should prefer a clock which does not jump and is not
++	 * slewed e.g. by NTP. The absolute value of the clock is
++	 * irrelevant. Precision of one millisecond or better is
++	 * recommended. Clients must be able to query the current clock
++	 * value directly, not by asking the compositor.
++	 * @param clk_id platform clock identifier
++	 */
++	void (*clock_id)(void *data,
++			 struct wp_presentation *wp_presentation,
++			 uint32_t clk_id);
++};
++
++/**
++ * @ingroup iface_wp_presentation
++ */
++static inline int
++wp_presentation_add_listener(struct wp_presentation *wp_presentation,
++			     const struct wp_presentation_listener *listener, void *data)
++{
++	return wl_proxy_add_listener((struct wl_proxy *) wp_presentation,
++				     (void (**)(void)) listener, data);
++}
++
++#define WP_PRESENTATION_DESTROY 0
++#define WP_PRESENTATION_FEEDBACK 1
++
++/**
++ * @ingroup iface_wp_presentation
++ */
++#define WP_PRESENTATION_CLOCK_ID_SINCE_VERSION 1
++
++/**
++ * @ingroup iface_wp_presentation
++ */
++#define WP_PRESENTATION_DESTROY_SINCE_VERSION 1
++/**
++ * @ingroup iface_wp_presentation
++ */
++#define WP_PRESENTATION_FEEDBACK_SINCE_VERSION 1
++
++/** @ingroup iface_wp_presentation */
++static inline void
++wp_presentation_set_user_data(struct wp_presentation *wp_presentation, void *user_data)
++{
++	wl_proxy_set_user_data((struct wl_proxy *) wp_presentation, user_data);
++}
++
++/** @ingroup iface_wp_presentation */
++static inline void *
++wp_presentation_get_user_data(struct wp_presentation *wp_presentation)
++{
++	return wl_proxy_get_user_data((struct wl_proxy *) wp_presentation);
++}
++
++static inline uint32_t
++wp_presentation_get_version(struct wp_presentation *wp_presentation)
++{
++	return wl_proxy_get_version((struct wl_proxy *) wp_presentation);
++}
++
++/**
++ * @ingroup iface_wp_presentation
++ *
++ * Informs the server that the client will no longer be using
++ * this protocol object. Existing objects created by this object
++ * are not affected.
++ */
++static inline void
++wp_presentation_destroy(struct wp_presentation *wp_presentation)
++{
++	wl_proxy_marshal((struct wl_proxy *) wp_presentation, WP_PRESENTATION_DESTROY);
++	wl_proxy_destroy((struct wl_proxy *) wp_presentation);
++}
++
++/**
++ * @ingroup iface_wp_presentation
++ *
++ * Request presentation feedback for the current content submission
++ * on the given surface. This creates a new presentation_feedback
++ * object, which will deliver the feedback information once. If
++ * multiple presentation_feedback objects are created for the same
++ * submission, they will all deliver the same information.
++ *
++ * For details on what information is returned, see the
++ * presentation_feedback interface.
++ */
++static inline struct wp_presentation_feedback *
++wp_presentation_feedback(struct wp_presentation *wp_presentation, struct wl_surface *surface)
++{
++	struct wl_proxy *callback;
++
++	callback = wl_proxy_marshal_constructor((struct wl_proxy *) wp_presentation,
++			 WP_PRESENTATION_FEEDBACK, &wp_presentation_feedback_interface, surface, NULL);
++
++	return (struct wp_presentation_feedback *) callback;
++}
++
++#ifndef WP_PRESENTATION_FEEDBACK_KIND_ENUM
++#define WP_PRESENTATION_FEEDBACK_KIND_ENUM
++/**
++ * @ingroup iface_wp_presentation_feedback
++ * bitmask of flags in presented event
++ *
++ * These flags provide information about how the presentation of
++ * the related content update was done. The intent is to help
++ * clients assess the reliability of the feedback and the visual
++ * quality with respect to possible tearing and timings.
++ */
++enum wp_presentation_feedback_kind {
++	/**
++	 * presentation was vsync'd
++	 *
++	 * The presentation was synchronized to the "vertical retrace" by
++	 * the display hardware such that tearing does not happen. Relying
++	 * on software scheduling is not acceptable for this flag. If
++	 * presentation is done by a copy to the active frontbuffer, then
++	 * it must guarantee that tearing cannot happen.
++	 */
++	WP_PRESENTATION_FEEDBACK_KIND_VSYNC = 0x1,
++	/**
++	 * hardware provided the presentation timestamp
++	 *
++	 * The display hardware provided measurements that the hardware
++	 * driver converted into a presentation timestamp. Sampling a clock
++	 * in software is not acceptable for this flag.
++	 */
++	WP_PRESENTATION_FEEDBACK_KIND_HW_CLOCK = 0x2,
++	/**
++	 * hardware signalled the start of the presentation
++	 *
++	 * The display hardware signalled that it started using the new
++	 * image content. The opposite of this is e.g. a timer being used
++	 * to guess when the display hardware has switched to the new image
++	 * content.
++	 */
++	WP_PRESENTATION_FEEDBACK_KIND_HW_COMPLETION = 0x4,
++	/**
++	 * presentation was done zero-copy
++	 *
++	 * The presentation of this update was done zero-copy. This means
++	 * the buffer from the client was given to display hardware as is,
++	 * without copying it. Compositing with OpenGL counts as copying,
++	 * even if textured directly from the client buffer. Possible
++	 * zero-copy cases include direct scanout of a fullscreen surface
++	 * and a surface on a hardware overlay.
++	 */
++	WP_PRESENTATION_FEEDBACK_KIND_ZERO_COPY = 0x8,
++};
++#endif /* WP_PRESENTATION_FEEDBACK_KIND_ENUM */
++
++/**
++ * @ingroup iface_wp_presentation_feedback
++ * @struct wp_presentation_feedback_listener
++ */
++struct wp_presentation_feedback_listener {
++	/**
++	 * presentation synchronized to this output
++	 *
++	 * As presentation can be synchronized to only one output at a
++	 * time, this event tells which output it was. This event is only
++	 * sent prior to the presented event.
++	 *
++	 * As clients may bind to the same global wl_output multiple times,
++	 * this event is sent for each bound instance that matches the
++	 * synchronized output. If a client has not bound to the right
++	 * wl_output global at all, this event is not sent.
++	 * @param output presentation output
++	 */
++	void (*sync_output)(void *data,
++			    struct wp_presentation_feedback *wp_presentation_feedback,
++			    struct wl_output *output);
++	/**
++	 * the content update was displayed
++	 *
++	 * The associated content update was displayed to the user at the
++	 * indicated time (tv_sec_hi/lo, tv_nsec). For the interpretation
++	 * of the timestamp, see presentation.clock_id event.
++	 *
++	 * The timestamp corresponds to the time when the content update
++	 * turned into light the first time on the surface's main output.
++	 * Compositors may approximate this from the framebuffer flip
++	 * completion events from the system, and the latency of the
++	 * physical display path if known.
++	 *
++	 * This event is preceded by all related sync_output events telling
++	 * which output's refresh cycle the feedback corresponds to, i.e.
++	 * the main output for the surface. Compositors are recommended to
++	 * choose the output containing the largest part of the wl_surface,
++	 * or keeping the output they previously chose. Having a stable
++	 * presentation output association helps clients predict future
++	 * output refreshes (vblank).
++	 *
++	 * The 'refresh' argument gives the compositor's prediction of how
++	 * many nanoseconds after tv_sec, tv_nsec the very next output
++	 * refresh may occur. This is to further aid clients in predicting
++	 * future refreshes, i.e., estimating the timestamps targeting the
++	 * next few vblanks. If such prediction cannot usefully be done,
++	 * the argument is zero.
++	 *
++	 * For version 2 and later, if the output does not have a constant
++	 * refresh rate, explicit video mode switches excluded, then the
++	 * refresh argument must be either an appropriate rate picked by
++	 * the compositor (e.g. fastest rate), or 0 if no such rate exists.
++	 * For version 1, if the output does not have a constant refresh
++	 * rate, the refresh argument must be zero.
++	 *
++	 * The 64-bit value combined from seq_hi and seq_lo is the value of
++	 * the output's vertical retrace counter when the content update
++	 * was first scanned out to the display. This value must be
++	 * compatible with the definition of MSC in GLX_OML_sync_control
++	 * specification. Note, that if the display path has a non-zero
++	 * latency, the time instant specified by this counter may differ
++	 * from the timestamp's.
++	 *
++	 * If the output does not have a concept of vertical retrace or a
++	 * refresh cycle, or the output device is self-refreshing without a
++	 * way to query the refresh count, then the arguments seq_hi and
++	 * seq_lo must be zero.
++	 * @param tv_sec_hi high 32 bits of the seconds part of the presentation timestamp
++	 * @param tv_sec_lo low 32 bits of the seconds part of the presentation timestamp
++	 * @param tv_nsec nanoseconds part of the presentation timestamp
++	 * @param refresh nanoseconds till next refresh
++	 * @param seq_hi high 32 bits of refresh counter
++	 * @param seq_lo low 32 bits of refresh counter
++	 * @param flags combination of 'kind' values
++	 */
++	void (*presented)(void *data,
++			  struct wp_presentation_feedback *wp_presentation_feedback,
++			  uint32_t tv_sec_hi,
++			  uint32_t tv_sec_lo,
++			  uint32_t tv_nsec,
++			  uint32_t refresh,
++			  uint32_t seq_hi,
++			  uint32_t seq_lo,
++			  uint32_t flags);
++	/**
++	 * the content update was not displayed
++	 *
++	 * The content update was never displayed to the user.
++	 */
++	void (*discarded)(void *data,
++			  struct wp_presentation_feedback *wp_presentation_feedback);
++};
++
++/**
++ * @ingroup iface_wp_presentation_feedback
++ */
++static inline int
++wp_presentation_feedback_add_listener(struct wp_presentation_feedback *wp_presentation_feedback,
++				      const struct wp_presentation_feedback_listener *listener, void *data)
++{
++	return wl_proxy_add_listener((struct wl_proxy *) wp_presentation_feedback,
++				     (void (**)(void)) listener, data);
++}
++
++/**
++ * @ingroup iface_wp_presentation_feedback
++ */
++#define WP_PRESENTATION_FEEDBACK_SYNC_OUTPUT_SINCE_VERSION 1
++/**
++ * @ingroup iface_wp_presentation_feedback
++ */
++#define WP_PRESENTATION_FEEDBACK_PRESENTED_SINCE_VERSION 1
++/**
++ * @ingroup iface_wp_presentation_feedback
++ */
++#define WP_PRESENTATION_FEEDBACK_DISCARDED_SINCE_VERSION 1
++
++
++/** @ingroup iface_wp_presentation_feedback */
++static inline void
++wp_presentation_feedback_set_user_data(struct wp_presentation_feedback *wp_presentation_feedback, void *user_data)
++{
++	wl_proxy_set_user_data((struct wl_proxy *) wp_presentation_feedback, user_data);
++}
++
++/** @ingroup iface_wp_presentation_feedback */
++static inline void *
++wp_presentation_feedback_get_user_data(struct wp_presentation_feedback *wp_presentation_feedback)
++{
++	return wl_proxy_get_user_data((struct wl_proxy *) wp_presentation_feedback);
++}
++
++static inline uint32_t
++wp_presentation_feedback_get_version(struct wp_presentation_feedback *wp_presentation_feedback)
++{
++	return wl_proxy_get_version((struct wl_proxy *) wp_presentation_feedback);
++}
++
++/** @ingroup iface_wp_presentation_feedback */
++static inline void
++wp_presentation_feedback_destroy(struct wp_presentation_feedback *wp_presentation_feedback)
++{
++	wl_proxy_destroy((struct wl_proxy *) wp_presentation_feedback);
++}
++
++#ifdef  __cplusplus
++}
++#endif
++
++#endif
+diff --git a/engine/src/flutter/shell/platform/linux/fl_wayland_surface.cc b/engine/src/flutter/shell/platform/linux/fl_wayland_surface.cc
+new file mode 100644
+index 00000000000..bdb970601b0
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/linux/fl_wayland_surface.cc
+@@ -0,0 +1,390 @@
++// Copyright 2026 The Flutter Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++#include "flutter/shell/platform/linux/fl_wayland_surface.h"
++#include <gdk/gdkwayland.h>
++#include <time.h>
++#include <algorithm>
++#include <cstring>
++#include <utility>
++
++namespace {
++uint64_t Now() {
++  return static_cast<uint64_t>(g_get_monotonic_time()) * 1000;
++}
++// Restore the caller's EGL state, including its bound client API. GDK caches
++// its current context, so changing EGL state without restoring it is unsafe.
++class EGLScope {
++ public:
++  EGLScope()
++      : display_(eglGetCurrentDisplay()),
++        context_(eglGetCurrentContext()),
++        draw_(eglGetCurrentSurface(EGL_DRAW)),
++        read_(eglGetCurrentSurface(EGL_READ)),
++        api_(eglQueryAPI()) {}
++  ~EGLScope() {
++    EGLDisplay current = eglGetCurrentDisplay();
++    if (display_ != EGL_NO_DISPLAY) {
++      eglMakeCurrent(display_, draw_, read_, context_);
++    } else if (current != EGL_NO_DISPLAY) {
++      eglMakeCurrent(current, EGL_NO_SURFACE, EGL_NO_SURFACE, EGL_NO_CONTEXT);
++    }
++    eglBindAPI(api_);
++  }
++
++ private:
++  EGLDisplay display_;
++  EGLContext context_;
++  EGLSurface draw_, read_;
++  EGLenum api_;
++};
++}  // namespace
++
++FlWaylandSurface* FlWaylandSurface::Create(GtkWidget* widget,
++                                           GdkGLContext* context) {
++  if (g_strcmp0(g_getenv("FLUTTER_LINUX_DISABLE_WAYLAND_FRAME_SYNC"), "1") ==
++          0 ||
++      !GDK_IS_WAYLAND_DISPLAY(gtk_widget_get_display(widget)))
++    return nullptr;
++  auto* self = new FlWaylandSurface(widget);
++  if (!self->Initialize(context)) {
++    delete self;
++    g_warning("Wayland frame surface unavailable; using GTK rendering");
++    return nullptr;
++  }
++  return self;
++}
++
++void FlWaylandSurface::Global(void* data,
++                              wl_registry* registry,
++                              uint32_t name,
++                              const char* interface,
++                              uint32_t version) {
++  auto* self = static_cast<FlWaylandSurface*>(data);
++  if (strcmp(interface, wl_compositor_interface.name) == 0 && version >= 3) {
++    self->compositor_ = static_cast<wl_compositor*>(
++        wl_registry_bind(registry, name, &wl_compositor_interface, 3));
++  } else if (strcmp(interface, wp_presentation_interface.name) == 0) {
++    self->presentation_ = static_cast<wp_presentation*>(
++        wl_registry_bind(registry, name, &wp_presentation_interface, 1));
++    static const wp_presentation_listener listener = {ClockID};
++    wp_presentation_add_listener(self->presentation_, &listener, self);
++  } else if (strcmp(interface, wl_subcompositor_interface.name) == 0) {
++    self->subcompositor_ = static_cast<wl_subcompositor*>(
++        wl_registry_bind(registry, name, &wl_subcompositor_interface, 1));
++  }
++}
++
++bool FlWaylandSurface::Initialize(GdkGLContext* gdk_context) {
++  GdkWindow* parent = gtk_widget_get_window(gtk_widget_get_toplevel(widget_));
++  if (!parent)
++    return false;
++  wl_surface* parent_surface = gdk_wayland_window_get_wl_surface(parent);
++  if (!parent_surface)
++    return false;
++  display_ =
++      gdk_wayland_display_get_wl_display(gtk_widget_get_display(widget_));
++
++  // Registry discovery uses a private queue so realization cannot re-enter GTK
++  // via an unrelated configure event. Live surfaces use GDK's default queue.
++  wl_event_queue* queue = wl_display_create_queue(display_);
++  wl_registry* registry = wl_display_get_registry(display_);
++  wl_proxy_set_queue(reinterpret_cast<wl_proxy*>(registry), queue);
++  static const wl_registry_listener listener = {Global, GlobalRemove};
++  wl_registry_add_listener(registry, &listener, this);
++  int result = wl_display_roundtrip_queue(display_, queue);
++  if (compositor_)
++    wl_proxy_set_queue(reinterpret_cast<wl_proxy*>(compositor_), nullptr);
++  if (subcompositor_)
++    wl_proxy_set_queue(reinterpret_cast<wl_proxy*>(subcompositor_), nullptr);
++  if (presentation_)
++    wl_proxy_set_queue(reinterpret_cast<wl_proxy*>(presentation_), nullptr);
++  wl_registry_destroy(registry);
++  wl_event_queue_destroy(queue);
++  if (result < 0 || !compositor_ || !subcompositor_)
++    return false;
++
++  surface_ = wl_compositor_create_surface(compositor_);
++  subsurface_ =
++      wl_subcompositor_get_subsurface(subcompositor_, surface_, parent_surface);
++  wl_subsurface_set_desync(subsurface_);
++  wl_region* empty = wl_compositor_create_region(compositor_);
++  wl_surface_set_input_region(surface_, empty);
++  wl_region_destroy(empty);
++
++  gdk_gl_context_make_current(gdk_context);
++  EGLScope scope;
++  egl_display_ = eglGetCurrentDisplay();
++  EGLContext current = eglGetCurrentContext();
++  if (egl_display_ == EGL_NO_DISPLAY || current == EGL_NO_CONTEXT)
++    return false;
++  EGLint api = EGL_OPENGL_API;
++  eglQueryContext(egl_display_, current, EGL_CONTEXT_CLIENT_TYPE, &api);
++  EGLint config_attributes[] = {
++      EGL_SURFACE_TYPE,
++      EGL_WINDOW_BIT,
++      EGL_RED_SIZE,
++      8,
++      EGL_GREEN_SIZE,
++      8,
++      EGL_BLUE_SIZE,
++      8,
++      EGL_ALPHA_SIZE,
++      8,
++      EGL_RENDERABLE_TYPE,
++      api == EGL_OPENGL_API ? EGL_OPENGL_BIT : EGL_OPENGL_ES3_BIT,
++      EGL_NONE};
++  EGLConfig config = nullptr;
++  EGLint count = 0;
++  if (!eglChooseConfig(egl_display_, config_attributes, &config, 1, &count) ||
++      !count)
++    return false;
++  eglBindAPI(api);
++  const EGLint gl_attributes[] = {EGL_CONTEXT_MAJOR_VERSION,
++                                  3,
++                                  EGL_CONTEXT_MINOR_VERSION,
++                                  2,
++                                  EGL_CONTEXT_OPENGL_PROFILE_MASK,
++                                  EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT,
++                                  EGL_NONE};
++  const EGLint es_attributes[] = {EGL_CONTEXT_CLIENT_VERSION, 3, EGL_NONE};
++  context_ =
++      eglCreateContext(egl_display_, config, EGL_NO_CONTEXT,
++                       api == EGL_OPENGL_API ? gl_attributes : es_attributes);
++  if (context_ == EGL_NO_CONTEXT)
++    return false;
++  window_ = wl_egl_window_create(surface_, 1, 1);
++  egl_surface_ = eglCreateWindowSurface(
++      egl_display_, config, reinterpret_cast<EGLNativeWindowType>(window_),
++      nullptr);
++  if (egl_surface_ == EGL_NO_SURFACE)
++    return false;
++  if (!eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, context_))
++    return false;
++  // Rendering is paced by compositor frame callbacks. Never block the GTK/UI
++  // thread in swap waiting for another refresh.
++  eglSwapInterval(egl_display_, 0);
++  if (const char* path = g_getenv("FLUTTER_LINUX_FRAME_TIMINGS")) {
++    static bool trace_started = false;
++    trace_ = fopen(path, trace_started ? "a" : "w");
++    if (trace_) {
++      if (!trace_started)
++        fprintf(trace_, "event,time_ns,refresh_ns,flags\n");
++      trace_started = true;
++    }
++  }
++  return true;
++}
++
++FlWaylandSurface::~FlWaylandSurface() {
++  CancelVsync();
++  for (auto* feedback : feedbacks_)
++    wp_presentation_feedback_destroy(feedback);
++  if (presentation_)
++    wp_presentation_destroy(presentation_);
++  if (trace_)
++    fclose(trace_);
++  if (egl_surface_ != EGL_NO_SURFACE)
++    eglDestroySurface(egl_display_, egl_surface_);
++  if (context_ != EGL_NO_CONTEXT)
++    eglDestroyContext(egl_display_, context_);
++  if (window_)
++    wl_egl_window_destroy(window_);
++  if (subsurface_)
++    wl_subsurface_destroy(subsurface_);
++  if (surface_)
++    wl_surface_destroy(surface_);
++  if (subcompositor_)
++    wl_subcompositor_destroy(subcompositor_);
++  if (compositor_)
++    wl_compositor_destroy(compositor_);
++}
++
++uint64_t FlWaylandSurface::Interval() const {
++  GdkWindow* window = gtk_widget_get_window(widget_);
++  GdkMonitor* monitor = window ? gdk_display_get_monitor_at_window(
++                                     gtk_widget_get_display(widget_), window)
++                               : nullptr;
++  int rate = monitor ? gdk_monitor_get_refresh_rate(monitor) : 0;
++  return rate > 0 ? 1000000000000ULL / rate : 16666667;
++}
++
++bool FlWaylandSurface::Present(FlCompositorOpenGL* compositor) {
++  if (!gtk_widget_get_mapped(widget_))
++    return true;
++  GtkAllocation allocation;
++  gtk_widget_get_allocation(widget_, &allocation);
++  int scale = gtk_widget_get_scale_factor(widget_);
++  int width = allocation.width * scale;
++  int height = allocation.height * scale;
++  if (width <= 0 || height <= 0)
++    return true;
++  int x = 0, y = 0;
++  gtk_widget_translate_coordinates(widget_, gtk_widget_get_toplevel(widget_), 0,
++                                   0, &x, &y);
++  wl_subsurface_set_position(subsurface_, x, y);
++  wl_surface_set_buffer_scale(surface_, scale);
++  wl_egl_window_resize(window_, width, height, 0, 0);
++  EGLScope scope;
++  if (!eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, context_))
++    return false;
++  if (!fl_compositor_opengl_blit(compositor, width, height))
++    return true;
++  if (!pending_.empty())
++    ArmFrame();
++  if (presentation_) {
++    auto* feedback = wp_presentation_feedback(presentation_, surface_);
++    static const wp_presentation_feedback_listener listener = {
++        FeedbackOutput, FeedbackPresented, FeedbackDiscarded};
++    wp_presentation_feedback_add_listener(feedback, &listener, this);
++    feedbacks_.push_back(feedback);
++  }
++  if (!eglSwapBuffers(egl_display_, egl_surface_))
++    return false;
++  if (trace_)
++    fprintf(trace_, "submit,%llu,%llu,0\n",
++            static_cast<unsigned long long>(Now()),
++            static_cast<unsigned long long>(Interval()));
++  has_buffer_ = true;
++  has_presented_ = true;
++  return true;
++}
++
++void FlWaylandSurface::ArmFrame() {
++  if (frame_)
++    return;
++  frame_ = wl_surface_frame(surface_);
++  static const wl_callback_listener listener = {FrameDone};
++  wl_callback_add_listener(frame_, &listener, this);
++}
++
++void FlWaylandSurface::RequestVsync(Vsync callback) {
++  pending_.push_back(std::move(callback));
++  // Bootstrap before the runner shows its window; hidden windows get a bounded
++  // wakeup so lifecycle/resize work and outstanding batons cannot deadlock.
++  if (!has_buffer_ || !gtk_widget_get_mapped(widget_)) {
++    if (!timeout_)
++      timeout_ = g_timeout_add(
++          !gtk_widget_get_mapped(widget_) && has_presented_ ? 250 : 16, Timeout,
++          this);
++    return;
++  }
++  ArmFrame();
++  wl_surface_commit(surface_);
++  wl_display_flush(display_);
++  if (!timeout_)
++    timeout_ = g_timeout_add(250, Timeout, this);
++}
++
++void FlWaylandSurface::FrameDone(void* data,
++                                 wl_callback* callback,
++                                 uint32_t time) {
++  auto* self = static_cast<FlWaylandSurface*>(data);
++  wl_callback_destroy(callback);
++  self->frame_ = nullptr;
++  if (self->timeout_) {
++    g_source_remove(self->timeout_);
++    self->timeout_ = 0;
++  }
++  uint64_t now = Now();
++  // wl_surface.frame has a millisecond clock with an unspecified epoch. Keep
++  // relative compositor timestamps (including uint32 wraparound), not variable
++  // callback arrival delays, as the animation timebase. Rebase after a pause.
++  uint32_t delta = time - self->last_time_;
++  if (!self->have_time_ || delta > 1000) {
++    self->frame_time_ = now;
++    self->have_time_ = true;
++  } else {
++    self->frame_time_ =
++        std::min(now, self->frame_time_ + uint64_t(delta) * 1000000);
++  }
++  if (self->monotonic_presentation_ && self->last_presentation_ &&
++      now >= self->last_presentation_ &&
++      now - self->last_presentation_ < 1000000000) {
++    uint64_t interval = self->Interval();
++    self->frame_time_ =
++        self->last_presentation_ +
++        ((now - self->last_presentation_) / interval) * interval;
++  }
++  self->last_time_ = time;
++  self->Complete(self->frame_time_);
++}
++
++gboolean FlWaylandSurface::Timeout(gpointer data) {
++  auto* self = static_cast<FlWaylandSurface*>(data);
++  self->timeout_ = 0;
++  if (self->frame_) {
++    wl_callback_destroy(self->frame_);
++    self->frame_ = nullptr;
++  }
++  self->have_time_ = false;
++  self->Complete(Now());
++  return G_SOURCE_REMOVE;
++}
++
++void FlWaylandSurface::Complete(uint64_t start) {
++  auto pending = std::move(pending_);
++  pending_.clear();
++  // Bootstrap and compositor clocks can overlap when mapping a window. Never
++  // let that handoff move the animation timeline backwards.
++  start = std::max(start, last_start_);
++  last_start_ = start;
++  uint64_t target = start + Interval();
++  for (auto& callback : pending)
++    callback(start, target);
++}
++
++void FlWaylandSurface::CancelVsync() {
++  if (timeout_) {
++    g_source_remove(timeout_);
++    timeout_ = 0;
++  }
++  if (frame_) {
++    wl_callback_destroy(frame_);
++    frame_ = nullptr;
++  }
++  have_time_ = false;
++  last_presentation_ = 0;
++  Complete(Now());
++}
++
++void FlWaylandSurface::ClockID(void* data, wp_presentation*, uint32_t clock) {
++  static_cast<FlWaylandSurface*>(data)->monotonic_presentation_ =
++      clock == CLOCK_MONOTONIC;
++}
++
++void FlWaylandSurface::RemoveFeedback(
++    struct wp_presentation_feedback* feedback) {
++  feedbacks_.erase(std::remove(feedbacks_.begin(), feedbacks_.end(), feedback),
++                   feedbacks_.end());
++  wp_presentation_feedback_destroy(feedback);
++}
++
++void FlWaylandSurface::FeedbackPresented(
++    void* data,
++    struct wp_presentation_feedback* feedback,
++    uint32_t hi,
++    uint32_t lo,
++    uint32_t nanos,
++    uint32_t refresh,
++    uint32_t sequence_hi,
++    uint32_t sequence_lo,
++    uint32_t flags) {
++  auto* self = static_cast<FlWaylandSurface*>(data);
++  self->last_presentation_ = ((uint64_t(hi) << 32) | lo) * 1000000000 + nanos;
++  if (self->trace_)
++    fprintf(self->trace_, "presented,%llu,%u,%u\n",
++            static_cast<unsigned long long>(self->last_presentation_), refresh,
++            flags);
++  self->RemoveFeedback(feedback);
++}
++
++void FlWaylandSurface::FeedbackDiscarded(
++    void* data,
++    struct wp_presentation_feedback* feedback) {
++  auto* self = static_cast<FlWaylandSurface*>(data);
++  if (self->trace_)
++    fprintf(self->trace_, "discarded,%llu,0,0\n",
++            static_cast<unsigned long long>(Now()));
++  self->RemoveFeedback(feedback);
++}
+diff --git a/engine/src/flutter/shell/platform/linux/fl_wayland_surface.h b/engine/src/flutter/shell/platform/linux/fl_wayland_surface.h
+new file mode 100644
+index 00000000000..93d53fe1436
+--- /dev/null
++++ b/engine/src/flutter/shell/platform/linux/fl_wayland_surface.h
+@@ -0,0 +1,86 @@
++// Copyright 2026 The Flutter Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++#ifndef FLUTTER_SHELL_PLATFORM_LINUX_FL_WAYLAND_SURFACE_H_
++#define FLUTTER_SHELL_PLATFORM_LINUX_FL_WAYLAND_SURFACE_H_
++
++#include <epoxy/egl.h>
++#include <gtk/gtk.h>
++#include <wayland-client.h>
++#include <wayland-egl.h>
++#include <cstdio>
++#include <functional>
++#include <vector>
++#include "flutter/shell/platform/linux/fl_compositor_opengl.h"
++#include "flutter/shell/platform/linux/fl_wayland_presentation.g.h"
++
++// An independently committed child surface. GTK keeps ownership of input and
++// window management; Flutter frames do not pass through GTK's repaint timer.
++// All methods and Wayland callbacks run on the GTK/platform thread.
++class FlWaylandSurface {
++ public:
++  using Vsync = std::function<void(uint64_t, uint64_t)>;
++  static FlWaylandSurface* Create(GtkWidget* widget, GdkGLContext* context);
++  ~FlWaylandSurface();
++  bool Present(FlCompositorOpenGL* compositor);
++  void RequestVsync(Vsync callback);
++  void CancelVsync();
++
++ private:
++  explicit FlWaylandSurface(GtkWidget* widget) : widget_(widget) {}
++  bool Initialize(GdkGLContext* context);
++  uint64_t Interval() const;
++  void ArmFrame();
++  void Complete(uint64_t start);
++  static void FrameDone(void* data, wl_callback* callback, uint32_t time);
++  static gboolean Timeout(gpointer data);
++  static void Global(void* data,
++                     wl_registry* registry,
++                     uint32_t name,
++                     const char* interface,
++                     uint32_t version);
++  static void GlobalRemove(void*, wl_registry*, uint32_t) {}
++
++  static void ClockID(void* data, wp_presentation*, uint32_t clock);
++  static void FeedbackOutput(void*,
++                             struct wp_presentation_feedback*,
++                             wl_output*) {}
++  static void FeedbackPresented(void* data,
++                                struct wp_presentation_feedback* feedback,
++                                uint32_t seconds_hi,
++                                uint32_t seconds_lo,
++                                uint32_t nanos,
++                                uint32_t refresh,
++                                uint32_t sequence_hi,
++                                uint32_t sequence_lo,
++                                uint32_t flags);
++  static void FeedbackDiscarded(void* data,
++                                struct wp_presentation_feedback* feedback);
++  void RemoveFeedback(struct wp_presentation_feedback* feedback);
++  wp_presentation* presentation_ = nullptr;
++  std::vector<struct wp_presentation_feedback*> feedbacks_;
++  bool monotonic_presentation_ = false;
++  uint64_t last_presentation_ = 0;
++  FILE* trace_ = nullptr;
++
++  GtkWidget* widget_;  // Owner; destroyed before the widget is unrealized.
++  wl_display* display_ = nullptr;
++  wl_compositor* compositor_ = nullptr;
++  wl_subcompositor* subcompositor_ = nullptr;
++  wl_surface* surface_ = nullptr;
++  wl_subsurface* subsurface_ = nullptr;
++  wl_egl_window* window_ = nullptr;
++  wl_callback* frame_ = nullptr;
++  EGLDisplay egl_display_ = EGL_NO_DISPLAY;
++  EGLContext context_ = EGL_NO_CONTEXT;
++  EGLSurface egl_surface_ = EGL_NO_SURFACE;
++  guint timeout_ = 0;
++  bool has_buffer_ = false;
++  bool has_presented_ = false;
++  bool have_time_ = false;
++  uint32_t last_time_ = 0;
++  uint64_t frame_time_ = 0;
++  uint64_t last_start_ = 0;
++  std::vector<Vsync> pending_;
++};
++#endif

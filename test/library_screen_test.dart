@@ -10,6 +10,7 @@ import 'package:miaosic/favorite_views.dart';
 import 'package:miaosic/favorites_playback_view.dart';
 import 'package:miaosic/library_controller.dart';
 import 'package:miaosic/library_screen.dart';
+import 'package:miaosic/library_sidebar.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/playback_controller.dart';
 import 'package:miaosic/playlist_playback_view.dart';
@@ -195,6 +196,22 @@ void main() {
     await tester.pump();
 
     expect(find.byType(AlbumPlaybackView), findsOneWidget);
+
+    final hiddenSidebar = find.byType(LibrarySidebar, skipOffstage: false);
+    expect(hiddenSidebar, findsOneWidget);
+    expect(find.byType(LibrarySidebar), findsNothing);
+    expect(TickerMode.valuesOf(tester.element(hiddenSidebar)).enabled, isFalse);
+    expect(
+      TickerMode.valuesOf(
+        tester.element(find.byType(AlbumPlaybackView)),
+      ).enabled,
+      isTrue,
+    );
+
+    await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+    await tester.pump();
+    expect(find.byType(LibrarySidebar), findsOneWidget);
+    expect(TickerMode.valuesOf(tester.element(hiddenSidebar)).enabled, isTrue);
 
     await _disposeLibraryScreen(tester, library, playback);
   });

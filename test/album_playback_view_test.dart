@@ -439,79 +439,62 @@ void main() {
     expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
   });
 
-  testWidgets('paused active album keeps the stopped disc visible', (
+  testWidgets('disc pauses and resumes without losing its angle', (
     tester,
   ) async {
     final album = _album();
     final tracks = [_track(1), _track(2), _track(3)];
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          width: 1280,
-          height: 720,
-          child: AlbumPlaybackView(
-            album: album,
-            tracks: tracks,
-            currentTrack: tracks[1],
-            playing: true,
-            onClose: () {},
-            onPrevious: () {},
-            onToggle: () {},
-            onNext: () {},
-            canSwitchPreviousAlbum: false,
-            canSwitchNextAlbum: false,
-            onSwitchPreviousAlbum: null,
-            onSwitchNextAlbum: null,
-            onPlayTrack: (_) {},
-          ),
-        ),
+    Widget view({required bool playing, bool active = true}) => MaterialApp(
+      home: AlbumPlaybackView(
+        album: album,
+        tracks: tracks,
+        currentTrack: active ? tracks[1] : null,
+        playing: playing,
+        onClose: () {},
+        onPrevious: () {},
+        onToggle: () {},
+        onNext: () {},
+        canSwitchPreviousAlbum: false,
+        canSwitchNextAlbum: false,
+        onSwitchPreviousAlbum: null,
+        onSwitchNextAlbum: null,
+        onPlayTrack: (_) {},
       ),
     );
+    double turns() => tester
+        .widget<RotationTransition>(find.byType(RotationTransition))
+        .turns
+        .value;
+
+    await tester.pumpWidget(view(playing: true));
     await tester.pump(const Duration(seconds: 2));
-    final spinningTurns = tester
-        .widget<RotationTransition>(find.byType(RotationTransition))
-        .turns
-        .value;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: SizedBox(
-          width: 1280,
-          height: 720,
-          child: AlbumPlaybackView(
-            album: album,
-            tracks: tracks,
-            currentTrack: tracks[1],
-            playing: false,
-            onClose: () {},
-            onPrevious: () {},
-            onToggle: () {},
-            onNext: () {},
-            canSwitchPreviousAlbum: false,
-            canSwitchNextAlbum: false,
-            onSwitchPreviousAlbum: null,
-            onSwitchNextAlbum: null,
-            onPlayTrack: (_) {},
-          ),
-        ),
-      ),
-    );
-    await tester.pump();
-    final pausedTurns = tester
-        .widget<RotationTransition>(find.byType(RotationTransition))
-        .turns
-        .value;
-    await tester.pump(const Duration(milliseconds: 600));
-
-    final rotation = tester.widget<RotationTransition>(
-      find.byType(RotationTransition),
-    );
+    final spinningTurns = turns();
     expect(spinningTurns, greaterThan(0));
-    expect(pausedTurns, spinningTurns);
-    expect(rotation.turns.value, pausedTurns);
+
+    await tester.pumpWidget(view(playing: false));
+    await tester.pump(const Duration(seconds: 3));
+    expect(turns(), spinningTurns);
     expect(find.byKey(const ValueKey('album-disc-sheen')), findsOneWidget);
     expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
+
+    await tester.pumpWidget(view(playing: true));
+    await tester.pump();
+    expect(turns(), closeTo(spinningTurns, 0.00001));
+    await tester.pump(const Duration(seconds: 1));
+    expect(turns(), closeTo(spinningTurns + 1 / 18, 0.00001));
+
+    // Rebuilding for an unrelated state notification must not restart rotation.
+    final beforeRebuild = turns();
+    await tester.pumpWidget(view(playing: true));
+    await tester.pump(const Duration(seconds: 1));
+    expect(turns(), closeTo(beforeRebuild + 1 / 18, 0.00001));
+
+    // A non-active album may still receive the global playing state. Its cover
+    // must settle after morphing back, without a hidden repeating ticker.
+    await tester.pumpWidget(view(playing: true, active: false));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('album-disc-hole')), findsNothing);
+    expect(tester.binding.transientCallbackCount, 0);
   });
 }
 
