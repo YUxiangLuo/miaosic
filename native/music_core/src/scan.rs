@@ -90,6 +90,7 @@ pub(crate) fn scan_library(
     }
     progress.emit_path(root);
 
+    ensure_complete_scan(&issues)?;
     tracks.sort_by(compare_tracks);
     apply_folder_covers(&mut tracks, &mut cover_cache);
     let folders = classify_folders(&tracks);
@@ -174,6 +175,7 @@ pub(crate) fn scan_library_incremental(
     }
     progress.emit_path(root);
 
+    ensure_complete_scan(&issues)?;
     tracks.sort_by(compare_tracks);
     apply_folder_covers(&mut tracks, &mut cover_cache);
     let folders = classify_folders(&tracks);
@@ -189,6 +191,18 @@ pub(crate) fn scan_library_incremental(
         skipped_files: issues.skipped_files,
         error_samples: issues.error_samples,
     })
+}
+
+fn ensure_complete_scan(issues: &ScanIssues) -> io::Result<()> {
+    if issues.skipped_files > 0 || !issues.error_samples.is_empty() {
+        // A partial result cannot establish that previously indexed files were
+        // deleted. Reject it before any caller can replace or diff the library.
+        return Err(io::Error::other(format!(
+            "Scan incomplete. Fix these errors and scan again:\n{}",
+            issues.error_samples.join("\n")
+        )));
+    }
+    Ok(())
 }
 
 pub(crate) fn extract_track_covers(

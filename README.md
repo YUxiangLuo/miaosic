@@ -43,6 +43,10 @@ scanned library, favorite tracks, and scan state are stored locally in the
 platform application support directory. Cover files are cached under `covers/`
 in the same app data area.
 
+If a scan reports music file or directory read errors, its result is rejected
+and the existing library and favorites are preserved. Fix the reported errors
+and retry the scan; unreadable files are not treated as deleted tracks.
+
 ## Run
 
 Miaosic requires GTK 3 and `libmpv` at runtime. On Debian or Ubuntu systems,
@@ -50,7 +54,7 @@ the following packages provide the development and runtime libraries used by
 the build:
 
 ```sh
-sudo apt install clang cmake libgtk-3-dev fonts-noto-cjk libmpv-dev ninja-build pkg-config
+sudo apt install clang cmake libgtk-3-dev fonts-noto-cjk libmpv-dev ninja-build pkg-config xvfb
 ```
 
 Use Flutter's stable channel, CMake 3.13 or newer, and Rust 1.96.0 to match CI.
@@ -105,10 +109,14 @@ flutter test
 cargo fmt --manifest-path native/music_core/Cargo.toml --check
 cargo test --locked --manifest-path native/music_core/Cargo.toml
 flutter build linux --release
+scripts/smoke_linux_bundle.sh
 ```
 
 Flutter's scanner integration tests require the Rust dynamic library built by
 `cargo build` above. A missing library fails the tests instead of skipping them.
+The Linux smoke tests require `xvfb-run` and GNU `timeout`. The bundle smoke
+test uses isolated app and runtime directories and requires a rendered first
+frame followed by a running process until the test timeout.
 
 The scanner can also be run without opening the UI:
 

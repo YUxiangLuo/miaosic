@@ -15,10 +15,7 @@ pub(crate) fn parse_track(path: &Path) -> io::Result<Track> {
     let folder_path = path_to_utf8(&logical_folder_for(path))
         .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
     let (size_bytes, modified_ms) = track_file_state(path)?;
-    let flac = read_flac_metadata(path).unwrap_or_else(|_| FlacMetadata {
-        tags: HashMap::new(),
-        duration_ms: None,
-    });
+    let flac = read_flac_metadata(path)?;
     let fallback = parse_file_name(path);
 
     let title = first_tag(&flac.tags, &["TITLE"]).unwrap_or(fallback.title);
@@ -70,9 +67,7 @@ pub(crate) fn read_flac_metadata(path: &Path) -> io::Result<FlacMetadata> {
     let mut duration_ms = None;
     loop {
         let mut header = [0_u8; 4];
-        if file.read_exact(&mut header).is_err() {
-            break;
-        }
+        file.read_exact(&mut header)?;
         let is_last = (header[0] & 0x80) != 0;
         let block_type = header[0] & 0x7f;
         let length =

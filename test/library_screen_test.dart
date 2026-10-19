@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -19,6 +21,227 @@ import 'package:miaosic/playlist_playback_view.dart';
 
 void main() {
   setUpAll(MediaKit.ensureInitialized);
+
+  for (final sameQueue in [false, true]) {
+    testWidgets(
+      'pending unfavorite cannot alter a new album (same queue: $sameQueue)',
+      (tester) async {
+        final fixture = _LibraryFixture.album();
+        final favorites = sameQueue ? fixture.tracks : _favoriteTracks(2);
+        final library = _InjectedLibraryController(
+          tracks: sameQueue
+              ? fixture.tracks
+              : [...fixture.tracks, ...favorites],
+          albums: [fixture.album],
+          favoriteTracks: favorites,
+          tracksByFolder: {fixture.album.folderPath: fixture.tracks},
+          lastPlaybackState: LastPlaybackState(
+            kind: LastPlaybackKind.favorites,
+            folderPath: '',
+            trackPath: favorites.first.path,
+            playing: true,
+            shuffled: false,
+          ),
+          canRestorePlayback: true,
+        );
+        final playback = _InjectedPlaybackController();
+        await _pumpLibraryScreen(
+          tester,
+          library: library,
+          playback: playback,
+          now: DateTime.now,
+        );
+        await tester.pump();
+        final blocker = Completer<void>();
+        library.favoriteBlocker = blocker;
+        tester
+            .widget<FavoritesPlaybackView>(find.byType(FavoritesPlaybackView))
+            .onToggleFavorite(favorites.last);
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pump();
+        await tester.tap(find.widgetWithText(InkWell, 'Albums'));
+        await tester.pump();
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlbumGrid),
+            matching: find.byType(InkWell),
+          ),
+        );
+        await tester.pump();
+        await tester.tap(find.byTooltip('Play'));
+        await tester.pump();
+        expect(playback.currentTrack?.path, fixture.tracks.first.path);
+
+        blocker.complete();
+        await tester.pump();
+        expect(playback.currentTrack?.path, fixture.tracks.first.path);
+        expect(playback.playing, isTrue);
+        expect(playback.isCurrentQueue(fixture.tracks), isTrue);
+        expect(playback.stopIfCurrentRemovedCount, 0);
+        expect(
+          library.favoriteTrackPaths,
+          isNot(contains(favorites.last.path)),
+        );
+        await _disposeLibraryScreen(tester, library, playback);
+      },
+    );
+  }
+
+  testWidgets('pending unfavorite preserves concurrent rescan removals', (
+    tester,
+  ) async {
+    final tracks = _favoriteTracks(3);
+    final library = _InjectedLibraryController(
+      tracks: tracks,
+      favoriteTracks: tracks,
+      lastPlaybackState: LastPlaybackState(
+        kind: LastPlaybackKind.favorites,
+        folderPath: '',
+        trackPath: tracks.first.path,
+        playing: true,
+        shuffled: false,
+      ),
+      canRestorePlayback: true,
+    );
+    final playback = _InjectedPlaybackController();
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+    await tester.pump();
+    final blocker = Completer<void>();
+    library.favoriteBlocker = blocker;
+    tester
+        .widget<FavoritesPlaybackView>(find.byType(FavoritesPlaybackView))
+        .onToggleFavorite(tracks[1]);
+    await tester.pump();
+    library.prepareRescan(tracks.take(2).toList());
+    await library.applyPendingDiff(confirmLargeDeletion: (_) async => true);
+    await playback.removeTracksFromQueue([tracks.last.path]);
+    blocker.complete();
+    await tester.pump();
+    expect(playback.currentQueueForTest.map((track) => track.path), [
+      tracks.first.path,
+    ]);
+    expect(playback.currentTrack?.path, tracks.first.path);
+    expect(playback.playing, isTrue);
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  testWidgets('failed playback save can retry the same state', (tester) async {
+    final fixture = _LibraryFixture.album();
+    final library = _InjectedLibraryController(
+      tracks: fixture.tracks,
+      albums: [fixture.album],
+      tracksByFolder: {fixture.album.folderPath: fixture.tracks},
+    );
+    final playback = _InjectedPlaybackController();
+    var attempts = 0;
+    LastPlaybackState? saved;
+    library.onSaveLastPlayback = (state) async {
+      attempts += 1;
+      if (attempts == 1) {
+        throw StateError('disk full');
+      }
+      saved = state;
+    };
+    await _pumpLibraryScreen(
+      tester,
+      library: library,
+      playback: playback,
+      now: DateTime.now,
+    );
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AlbumGrid),
+        matching: find.byType(InkWell),
+      ),
+    );
+    await tester.pump();
+    tester
+        .widget<AlbumPlaybackView>(find.byType(AlbumPlaybackView))
+        .onPlayTrack(fixture.tracks.first);
+    await tester.pump();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(tester.takeException(), isNull);
+    expect(find.textContaining('Could not save playback:'), findsOneWidget);
+    expect(saved, isNull);
+
+    await tester.tap(find.text('Retry'));
+    await tester.pump();
+    expect(attempts, 2);
+    expect(saved?.trackPath, fixture.tracks.first.path);
+    tester
+        .widget<AlbumPlaybackView>(find.byType(AlbumPlaybackView))
+        .onPlayTrack(fixture.tracks.first);
+    await tester.pump();
+    expect(attempts, 2);
+    await _disposeLibraryScreen(tester, library, playback);
+  });
+
+  for (final returnToFirst in [false, true]) {
+    testWidgets(
+      'playback saves retain the latest pending state (return: $returnToFirst)',
+      (tester) async {
+        final tracks = _favoriteTracks(2);
+        final album = _albumSummary(tracks.first.folderPath, 'Favorites');
+        final library = _InjectedLibraryController(
+          tracks: tracks,
+          albums: [album],
+          tracksByFolder: {album.folderPath: tracks},
+        );
+        final playback = _InjectedPlaybackController();
+        final blocker = Completer<void>();
+        final saved = <String>[];
+        var attempts = 0;
+        library.onSaveLastPlayback = (state) async {
+          attempts += 1;
+          if (attempts == 1) {
+            await blocker.future;
+          }
+          saved.add(state.trackPath);
+        };
+        await _pumpLibraryScreen(
+          tester,
+          library: library,
+          playback: playback,
+          now: DateTime.now,
+        );
+        await tester.tap(
+          find.descendant(
+            of: find.byType(AlbumGrid),
+            matching: find.byType(InkWell),
+          ),
+        );
+        await tester.pump();
+        void play(Track track) => tester
+            .widget<AlbumPlaybackView>(find.byType(AlbumPlaybackView))
+            .onPlayTrack(track);
+        play(tracks.first);
+        await tester.pump();
+        play(tracks.last);
+        await tester.pump();
+        if (returnToFirst) {
+          play(tracks.first);
+          await tester.pump();
+        }
+        expect(attempts, 1);
+        blocker.complete();
+        await tester.pump();
+        expect(
+          saved,
+          returnToFirst
+              ? [tracks.first.path]
+              : tracks.map((track) => track.path).toList(),
+        );
+        await _disposeLibraryScreen(tester, library, playback);
+      },
+    );
+  }
 
   for (final kind in LastPlaybackKind.values) {
     testWidgets('applying a rescan prunes the active ${kind.name} queue', (
@@ -1324,6 +1547,8 @@ class _InjectedLibraryController extends LibraryController {
        _tracksByFolder = Map.unmodifiable(tracksByFolder);
 
   bool opened = false;
+  Completer<void>? favoriteBlocker;
+  Future<void> Function(LastPlaybackState)? onSaveLastPlayback;
   bool disposedByScreen = false;
   final bool canEditMusicRoot;
   List<Track> _tracks;
@@ -1423,7 +1648,13 @@ class _InjectedLibraryController extends LibraryController {
   List<AlbumSummary> get albums => _albums;
 
   @override
+  Future<void> saveLastPlayback(LastPlaybackState state) async {
+    await onSaveLastPlayback?.call(state);
+  }
+
+  @override
   Future<void> toggleFavoriteTrack(Track track) async {
+    await favoriteBlocker?.future;
     final exists = _favoriteTracks.any(
       (favorite) => favorite.path == track.path,
     );

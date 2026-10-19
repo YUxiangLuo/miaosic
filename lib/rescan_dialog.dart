@@ -850,20 +850,23 @@ class _EmptyReview extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
       ),
       child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 42, color: scheme.primary),
-            const SizedBox(height: 12),
-            Text(
-              title,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
-            ),
-            const SizedBox(height: 4),
-            Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant)),
-          ],
+        child: SingleChildScrollView(
+          primary: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(icon, size: 42, color: scheme.primary),
+              const SizedBox(height: 12),
+              Text(
+                title,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+              ),
+              const SizedBox(height: 4),
+              Text(subtitle, style: TextStyle(color: scheme.onSurfaceVariant)),
+            ],
+          ),
         ),
       ),
     );

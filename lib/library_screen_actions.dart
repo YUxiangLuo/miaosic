@@ -256,7 +256,11 @@ extension _LibraryScreenActions on _LibraryScreenState {
     _showTransientMessage(warning, onDismiss: _library.clearBackgroundWarning);
   }
 
-  void _showTransientMessage(String message, {VoidCallback? onDismiss}) {
+  void _showTransientMessage(
+    String message, {
+    VoidCallback? onDismiss,
+    VoidCallback? onRetry,
+  }) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
         return;
@@ -268,8 +272,8 @@ extension _LibraryScreenActions on _LibraryScreenState {
           SnackBar(
             content: Text(message),
             action: SnackBarAction(
-              label: 'Dismiss',
-              onPressed: onDismiss ?? () {},
+              label: onRetry == null ? 'Dismiss' : 'Retry',
+              onPressed: onRetry ?? onDismiss ?? () {},
             ),
           ),
         );
@@ -460,12 +464,37 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (state == null) {
       return;
     }
-    final key = lastPlaybackStateKey(state);
-    if (key == _lastPersistedPlaybackKey) {
-      return;
+    _pendingPlaybackState = state;
+    if (!_savingPlaybackState) {
+      unawaited(_persistPendingPlaybackState());
     }
-    _lastPersistedPlaybackKey = key;
-    unawaited(_library.saveLastPlayback(state));
+  }
+
+  Future<void> _persistPendingPlaybackState() async {
+    _savingPlaybackState = true;
+    try {
+      while (mounted && _pendingPlaybackState != null) {
+        final state = _pendingPlaybackState!;
+        _pendingPlaybackState = null;
+        final key = lastPlaybackStateKey(state);
+        if (key == _lastPersistedPlaybackKey) {
+          continue;
+        }
+        try {
+          await _library.saveLastPlayback(state);
+          _lastPersistedPlaybackKey = key;
+        } catch (error) {
+          if (mounted) {
+            _showTransientMessage(
+              'Could not save playback: $error',
+              onRetry: _saveCurrentPlaybackStateIfChanged,
+            );
+          }
+        }
+      }
+    } finally {
+      _savingPlaybackState = false;
+    }
   }
 
   void _openRescanModal() {
@@ -531,6 +560,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
   }
 
   Future<void> _playQueueFrom(List<Track> queue, Track track) {
+    _playbackSessionRevision += 1;
     return _playback.playQueueFrom(queue, track);
   }
 
@@ -546,32 +576,19 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final session = _activeFavoritesPlayback;
     final favoritesSessionActive =
         session != null && _playback.isCurrentQueue(session.queue);
+    final revision = _playbackSessionRevision;
 
     await _library.toggleFavoriteTrack(track);
-    if (!mounted || !removing || !favoritesSessionActive) {
+    if (!mounted ||
+        !removing ||
+        !favoritesSessionActive ||
+        revision != _playbackSessionRevision) {
       return;
     }
 
-    final nextTracks = session.tracks
-        .where((candidate) => candidate.path != track.path)
-        .toList(growable: false);
-    final nextQueue = session.queue
-        .where((candidate) => candidate.path != track.path)
-        .toList(growable: false);
-    _mutate(() {
-      _activeFavoritesPlayback = nextQueue.isEmpty
-          ? null
-          : LibraryActiveFavoritesPlayback(
-              tracks: nextTracks,
-              queue: nextQueue,
-              shuffled: session.shuffled,
-            );
-    });
-    if (nextQueue.isEmpty || _playback.currentTrack?.path == track.path) {
-      await _playback.stopIfCurrentRemoved([track.path]);
-      return;
-    }
-    await _playback.replaceQueueKeepingPosition(nextQueue);
+    // Library notifications already refresh the visible favorites. Remove from
+    // the live queue so a concurrent rescan cannot be undone by an old snapshot.
+    await _playback.removeTracksFromQueue([track.path]);
   }
 
   Future<void> _restoreQueueFrom(
@@ -579,6 +596,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     Track track, {
     required bool play,
   }) {
+    _playbackSessionRevision += 1;
     return _playback.restoreQueueFrom(queue, track, play: play);
   }
 

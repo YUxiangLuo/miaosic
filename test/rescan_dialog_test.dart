@@ -7,6 +7,54 @@ import 'package:miaosic/models.dart';
 import 'package:miaosic/rescan_dialog.dart';
 
 void main() {
+  for (final size in [const Size(800, 600), const Size(960, 540)]) {
+    testWidgets('removal-only diff fits $size and keeps Apply accessible', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final track = _track('/music/missing.flac');
+      final state = ValueNotifier(
+        RescanUiState(
+          phase: RescanPhase.ready,
+          diff: LibraryDiff(
+            added: const [],
+            removed: [
+              TrackChange(
+                path: track.path,
+                oldTrack: track,
+                newTrack: null,
+                reason: TrackChangeReason.removed,
+              ),
+            ],
+            modified: const [],
+            unchangedCount: 12,
+            result: _diff(hasChanges: false).result,
+          ),
+        ),
+      );
+      var applied = false;
+      await tester.pumpWidget(
+        _DialogHost(
+          state: state,
+          onApply: () async {
+            applied = true;
+            return true;
+          },
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+      expect(applied, isTrue);
+      expect(find.text('Rescan library'), findsNothing);
+    });
+  }
+
   testWidgets('rescan dialog uses top close button and left full rescan', (
     tester,
   ) async {

@@ -19,7 +19,9 @@ mod tests {
     use crate::cover::find_external_cover;
     use crate::cover::MAX_COVER_BYTES;
     use crate::ffi::{catch_native, read_c_string, respond_json};
-    use crate::flac::{read_picture_data, read_streaminfo_duration, read_vorbis_comments};
+    use crate::flac::{
+        parse_track, read_picture_data, read_streaminfo_duration, read_vorbis_comments,
+    };
     use crate::models::{IncrementalScanRequest, ScanIssues, Track, TrackCoverRequest};
     use crate::scan::{extract_track_covers, scan_library, scan_library_incremental};
     use crate::util::{is_disc_folder, parse_year};
@@ -27,6 +29,33 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn metadata_read_failures_are_not_filename_fallbacks() {
+        let root = temp_root("truncated_metadata");
+        let path = root.join("Fallback.flac");
+        for bytes in [b"".as_slice(), b"fLaC", b"fLaC\x80\x00\x00\x22short"] {
+            fs::write(&path, bytes).expect("write truncated FLAC");
+            assert!(parse_track(&path).is_err());
+            assert!(scan_library(root.to_str().unwrap(), None, None).is_err());
+            assert!(
+                scan_library_incremental(root.to_str().unwrap(), Vec::new(), None, None).is_err()
+            );
+        }
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
+
+    #[test]
+    fn valid_untagged_flac_keeps_filename_fallback() {
+        let root = temp_root("untagged_metadata");
+        let path = root.join("Fallback.flac");
+        fs::write(&path, minimal_flac(None)).expect("write untagged FLAC");
+        assert_eq!(
+            parse_track(&path).expect("parse untagged FLAC").title,
+            "Fallback"
+        );
+        fs::remove_dir_all(root).expect("cleanup temp root");
+    }
 
     #[test]
     fn parse_year_handles_non_ascii_dates_without_panic() {

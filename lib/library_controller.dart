@@ -420,8 +420,10 @@ class LibraryController extends ChangeNotifier {
     if (database == null || _disposed) {
       return;
     }
-    _lastPlayback = state;
     await database.saveLastPlayback(state);
+    if (!_disposed) {
+      _lastPlayback = state;
+    }
   }
 
   Future<void> toggleFavoriteTrack(Track track) async {

@@ -52,6 +52,9 @@ class _LibraryScreenState extends State<LibraryScreen>
   String? _lastPlaybackPath;
   String? _lastNowPlayingPath;
   String? _lastPersistedPlaybackKey;
+  LastPlaybackState? _pendingPlaybackState;
+  bool _savingPlaybackState = false;
+  int _playbackSessionRevision = 0;
   bool _lastPlaybackPlaying = false;
   bool _lastNowPlayingPlaying = false;
   bool _lastPlaybackRestoreAttempted = false;

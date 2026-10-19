@@ -3,11 +3,128 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:miaosic/library_controller.dart';
+import 'package:miaosic/library_database.dart';
+import 'package:miaosic/library_types.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/music_scanner.dart';
+import 'package:miaosic/playlist_cover_indexer.dart';
 import 'package:miaosic/rust_music_scanner.dart';
 
 void main() {
+  for (final mode in ['incremental', 'full', 'direct']) {
+    test(
+      '$mode scan preserves library and favorites on unreadable subtree',
+      () async {
+        _requireRustScanner();
+        final dir = await Directory.systemTemp.createTemp(
+          'miaosic_scan_access_',
+        );
+        await _writeFixture(dir);
+        final restricted = Directory(
+          '${dir.path}/Artist - Album (2020)/Disc 1',
+        );
+        final scanner = _scannerFor(dir);
+        final initial = await scanner.scan(dir.path);
+        final favorite = initial.tracks.firstWhere(
+          (track) => track.title == 'Opening',
+        );
+        final database = await LibraryDatabase.openAtPath(
+          '${dir.path}/library.db',
+        );
+        await database.saveMusicRoot(dir.path);
+        await database.replaceLibrary(initial);
+        await database.setTrackFavorite(favorite.path, true);
+        final controller = LibraryController(
+          scanner: scanner,
+          openDatabase: () async => database,
+          coverIndexer: _NoopTrackCoverIndexer(),
+          migrateCoverCache: (_) async {},
+        );
+        try {
+          await controller.open();
+          await _chmod(restricted.path, '000');
+          await _rescan(controller, mode);
+          expect(controller.rescanState.value.phase, RescanPhase.error);
+          expect(controller.rescanState.value.error, contains(restricted.path));
+          expect(controller.rescanState.value.diff, isNull);
+          expect(
+            await controller.applyPendingDiff(
+              confirmLargeDeletion: (_) async => true,
+            ),
+            isNull,
+          );
+          expect(await database.loadTracks(), hasLength(initial.tracks.length));
+          expect(
+            await database.loadFavoriteTrackPaths(),
+            contains(favorite.path),
+          );
+
+          await _chmod(restricted.path, '755');
+          await _rescan(controller, mode);
+          expect(
+            controller.rescanState.value.phase,
+            mode == 'direct' ? RescanPhase.done : RescanPhase.ready,
+          );
+          expect(controller.tracks, hasLength(initial.tracks.length));
+          expect(
+            await database.loadFavoriteTrackPaths(),
+            contains(favorite.path),
+          );
+        } finally {
+          await _chmod(restricted.path, '755');
+          controller.dispose();
+          await database.close();
+          await dir.delete(recursive: true);
+        }
+      },
+    );
+  }
+
+  test(
+    'metadata read failure is reported and retry retains tagged metadata',
+    () async {
+      _requireRustScanner();
+      final dir = await Directory.systemTemp.createTemp(
+        'miaosic_metadata_access_',
+      );
+      final file = File('${dir.path}/fallback.flac');
+      await _writeFlac(
+        file,
+        tags: const {'TITLE': 'Original title', 'ALBUM': 'Original album'},
+      );
+      final scanner = _scannerFor(dir);
+      final initial = await scanner.scan(dir.path);
+      final originalStat = await file.stat();
+      try {
+        await _chmod(file.path, '000');
+        await expectLater(
+          scanner.scan(dir.path),
+          throwsA(
+            isA<StateError>().having(
+              (error) => error.message,
+              'message',
+              contains(file.path),
+            ),
+          ),
+        );
+        await _chmod(file.path, '600');
+        final restoredStat = await file.stat();
+        expect(restoredStat.size, originalStat.size);
+        expect(restoredStat.modified, originalStat.modified);
+        final retried = await scanner.scan(
+          dir.path,
+          previousTracks: initial.tracks,
+        );
+        expect(retried.tracks.single.title, 'Original title');
+        expect(retried.tracks.single.album, 'Original album');
+      } finally {
+        await _chmod(file.path, '600');
+        await dir.delete(recursive: true);
+      }
+    },
+  );
+
   test('requires Rust scanner dynamic library', () async {
     final scanner = MusicScanner(rustScannerLoader: () => null);
 
@@ -216,6 +333,37 @@ RustMusicScanner _requireRustScanner() {
         'cargo build --locked --manifest-path native/music_core/Cargo.toml',
   );
   return scanner!;
+}
+
+Future<void> _chmod(String path, String mode) async {
+  final result = await Process.run('chmod', [mode, path]);
+  expect(result.exitCode, 0, reason: result.stderr.toString());
+}
+
+Future<void> _rescan(LibraryController controller, String mode) async {
+  if (mode == 'direct') {
+    await controller.scanLibrary();
+    return;
+  }
+  controller.startRescanDiff(full: mode == 'full');
+  for (var attempt = 0; attempt < 1000; attempt++) {
+    if (!controller.scanning && !controller.rescanState.value.phase.isBusy) {
+      return;
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+  }
+  fail('Scan did not finish: ${controller.rescanState.value.phase}');
+}
+
+class _NoopTrackCoverIndexer extends TrackCoverIndexer {
+  @override
+  Future<bool> indexTracks({
+    required List<Track> tracks,
+    required LibraryDatabase database,
+    Map<String, String?>? knownCache,
+    required bool Function() shouldPause,
+    required TrackCoverCacheUpdated onCacheUpdated,
+  }) async => false;
 }
 
 MusicScanner _scannerFor(Directory root) {

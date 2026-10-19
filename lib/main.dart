@@ -27,4 +27,8 @@ Future<void> main() async {
   imageCache.maximumSizeBytes = 256 * 1024 * 1024;
   MediaKit.ensureInitialized();
   runApp(const MiaosicApp());
+  if (Platform.environment['MIAOSIC_SMOKE_TEST'] == '1') {
+    await WidgetsBinding.instance.waitUntilFirstFrameRasterized;
+    stdout.writeln('MIAOSIC_SMOKE_READY');
+  }
 }
