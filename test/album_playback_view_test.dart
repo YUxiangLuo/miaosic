@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -442,42 +443,23 @@ void main() {
   testWidgets('disc pauses and resumes without losing its angle', (
     tester,
   ) async {
-    final album = _album();
-    final tracks = [_track(1), _track(2), _track(3)];
-    Widget view({required bool playing, bool active = true}) => MaterialApp(
-      home: AlbumPlaybackView(
-        album: album,
-        tracks: tracks,
-        currentTrack: active ? tracks[1] : null,
-        playing: playing,
-        onClose: () {},
-        onPrevious: () {},
-        onToggle: () {},
-        onNext: () {},
-        canSwitchPreviousAlbum: false,
-        canSwitchNextAlbum: false,
-        onSwitchPreviousAlbum: null,
-        onSwitchNextAlbum: null,
-        onPlayTrack: (_) {},
-      ),
-    );
     double turns() => tester
         .widget<RotationTransition>(find.byType(RotationTransition))
         .turns
         .value;
 
-    await tester.pumpWidget(view(playing: true));
+    await tester.pumpWidget(_discView(playing: true));
     await tester.pump(const Duration(seconds: 2));
     final spinningTurns = turns();
     expect(spinningTurns, greaterThan(0));
 
-    await tester.pumpWidget(view(playing: false));
+    await tester.pumpWidget(_discView(playing: false));
     await tester.pump(const Duration(seconds: 3));
     expect(turns(), spinningTurns);
     expect(find.byKey(const ValueKey('album-disc-sheen')), findsOneWidget);
     expect(find.byKey(const ValueKey('album-disc-hole')), findsOneWidget);
 
-    await tester.pumpWidget(view(playing: true));
+    await tester.pumpWidget(_discView(playing: true));
     await tester.pump();
     expect(turns(), closeTo(spinningTurns, 0.00001));
     await tester.pump(const Duration(seconds: 1));
@@ -485,17 +467,80 @@ void main() {
 
     // Rebuilding for an unrelated state notification must not restart rotation.
     final beforeRebuild = turns();
-    await tester.pumpWidget(view(playing: true));
+    await tester.pumpWidget(_discView(playing: true));
     await tester.pump(const Duration(seconds: 1));
     expect(turns(), closeTo(beforeRebuild + 1 / 18, 0.00001));
 
     // A non-active album may still receive the global playing state. Its cover
     // must settle after morphing back, without a hidden repeating ticker.
-    await tester.pumpWidget(view(playing: true, active: false));
+    await tester.pumpWidget(_discView(playing: true, active: false));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('album-disc-hole')), findsNothing);
+    expect(turns(), 0);
     expect(tester.binding.transientCallbackCount, 0);
   });
+
+  testWidgets('disc starts during morphing and keeps its angle through hover', (
+    tester,
+  ) async {
+    double turns() => tester
+        .widget<RotationTransition>(find.byType(RotationTransition))
+        .turns
+        .value;
+
+    await tester.pumpWidget(_discView(playing: true, active: false));
+    await tester.pumpAndSettle();
+    expect(turns(), 0);
+
+    await tester.pumpWidget(_discView(playing: true));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(turns(), closeTo(0.26 / 18, 0.00001));
+
+    final mouse = await tester.createGesture(kind: PointerDeviceKind.mouse);
+    await mouse.addPointer(location: Offset.zero);
+    addTearDown(mouse.removePointer);
+    await mouse.moveTo(
+      tester.getCenter(find.byKey(const ValueKey('album-morphing-artwork'))),
+    );
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(turns(), closeTo(0.52 / 18, 0.00001));
+
+    await mouse.moveTo(Offset.zero);
+    await tester.pump(const Duration(seconds: 1));
+    expect(turns(), closeTo(1.52 / 18, 0.00001));
+
+    // Reactivating before the shape transition ends must not reset rotation.
+    final beforeMorph = turns();
+    await tester.pumpWidget(_discView(playing: true, active: false));
+    await tester.pump(const Duration(milliseconds: 260));
+    expect(turns(), beforeMorph);
+    await tester.pumpWidget(_discView(playing: true));
+    await tester.pump();
+    await tester.pump(const Duration(seconds: 1));
+    expect(turns(), closeTo(beforeMorph + 1 / 18, 0.00001));
+  });
+}
+
+Widget _discView({required bool playing, bool active = true}) {
+  final tracks = [_track(1), _track(2), _track(3)];
+  return MaterialApp(
+    home: AlbumPlaybackView(
+      album: _album(),
+      tracks: tracks,
+      currentTrack: active ? tracks[1] : null,
+      playing: playing,
+      onClose: () {},
+      onPrevious: () {},
+      onToggle: () {},
+      onNext: () {},
+      canSwitchPreviousAlbum: false,
+      canSwitchNextAlbum: false,
+      onSwitchPreviousAlbum: null,
+      onSwitchNextAlbum: null,
+      onPlayTrack: (_) {},
+    ),
+  );
 }
 
 AlbumSummary _album() {

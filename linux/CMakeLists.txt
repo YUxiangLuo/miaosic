@@ -1,5 +1,5 @@
 # Project-level configuration.
-cmake_minimum_required(VERSION 3.19)
+cmake_minimum_required(VERSION 3.13)
 project(runner LANGUAGES CXX)
 
 # The name of the executable created for the application. Change this to change
@@ -49,7 +49,6 @@ endfunction()
 # Flutter library and tool build rules.
 set(FLUTTER_MANAGED_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flutter")
 add_subdirectory(${FLUTTER_MANAGED_DIR})
-include(miaosic_engine.cmake)
 
 # System-level dependencies.
 find_package(PkgConfig REQUIRED)
@@ -123,12 +122,6 @@ install(FILES "${FLUTTER_ICU_DATA_FILE}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}
   COMPONENT Runtime)
 
 install(FILES "${FLUTTER_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_LIB_DIR}"
-  COMPONENT Runtime)
-
-install(FILES
-  "${CMAKE_CURRENT_SOURCE_DIR}/../patches/flutter/FLUTTER-LICENSE"
-  "${CMAKE_CURRENT_SOURCE_DIR}/../patches/flutter/WAYLAND-PROTOCOL-LICENSE"
-  DESTINATION "${INSTALL_BUNDLE_DATA_DIR}/licenses"
   COMPONENT Runtime)
 
 foreach(bundled_library ${PLUGIN_BUNDLED_LIBRARIES})

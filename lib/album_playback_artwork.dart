@@ -32,23 +32,21 @@ class _LargeAlbumArtwork extends StatelessWidget {
           });
         }
       },
-      child: RepaintBoundary(
-        child: SizedBox.square(
-          dimension: artworkSize,
-          child: AnimatedSwitcher(
-            duration: _albumCoverTransitionDuration,
-            switchInCurve: Curves.easeOutCubic,
-            switchOutCurve: Curves.easeInCubic,
-            transitionBuilder: _coverTransitionBuilder,
-            child: KeyedSubtree(
-              key: ValueKey(album.folderPath),
-              child: _MorphingAlbumDisc(
-                key: const ValueKey('album-morphing-artwork'),
-                coverArtPath: album.coverArtPath,
-                size: artworkSize,
-                active: active,
-                playing: playing,
-              ),
+      child: SizedBox.square(
+        dimension: artworkSize,
+        child: AnimatedSwitcher(
+          duration: _albumCoverTransitionDuration,
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: _coverTransitionBuilder,
+          child: KeyedSubtree(
+            key: ValueKey(album.folderPath),
+            child: _MorphingAlbumDisc(
+              key: const ValueKey('album-morphing-artwork'),
+              coverArtPath: album.coverArtPath,
+              size: artworkSize,
+              active: active,
+              playing: playing,
             ),
           ),
         ),
@@ -91,18 +89,12 @@ class _MorphingAlbumDisc extends StatefulWidget {
 }
 
 class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
-    with TickerProviderStateMixin {
-  late final AnimationController _morphController;
+    with SingleTickerProviderStateMixin {
   late final AnimationController _rotationController;
 
   @override
   void initState() {
     super.initState();
-    _morphController = AnimationController(
-      vsync: this,
-      duration: _albumDiscMorphDuration,
-      value: widget.active ? 1 : 0,
-    );
     _rotationController = AnimationController(
       vsync: this,
       duration: _albumDiscRotationDuration,
@@ -113,28 +105,15 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
   @override
   void didUpdateWidget(covariant _MorphingAlbumDisc oldWidget) {
     super.didUpdateWidget(oldWidget);
-    _syncRotation();
-
-    if (oldWidget.active == widget.active) {
-      return;
-    }
-    if (widget.active) {
-      _morphController.forward();
-    } else {
-      _morphController.reverse().then((_) {
-        if (mounted && !widget.active) {
-          _rotationController.stop();
-          _rotationController.reset();
-        }
-      });
+    if (oldWidget.active != widget.active ||
+        oldWidget.playing != widget.playing) {
+      _syncRotation();
     }
   }
 
   void _syncRotation() {
     if (widget.active && widget.playing) {
-      if (!_rotationController.isAnimating) {
-        _rotationController.repeat();
-      }
+      _rotationController.repeat();
     } else {
       _rotationController.stop();
     }
@@ -142,19 +121,22 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
 
   @override
   void dispose() {
-    _morphController.dispose();
     _rotationController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _morphController,
-      builder: (context, _) {
-        final discProgress = Curves.easeInOutCubic.transform(
-          _morphController.value,
-        );
+    return TweenAnimationBuilder<double>(
+      tween: Tween(end: widget.active ? 1 : 0),
+      duration: _albumDiscMorphDuration,
+      curve: Curves.easeInOutCubic,
+      onEnd: () {
+        if (!widget.active) {
+          _rotationController.reset();
+        }
+      },
+      builder: (context, discProgress, _) {
         final radius = ui.lerpDouble(14, widget.size / 2, discProgress)!;
         final holeSize = widget.size * 0.22;
 
@@ -176,23 +158,13 @@ class _MorphingAlbumDiscState extends State<_MorphingAlbumDisc>
               children: [
                 RotationTransition(
                   turns: _rotationController,
-                  child: RepaintBoundary(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(radius),
-                      child: _AlbumDiscFill(
-                        coverArtPath: widget.coverArtPath,
-                        size: widget.size,
-                      ),
-                    ),
-                  ),
+                  child: _AlbumDiscFill(coverArtPath: widget.coverArtPath),
                 ),
                 if (discProgress > 0)
-                  IgnorePointer(
-                    child: Opacity(
-                      key: const ValueKey('album-disc-sheen'),
-                      opacity: discProgress,
-                      child: const CustomPaint(painter: _DiscPainter()),
-                    ),
+                  Opacity(
+                    key: const ValueKey('album-disc-sheen'),
+                    opacity: discProgress,
+                    child: const CustomPaint(painter: _DiscPainter()),
                   ),
                 if (discProgress > 0)
                   Center(
@@ -257,50 +229,33 @@ class _DiscHole extends StatelessWidget {
 }
 
 class _AlbumDiscFill extends StatelessWidget {
-  const _AlbumDiscFill({required this.coverArtPath, required this.size});
+  const _AlbumDiscFill({required this.coverArtPath});
 
   final String? coverArtPath;
-  final double size;
 
   @override
   Widget build(BuildContext context) {
+    final placeholder = DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: RadialGradient(
+          colors: [Color(0xff3a3a3a), Color(0xff111111)],
+        ),
+      ),
+      child: Icon(
+        Icons.album,
+        size: 96,
+        color: Colors.white.withValues(alpha: 0.5),
+      ),
+    );
     final path = coverArtPath;
     if (path == null || path.isEmpty) {
-      return DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            colors: [Color(0xff3a3a3a), Color(0xff111111)],
-          ),
-        ),
-        child: Icon(
-          Icons.album,
-          size: 96,
-          color: Colors.white.withValues(alpha: 0.5),
-        ),
-      );
+      return placeholder;
     }
 
-    final pixelRatio = MediaQuery.devicePixelRatioOf(context);
-    final cacheSize = size.isFinite ? (size * pixelRatio).ceil() : null;
     return Image.file(
       File(path),
       fit: BoxFit.cover,
-      cacheWidth: cacheSize,
-      cacheHeight: cacheSize,
-      filterQuality: FilterQuality.medium,
-      gaplessPlayback: true,
-      errorBuilder: (_, _, _) => DecoratedBox(
-        decoration: const BoxDecoration(
-          gradient: RadialGradient(
-            colors: [Color(0xff3a3a3a), Color(0xff111111)],
-          ),
-        ),
-        child: Icon(
-          Icons.album,
-          size: 96,
-          color: Colors.white.withValues(alpha: 0.5),
-        ),
-      ),
+      errorBuilder: (_, _, _) => placeholder,
     );
   }
 }

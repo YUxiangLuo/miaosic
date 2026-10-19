@@ -175,38 +175,32 @@ class LibraryScreenView extends StatelessWidget {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          TickerMode(
-            enabled: !overlayOpen,
-            child: Offstage(
-              offstage: overlayOpen,
-              child: ExcludeFocus(
-                excluding: overlayOpen,
-                child: Row(
-                  children: [
-                    RepaintBoundary(
-                      child: LibrarySidebar(
-                        selected: model.selectedView,
-                        albums: model.albums.length,
-                        playlists: model.playlistCount,
-                        favorites: model.favoriteCount,
-                        nowPlaying: model.nowPlayingTarget?.sidebarItem,
-                        themeMode: model.themeMode,
-                        onOpenLibrary: actions.onOpenLibrary,
-                        onToggleThemeMode: actions.onToggleThemeMode,
-                        onOpenSettings: actions.onOpenSettings,
-                        onOpenNowPlaying: model.nowPlayingTarget == null
-                            ? null
-                            : () => actions.onOpenNowPlaying(
-                                model.nowPlayingTarget!,
-                              ),
-                        onSelected: actions.onSelectedView,
-                      ),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(child: RepaintBoundary(child: _buildContent())),
-                  ],
+          Visibility(
+            visible: !overlayOpen,
+            maintainState: true,
+            child: Row(
+              children: [
+                RepaintBoundary(
+                  child: LibrarySidebar(
+                    selected: model.selectedView,
+                    albums: model.albums.length,
+                    playlists: model.playlistCount,
+                    favorites: model.favoriteCount,
+                    nowPlaying: model.nowPlayingTarget?.sidebarItem,
+                    themeMode: model.themeMode,
+                    onOpenLibrary: actions.onOpenLibrary,
+                    onToggleThemeMode: actions.onToggleThemeMode,
+                    onOpenSettings: actions.onOpenSettings,
+                    onOpenNowPlaying: model.nowPlayingTarget == null
+                        ? null
+                        : () =>
+                              actions.onOpenNowPlaying(model.nowPlayingTarget!),
+                    onSelected: actions.onSelectedView,
+                  ),
                 ),
-              ),
+                const VerticalDivider(width: 1),
+                Expanded(child: RepaintBoundary(child: _buildContent())),
+              ],
             ),
           ),
           if (activeAlbumPlayback != null)

@@ -81,20 +81,14 @@ class _AlbumBackgroundCover extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox.expand(
-      child: RepaintBoundary(
-        key: ValueKey(coverPath),
-        child: ImageFiltered(
-          imageFilter: ui.ImageFilter.blur(sigmaX: 36, sigmaY: 36),
-          child: Transform.scale(
-            scale: 1.08,
-            child: Image.file(
-              File(coverPath),
-              fit: BoxFit.cover,
-              cacheWidth: 256,
-              filterQuality: FilterQuality.low,
-              gaplessPlayback: true,
-              errorBuilder: (_, _, _) => const SizedBox.shrink(),
-            ),
+      child: ImageFiltered(
+        imageFilter: ui.ImageFilter.blur(sigmaX: 36, sigmaY: 36),
+        child: Transform.scale(
+          scale: 1.08,
+          child: Image.file(
+            File(coverPath),
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
           ),
         ),
       ),

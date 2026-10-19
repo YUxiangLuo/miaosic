@@ -1,5 +1,5 @@
-// Native engine regression check. flutter test uses the SDK's test engine and
-// cannot detect missing font support in our bundled libflutter_linux_gtk.so.
+// Native Linux font fallback check. Widget tests use the SDK's test engine,
+// so run this probe to verify Chinese text in the built application.
 import 'dart:io';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
