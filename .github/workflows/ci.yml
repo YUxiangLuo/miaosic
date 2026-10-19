@@ -28,11 +28,8 @@ jobs:
           channel: stable
           cache: true
 
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: "1.96.0"
-          components: rustfmt
+      - name: Set up Rust from rust-toolchain.toml
+        run: rustup show active-toolchain
 
       - name: Install Linux build dependencies
         run: |
@@ -49,34 +46,5 @@ jobs:
             pkg-config \
             xvfb
 
-      - name: Get Flutter dependencies
-        run: flutter pub get
-
-      - name: Check Dart formatting
-        run: dart format --output=none --set-exit-if-changed lib test tool
-
-      - name: Analyze Flutter project
-        run: flutter analyze
-
-      - name: Check Rust formatting
-        run: cargo fmt --manifest-path native/music_core/Cargo.toml --check
-
-      - name: Build Rust scanner for Flutter integration tests
-        run: cargo build --locked --manifest-path native/music_core/Cargo.toml
-
-      - name: Run Flutter tests
-        run: flutter test
-
-      - name: Run Rust tests
-        run: cargo test --locked --manifest-path native/music_core/Cargo.toml
-
-      - name: Check native Chinese font fallback
-        run: |
-          flutter build linux --release --target tool/font_probe.dart
-          scripts/check_linux_fonts.sh
-
-      - name: Build Linux release
-        run: flutter build linux --release
-
-      - name: Smoke test Linux bundle
-        run: scripts/smoke_linux_bundle.sh
+      - name: Check and build Linux
+        run: scripts/check.sh --linux

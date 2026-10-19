@@ -93,153 +93,30 @@ extension _LibraryScreenActions on _LibraryScreenState {
     }
   }
 
-  void _bindAlbumPlayback(AlbumSummary album, List<Track> tracks) {
-    final current = _activeAlbumPlayback;
-    if (current != null &&
-        current.album.folderPath == album.folderPath &&
-        _playback.isCurrentQueue(current.tracks)) {
-      return;
-    }
-    _activeAlbumPlayback = LibraryActiveAlbumPlayback(
-      album: album,
-      tracks: tracks,
-    );
-  }
-
-  void _bindFavoritesPlayback(LibraryNowPlayingTarget target) {
-    if (target.kind != LibraryNowPlayingKind.favorites ||
-        target.tracks.isEmpty ||
-        target.queue.isEmpty) {
-      return;
-    }
-    final current = _activeFavoritesPlayback;
-    if (current != null && _playback.isCurrentQueue(current.queue)) {
-      return;
-    }
-    _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
-      tracks: target.tracks,
-      queue: target.queue,
-      shuffled: target.shuffled,
-    );
-  }
-
   void _syncActiveSelectionsWithLibrary() {
-    final folders = _library.folders;
-    final albums = _library.albums;
-    final tracks = _library.tracks;
-    final activePlaylistOverlayPath = _activePlaylistOverlayPath;
-    if (activePlaylistOverlayPath != null &&
-        playlistFolderForPath(activePlaylistOverlayPath, folders) == null) {
+    final playlistPath = _activePlaylistOverlayPath;
+    final album = _overlay?.album;
+    if ((playlistPath != null &&
+            playlistFolderForPath(playlistPath, _library.folders) == null) ||
+        (album != null &&
+            !_library.albums.any(
+              (candidate) => candidate.folderPath == album.folderPath,
+            ))) {
       _overlay = null;
-    }
-
-    final currentTrackPaths = tracks.map((track) => track.path).toSet();
-    final overlayAlbum = _overlay?.album;
-    if (_overlay?.isAlbum == true &&
-        overlayAlbum != null &&
-        !albums.any((album) => album.folderPath == overlayAlbum.folderPath)) {
-      _overlay = null;
-    }
-
-    final activeAlbum = _activeAlbumPlayback;
-    if (activeAlbum != null &&
-        !activeAlbumStillAvailable(
-          activeAlbum: activeAlbum,
-          albums: albums,
-          currentTrackPaths: currentTrackPaths,
-        )) {
-      _activeAlbumPlayback = null;
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    } else if (activeAlbum != null) {
-      _activeAlbumPlayback = LibraryActiveAlbumPlayback(
-        album: activeAlbum.album,
-        tracks: activeAlbum.tracks
-            .where((track) => currentTrackPaths.contains(track.path))
-            .toList(growable: false),
-      );
-    }
-
-    final activePlaylist = _activePlaylistPlayback;
-    if (activePlaylist != null &&
-        !activePlaylistStillAvailable(
-          activePlaylist: activePlaylist,
-          folders: folders,
-          currentTrackPaths: currentTrackPaths,
-        )) {
-      _activePlaylistPlayback = null;
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    } else if (activePlaylist != null) {
-      _activePlaylistPlayback = LibraryActivePlaylistPlayback(
-        folderPath: activePlaylist.folderPath,
-        tracks: activePlaylist.tracks
-            .where((track) => currentTrackPaths.contains(track.path))
-            .toList(growable: false),
-        queue: activePlaylist.queue
-            .where((track) => currentTrackPaths.contains(track.path))
-            .toList(growable: false),
-        shuffled: activePlaylist.shuffled,
-      );
-    }
-
-    final activeFavorites = _activeFavoritesPlayback;
-    if (activeFavorites != null) {
-      final availableFavoritePaths = _library.favoriteTrackPaths
-          .where(currentTrackPaths.contains)
-          .toSet();
-      if (!activeFavorites.queue.any(
-        (track) => availableFavoritePaths.contains(track.path),
-      )) {
-        _activeFavoritesPlayback = null;
-        _lastPlaybackPath = null;
-        _lastPlaybackPlaying = false;
-      } else {
-        _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
-          tracks: activeFavorites.tracks
-              .where((track) => availableFavoritePaths.contains(track.path))
-              .toList(growable: false),
-          queue: activeFavorites.queue
-              .where((track) => availableFavoritePaths.contains(track.path))
-              .toList(growable: false),
-          shuffled: activeFavorites.shuffled,
-        );
-      }
     }
   }
 
   void _handlePlaybackChanged() {
-    final activeAlbumPlayback = _activeAlbumPlayback;
-    final activePlaylistPlayback = _activePlaylistPlayback;
-    final activeFavoritesPlayback = _activeFavoritesPlayback;
-    if (!mounted) {
-      return;
-    }
+    if (!mounted) return;
     _showPlaybackErrorIfNeeded();
-    final displayTrack = activeAlbumPlayback == null
-        ? activePlaylistPlayback == null
-              ? activeFavoritesPlayback == null
-                    ? _playback.currentTrack
-                    : _currentTrackForFavorites(activeFavoritesPlayback)
-              : _currentTrackForPlaylist(activePlaylistPlayback)
-        : _currentTrackForAlbum(activeAlbumPlayback);
-    final nextPath = displayTrack?.path;
-    final nextPlaying = nextPath != null && _playback.playing;
-    final nextNowPlayingPath = _playback.currentTrack?.path;
-    final nextNowPlayingPlaying =
-        nextNowPlayingPath != null && _playback.playing;
-    if (nextPath == _lastPlaybackPath &&
-        nextPlaying == _lastPlaybackPlaying &&
-        nextNowPlayingPath == _lastNowPlayingPath &&
-        nextNowPlayingPlaying == _lastNowPlayingPlaying) {
+    final session = _playback.session;
+    if (identical(session, _lastRenderedSession) &&
+        _playback.playing == _lastRenderedPlaying) {
       return;
     }
-    _saveCurrentPlaybackStateIfChanged();
     _mutate(() {
-      _lastPlaybackPath = nextPath;
-      _lastPlaybackPlaying = nextPlaying;
-      _lastNowPlayingPath = nextNowPlayingPath;
-      _lastNowPlayingPlaying = nextNowPlayingPlaying;
+      _lastRenderedSession = session;
+      _lastRenderedPlaying = _playback.playing;
     });
   }
 
@@ -329,13 +206,13 @@ extension _LibraryScreenActions on _LibraryScreenState {
 
   bool _isShowingNowPlayingTarget(LibraryNowPlayingTarget target) {
     return switch (target.kind) {
-      LibraryNowPlayingKind.album =>
+      LastPlaybackKind.album =>
         _overlay?.isAlbum == true &&
             _overlay?.album?.folderPath == target.album?.folderPath,
-      LibraryNowPlayingKind.playlist =>
+      LastPlaybackKind.playlist =>
         _overlay?.isPlaylist == true &&
             _overlay?.folder?.path == target.folder?.path,
-      LibraryNowPlayingKind.favorites =>
+      LastPlaybackKind.favorites =>
         _overlay?.isFavorites == true &&
             _activeFavoritesPlayback != null &&
             _playback.isCurrentQueue(target.queue),
@@ -343,158 +220,10 @@ extension _LibraryScreenActions on _LibraryScreenState {
   }
 
   Future<void> _restoreLastPlaybackIfReady() async {
-    if (_lastPlaybackRestoreAttempted ||
-        _lastPlaybackRestoring ||
-        !_library.canRestoreLastPlayback ||
-        _library.tracks.isEmpty) {
-      return;
-    }
-
-    final state = _library.lastPlayback;
-    if (state == null) {
-      _lastPlaybackRestoreAttempted = true;
-      return;
-    }
-
-    _lastPlaybackRestoreAttempted = true;
-    _lastPlaybackRestoring = true;
-    try {
-      switch (state.kind) {
-        case LastPlaybackKind.album:
-          await _restoreAlbumPlayback(state);
-        case LastPlaybackKind.playlist:
-          await _restorePlaylistPlayback(state);
-        case LastPlaybackKind.favorites:
-          await _restoreFavoritesPlayback(state);
-      }
-    } finally {
-      _lastPlaybackRestoring = false;
-    }
-  }
-
-  Future<void> _restoreAlbumPlayback(LastPlaybackState state) async {
-    final album = _library.albums
-        .where((album) => album.folderPath == state.folderPath)
-        .firstOrNull;
-    if (album == null) {
-      return;
-    }
-    final tracks = _tracksByFolder[album.folderPath] ?? const <Track>[];
-    if (tracks.isEmpty || !mounted) {
-      return;
-    }
-    final track = trackByPathOrFirst(tracks, state.trackPath);
-    _mutate(() {
-      _showAlbumOverlay(album, tracks);
-      _activeAlbumPlayback = LibraryActiveAlbumPlayback(
-        album: album,
-        tracks: tracks,
-      );
-      _activePlaylistPlayback = null;
-      _activeFavoritesPlayback = null;
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    // Always start playing on launch, even if the saved state was paused.
-    await _restoreQueueFrom(tracks, track, play: true);
-  }
-
-  Future<void> _restorePlaylistPlayback(LastPlaybackState state) async {
-    final folder = playlistFolderForPath(state.folderPath, _library.folders);
-    if (folder == null) {
-      return;
-    }
-    final tracks = _tracksByFolder[folder.path] ?? const <Track>[];
-    if (tracks.isEmpty || !mounted) {
-      return;
-    }
-    final queue = state.shuffled ? shuffledTracks(tracks) : tracks;
-    final track = trackByPathOrFirst(queue, state.trackPath);
-    _mutate(() {
-      _showPlaylistOverlay(folder, tracks);
-      _activeAlbumPlayback = null;
-      _activePlaylistPlayback = LibraryActivePlaylistPlayback(
-        folderPath: folder.path,
-        tracks: tracks,
-        queue: queue,
-        shuffled: state.shuffled,
-      );
-      _activeFavoritesPlayback = null;
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    // Always start playing on launch, even if the saved state was paused.
-    await _restoreQueueFrom(queue, track, play: true);
-  }
-
-  Future<void> _restoreFavoritesPlayback(LastPlaybackState state) async {
-    final tracks = _library.favoriteTracks;
-    if (tracks.isEmpty || !mounted) {
-      return;
-    }
-    final queue = state.shuffled ? shuffledTracks(tracks) : tracks;
-    final track = trackByPathOrFirst(queue, state.trackPath);
-    _mutate(() {
-      _showFavoritesOverlay();
-      _activeAlbumPlayback = null;
-      _activePlaylistPlayback = null;
-      _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
-        tracks: tracks,
-        queue: queue,
-        shuffled: state.shuffled,
-      );
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    // Always start playing on launch, even if the saved state was paused.
-    await _restoreQueueFrom(queue, track, play: true);
-  }
-
-  void _saveCurrentPlaybackStateIfChanged() {
-    final state = currentPlaybackState(
-      currentTrack: _playback.currentTrack,
-      playing: _playback.playing,
-      activePlaylist: _activePlaylistPlayback,
-      activeAlbum: _activeAlbumPlayback,
-      activeFavorites: _activeFavoritesPlayback,
-      albums: _library.albums,
-      tracksByFolder: _tracksByFolder,
-      isCurrentQueue: _playback.isCurrentQueue,
-    );
-    if (state == null) {
-      return;
-    }
-    _pendingPlaybackState = state;
-    if (!_savingPlaybackState) {
-      unawaited(_persistPendingPlaybackState());
-    }
-  }
-
-  Future<void> _persistPendingPlaybackState() async {
-    _savingPlaybackState = true;
-    try {
-      while (mounted && _pendingPlaybackState != null) {
-        final state = _pendingPlaybackState!;
-        _pendingPlaybackState = null;
-        final key = lastPlaybackStateKey(state);
-        if (key == _lastPersistedPlaybackKey) {
-          continue;
-        }
-        try {
-          await _library.saveLastPlayback(state);
-          _lastPersistedPlaybackKey = key;
-        } catch (error) {
-          if (mounted) {
-            _showTransientMessage(
-              'Could not save playback: $error',
-              onRetry: _saveCurrentPlaybackStateIfChanged,
-            );
-          }
-        }
-      }
-    } finally {
-      _savingPlaybackState = false;
-    }
+    final restored = await _libraryPlayback.restoreIfReady();
+    if (!mounted || restored == null) return;
+    final target = _nowPlayingTarget;
+    if (target != null) _openNowPlaying(target);
   }
 
   void _openRescanModal() {
@@ -516,14 +245,6 @@ extension _LibraryScreenActions on _LibraryScreenState {
       confirmLargeDeletion: (risk) =>
           showLargeDeletionConfirmation(context, risk),
     );
-    if (mounted && diff != null) {
-      await _playback.removeTracksFromQueue(
-        diff.removed.map((change) => change.path),
-      );
-      if (mounted) {
-        _mutate(_syncActiveSelectionsWithLibrary);
-      }
-    }
     return diff != null;
   }
 
@@ -539,65 +260,20 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (!mounted || nextRoot == null || nextRoot == _library.musicRoot) {
       return;
     }
-    final previousTrackPaths = _library.tracks
-        .map((track) => track.path)
-        .toSet();
     final changed = await _library.changeMusicRoot(nextRoot);
-    if (mounted && changed) {
-      final currentTrackPaths = _library.tracks
-          .map((track) => track.path)
-          .toSet();
-      await _playback.removeTracksFromQueue(
-        previousTrackPaths.difference(currentTrackPaths),
-      );
-      _mutate(() {
-        _overlay = null;
-        _activeAlbumPlayback = null;
-        _activePlaylistPlayback = null;
-        _activeFavoritesPlayback = null;
-      });
-    }
-  }
-
-  Future<void> _playQueueFrom(List<Track> queue, Track track) {
-    _playbackSessionRevision += 1;
-    return _playback.playQueueFrom(queue, track);
+    if (mounted && changed) _mutate(() => _overlay = null);
   }
 
   void _toggleFavoriteTrack(Track track) {
-    _favoriteMutation = _favoriteMutation
-        .then((_) => _toggleFavoriteTrackAndSyncQueue(track))
-        .catchError((_) {});
-    unawaited(_favoriteMutation);
-  }
-
-  Future<void> _toggleFavoriteTrackAndSyncQueue(Track track) async {
-    final removing = _library.favoriteTrackPaths.contains(track.path);
-    final session = _activeFavoritesPlayback;
-    final favoritesSessionActive =
-        session != null && _playback.isCurrentQueue(session.queue);
-    final revision = _playbackSessionRevision;
-
-    await _library.toggleFavoriteTrack(track);
-    if (!mounted ||
-        !removing ||
-        !favoritesSessionActive ||
-        revision != _playbackSessionRevision) {
-      return;
-    }
-
-    // Library notifications already refresh the visible favorites. Remove from
-    // the live queue so a concurrent rescan cannot be undone by an old snapshot.
-    await _playback.removeTracksFromQueue([track.path]);
-  }
-
-  Future<void> _restoreQueueFrom(
-    List<Track> queue,
-    Track track, {
-    required bool play,
-  }) {
-    _playbackSessionRevision += 1;
-    return _playback.restoreQueueFrom(queue, track, play: play);
+    unawaited(
+      _libraryPlayback.toggleFavorite(track).catchError((
+        Object error,
+        StackTrace stackTrace,
+      ) {
+        reportAppError('toggle favorite', error, stackTrace);
+        if (mounted) _showTransientMessage('Could not update favorite: $error');
+      }),
+    );
   }
 
   Future<void> _playAlbumFrom(
@@ -605,22 +281,15 @@ extension _LibraryScreenActions on _LibraryScreenState {
     List<Track> tracks,
     Track track,
   ) async {
-    if (tracks.isEmpty) {
-      return;
-    }
+    if (tracks.isEmpty) return;
     _saveAlbumGridScrollOffset();
-    _mutate(() {
-      _showAlbumOverlay(album, tracks);
-      _activeAlbumPlayback = LibraryActiveAlbumPlayback(
-        album: album,
-        tracks: tracks,
-      );
-      _activePlaylistPlayback = null;
-      _activeFavoritesPlayback = null;
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    await _playQueueFrom(tracks, track);
+    _mutate(() => _showAlbumOverlay(album, tracks));
+    await _libraryPlayback.play(
+      kind: LastPlaybackKind.album,
+      folderPath: album.folderPath,
+      tracks: tracks,
+      startTrack: track,
+    );
   }
 
   Future<void> _playAlbum(AlbumSummary album, List<Track> tracks) async {
@@ -635,19 +304,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
       return;
     }
     _saveAlbumGridScrollOffset();
-    _mutate(() {
-      _showAlbumOverlay(album, tracks);
-      final identity = _activeAlbumPlayback;
-      final showingCurrentAlbum =
-          identity != null &&
-          identity.album.folderPath == album.folderPath &&
-          _playback.isCurrentQueue(identity.tracks);
-      final currentAlbumTrack = showingCurrentAlbum
-          ? _currentTrackForAlbum(identity)
-          : null;
-      _lastPlaybackPath = currentAlbumTrack?.path;
-      _lastPlaybackPlaying = currentAlbumTrack != null && _playback.playing;
-    });
+    _mutate(() => _showAlbumOverlay(album, tracks));
   }
 
   LibraryAlbumPlaybackSwitchTarget? _albumPlaybackSwitchTarget(
@@ -671,108 +328,48 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (target == null) {
       return;
     }
-    _mutate(() {
-      _showAlbumOverlay(target.album, target.tracks);
-      final identity = _activeAlbumPlayback;
-      final showingCurrentAlbum =
-          identity != null &&
-          identity.album.folderPath == target.album.folderPath &&
-          _playback.isCurrentQueue(identity.tracks);
-      final currentAlbumTrack = showingCurrentAlbum
-          ? _currentTrackForAlbum(identity)
-          : null;
-      _lastPlaybackPath = currentAlbumTrack?.path;
-      _lastPlaybackPlaying = currentAlbumTrack != null && _playback.playing;
-    });
+    _mutate(() => _showAlbumOverlay(target.album, target.tracks));
   }
 
   Future<void> _playPlaylist(
     FolderSummary folder,
     List<Track> tracks, {
     Track? startTrack,
+    bool shuffled = false,
   }) async {
-    if (tracks.isEmpty) {
-      return;
-    }
-    _mutate(() {
-      _showPlaylistOverlay(folder, tracks);
-      _activeAlbumPlayback = null;
-      _activePlaylistPlayback = LibraryActivePlaylistPlayback(
-        folderPath: folder.path,
-        tracks: tracks,
-        queue: tracks,
-        shuffled: false,
-      );
-      _activeFavoritesPlayback = null;
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    await _playQueueFrom(tracks, startTrack ?? tracks.first);
+    if (tracks.isEmpty) return;
+    _mutate(() => _showPlaylistOverlay(folder, tracks));
+    await _libraryPlayback.play(
+      kind: LastPlaybackKind.playlist,
+      folderPath: folder.path,
+      tracks: tracks,
+      startTrack: startTrack,
+      shuffled: shuffled,
+    );
   }
 
   Future<void> _playPlaylistShuffled(
     FolderSummary folder,
     List<Track> tracks,
-  ) async {
-    if (tracks.isEmpty) {
-      return;
-    }
-    final shuffled = shuffledTracks(tracks);
-    _mutate(() {
-      _showPlaylistOverlay(folder, tracks);
-      _activeAlbumPlayback = null;
-      _activePlaylistPlayback = LibraryActivePlaylistPlayback(
-        folderPath: folder.path,
-        tracks: tracks,
-        queue: shuffled,
-        shuffled: true,
-      );
-      _activeFavoritesPlayback = null;
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    await _playQueueFrom(shuffled, shuffled.first);
+  ) => _playPlaylist(folder, tracks, shuffled: true);
+
+  Future<void> _playFavorites(
+    List<Track> tracks, {
+    Track? startTrack,
+    bool shuffled = false,
+  }) async {
+    if (tracks.isEmpty) return;
+    _mutate(_showFavoritesOverlay);
+    await _libraryPlayback.play(
+      kind: LastPlaybackKind.favorites,
+      tracks: tracks,
+      startTrack: startTrack,
+      shuffled: shuffled,
+    );
   }
 
-  Future<void> _playFavorites(List<Track> tracks, {Track? startTrack}) async {
-    if (tracks.isEmpty) {
-      return;
-    }
-    final queue = tracks.toList(growable: false);
-    _mutate(() {
-      _showFavoritesOverlay();
-      _activeAlbumPlayback = null;
-      _activePlaylistPlayback = null;
-      _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
-        tracks: tracks,
-        queue: queue,
-        shuffled: false,
-      );
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    await _playQueueFrom(queue, startTrack ?? queue.first);
-  }
-
-  Future<void> _playFavoritesShuffled(List<Track> tracks) async {
-    if (tracks.isEmpty) {
-      return;
-    }
-    final queue = shuffledTracks(tracks);
-    _mutate(() {
-      _showFavoritesOverlay();
-      _activeAlbumPlayback = null;
-      _activePlaylistPlayback = null;
-      _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
-        tracks: tracks,
-        queue: queue,
-        shuffled: true,
-      );
-      _lastPlaybackPath = null;
-      _lastPlaybackPlaying = false;
-    });
-    await _playQueueFrom(queue, queue.first);
-  }
+  Future<void> _playFavoritesShuffled(List<Track> tracks) =>
+      _playFavorites(tracks, shuffled: true);
 
   Future<void> _playFavoriteTrack(Track track) {
     return _playFavorites(_library.favoriteTracks, startTrack: track);
@@ -783,15 +380,12 @@ extension _LibraryScreenActions on _LibraryScreenState {
     final nowPlaying = _nowPlayingTarget;
     final alreadyThisTrack =
         _playback.currentTrack?.path == track.path &&
-        (nowPlaying?.kind == LibraryNowPlayingKind.favorites ||
+        (nowPlaying?.kind == LastPlaybackKind.favorites ||
             (_activeFavoritesPlayback != null &&
                 _playback.isCurrentQueue(_activeFavoritesPlayback!.queue)));
     if (alreadyThisTrack) {
       _mutate(() {
         _showFavoritesOverlay();
-        if (nowPlaying != null) {
-          _bindFavoritesPlayback(nowPlaying);
-        }
       });
       return;
     }
@@ -806,23 +400,17 @@ extension _LibraryScreenActions on _LibraryScreenState {
 
   LibraryNowPlayingTarget? get _nowPlayingTarget {
     return nowPlayingTarget(
-      currentTrack: _playback.currentTrack,
+      session: _playback.session,
       playing: _playback.playing,
-      activePlaylist: _activePlaylistPlayback,
-      activeAlbum: _activeAlbumPlayback,
-      activeFavorites: _activeFavoritesPlayback,
       albums: _library.albums,
       folders: _library.folders,
-      favoriteTracks: _library.favoriteTracks,
-      tracksByFolder: _tracksByFolder,
       trackCoverCache: _library.trackCoverCache,
-      isCurrentQueue: _playback.isCurrentQueue,
     );
   }
 
   void _openNowPlaying(LibraryNowPlayingTarget target) {
     switch (target.kind) {
-      case LibraryNowPlayingKind.album:
+      case LastPlaybackKind.album:
         final album = target.album;
         final tracks = target.tracks;
         if (album == null || tracks.isEmpty) {
@@ -831,21 +419,17 @@ extension _LibraryScreenActions on _LibraryScreenState {
         _saveAlbumGridScrollOffset();
         _mutate(() {
           _showAlbumOverlay(album, tracks);
-          _bindAlbumPlayback(album, tracks);
-          _lastPlaybackPath = _playback.currentTrack?.path;
-          _lastPlaybackPlaying = _playback.playing;
         });
-      case LibraryNowPlayingKind.playlist:
+      case LastPlaybackKind.playlist:
         final folder = target.folder;
         if (folder == null) {
           return;
         }
         _openPlaylistPlayback(folder);
-      case LibraryNowPlayingKind.favorites:
+      case LastPlaybackKind.favorites:
         _saveBrowseScrollForFavoritesOverlay();
         _mutate(() {
           _showFavoritesOverlay();
-          _bindFavoritesPlayback(target);
         });
     }
   }
@@ -938,7 +522,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
     if (viewedAlbum == null || nowPlayingTarget == null) {
       return null;
     }
-    if (nowPlayingTarget.kind == LibraryNowPlayingKind.album &&
+    if (nowPlayingTarget.kind == LastPlaybackKind.album &&
         nowPlayingTarget.album?.folderPath == viewedAlbum.folderPath) {
       return null;
     }
@@ -969,31 +553,6 @@ extension _LibraryScreenActions on _LibraryScreenState {
     _mutate(() {
       _showPlaylistOverlay(target.folder, target.tracks);
     });
-  }
-
-  Track? _currentTrackForAlbum(LibraryActiveAlbumPlayback albumPlayback) {
-    return currentTrackForAlbum(
-      albumPlayback: albumPlayback,
-      currentTrack: _playback.currentTrack,
-    );
-  }
-
-  Track? _currentTrackForPlaylist(
-    LibraryActivePlaylistPlayback playlistPlayback,
-  ) {
-    return currentTrackForPlaylist(
-      playlistPlayback: playlistPlayback,
-      currentTrack: _playback.currentTrack,
-    );
-  }
-
-  Track? _currentTrackForFavorites(
-    LibraryActiveFavoritesPlayback favoritesPlayback,
-  ) {
-    return currentTrackForFavorites(
-      favoritesPlayback: favoritesPlayback,
-      currentTrack: _playback.currentTrack,
-    );
   }
 
   void _saveAlbumGridScrollOffset() {

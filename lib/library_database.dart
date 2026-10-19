@@ -31,10 +31,13 @@ class LibraryDatabase {
     return openAtPath(dbPath);
   }
 
-  static Future<LibraryDatabase> openAtPath(String dbPath) async {
+  static Future<LibraryDatabase> openAtPath(
+    String dbPath, {
+    DatabaseFactory? factory,
+  }) async {
     sqfliteFfiInit();
 
-    final db = await databaseFactoryFfi.openDatabase(
+    final db = await (factory ?? databaseFactoryFfi).openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
         version: 5,
@@ -260,28 +263,6 @@ class LibraryDatabase {
         clearFavorites: true,
       );
       await _insertLibrary(txn, result);
-    });
-  }
-
-  Future<void> saveMusicRootAndClearLibrary(String rootPath) async {
-    await _db.transaction((txn) async {
-      await txn.insert('settings', {
-        'key': musicRootSettingKey,
-        'value': normalizeMusicRootPath(rootPath),
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
-      await _clearLibraryTables(
-        txn,
-        clearTrackCoverCache: true,
-        clearLastPlayback: true,
-        clearFavorites: true,
-      );
-    });
-  }
-
-  Future<void> saveScanState(ScanResult result) async {
-    await _db.transaction((txn) async {
-      await txn.delete('scan_state');
-      await txn.insert('scan_state', _scanStateMap(result));
     });
   }
 

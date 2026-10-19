@@ -5,13 +5,16 @@ import 'package:media_kit/media_kit.dart';
 import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/models.dart' as music;
 import 'package:miaosic/playback_controller.dart';
+import 'package:miaosic/playback_session.dart';
+
+import 'support/fake_platform_player.dart';
 
 void main() {
   for (final playing in [true, false]) {
     test(
       'removing queued tracks preserves playback (playing: $playing)',
       () async {
-        final platform = _FakePlatformPlayer();
+        final platform = FakePlatformPlayer();
         final controller = PlaybackController(
           player: Player(platformPlayer: platform),
         );
@@ -55,7 +58,7 @@ void main() {
   test(
     'removing the current track stops playback and clears the queue',
     () async {
-      final platform = _FakePlatformPlayer();
+      final platform = FakePlatformPlayer();
       final controller = PlaybackController(
         player: Player(platformPlayer: platform),
       );
@@ -79,7 +82,7 @@ void main() {
     test(
       'a failed pending open cannot restore removed track $removedIndex',
       () async {
-        final platform = _FakePlatformPlayer();
+        final platform = FakePlatformPlayer();
         final controller = PlaybackController(
           player: Player(platformPlayer: platform),
         );
@@ -117,10 +120,59 @@ void main() {
     );
   }
 
+  for (final removeCurrent in [false, true]) {
+    test(
+      'failed album open preserves favorites changes (current: $removeCurrent)',
+      () async {
+        final platform = FakePlatformPlayer();
+        final controller = PlaybackController(
+          player: Player(platformPlayer: platform),
+        );
+        addTearDown(controller.dispose);
+        final first = _track('/music/first.flac');
+        final second = _track('/music/second.flac');
+        final tracks = [first, second];
+        await controller.playSession(
+          PlaybackSession.start(
+            kind: music.LastPlaybackKind.favorites,
+            tracks: tracks,
+          ),
+        );
+        final blocker = Completer<void>();
+        platform.blockNextOpen = blocker;
+        platform.failBlockedOpen = true;
+        final opening = controller.playSession(
+          PlaybackSession.start(
+            kind: music.LastPlaybackKind.album,
+            folderPath: '/music',
+            tracks: tracks,
+          ),
+        );
+        await controller.reconcileLibrary(
+          trackPaths: tracks.map((track) => track.path).toSet(),
+          favoritePaths: {removeCurrent ? second.path : first.path},
+        );
+        // The live album keeps both tracks; only the rollback favorites are pruned.
+        expect(controller.queue.length, 2);
+        expect(controller.session?.kind, music.LastPlaybackKind.album);
+        blocker.complete();
+        await opening;
+        if (removeCurrent) {
+          expect(controller.session, isNull);
+          expect(platform.stopCount, 1);
+        } else {
+          expect(controller.session?.kind, music.LastPlaybackKind.favorites);
+          expect(controller.queue.map((track) => track.path), [first.path]);
+          expect(controller.currentTrack?.path, first.path);
+        }
+      },
+    );
+  }
+
   test(
     'restores the preferred device if it appears while applying settings',
     () async {
-      final platform = _FakePlatformPlayer();
+      final platform = FakePlatformPlayer();
       final controller = PlaybackController(
         player: Player(platformPlayer: platform),
       );
@@ -162,7 +214,7 @@ void main() {
   );
 
   test('applies an available preferred audio device', () async {
-    final platform = _FakePlatformPlayer(
+    final platform = FakePlatformPlayer(
       devices: const [
         AudioDevice('auto', ''),
         AudioDevice('pipewire/dac', 'USB DAC'),
@@ -189,7 +241,7 @@ void main() {
   test(
     'falls back to system default when preferred device is missing',
     () async {
-      final platform = _FakePlatformPlayer();
+      final platform = FakePlatformPlayer();
       final controller = PlaybackController(
         player: Player(platformPlayer: platform),
       );
@@ -224,7 +276,7 @@ void main() {
   );
 
   test('clears restore errors after a later successful restore', () async {
-    final platform = _FakePlatformPlayer();
+    final platform = FakePlatformPlayer();
     final controller = PlaybackController(
       player: Player(platformPlayer: platform),
     );
@@ -265,7 +317,7 @@ void main() {
   });
 
   test('keeps previous preferred device when switching fails', () async {
-    final platform = _FakePlatformPlayer(
+    final platform = FakePlatformPlayer(
       devices: const [
         AudioDevice('auto', ''),
         AudioDevice('pipewire/dac', 'USB DAC'),
@@ -298,7 +350,7 @@ void main() {
   test(
     'rolls back the queue and exposes an error when opening fails',
     () async {
-      final platform = _FakePlatformPlayer();
+      final platform = FakePlatformPlayer();
       final controller = PlaybackController(
         player: Player(platformPlayer: platform),
       );
@@ -321,7 +373,7 @@ void main() {
   );
 
   test('ignores a late failure from a superseded open request', () async {
-    final platform = _FakePlatformPlayer();
+    final platform = FakePlatformPlayer();
     final controller = PlaybackController(
       player: Player(platformPlayer: platform),
     );
@@ -348,13 +400,13 @@ void main() {
   });
 
   test('assigns a new revision to repeated playback failures', () async {
-    final platform = _FakePlatformPlayer();
+    final platform = FakePlatformPlayer();
     final controller = PlaybackController(
       player: Player(platformPlayer: platform),
     );
     addTearDown(controller.dispose);
     final track = _track('/music/first.flac');
-    await controller.playQueueFrom([track], track);
+    await controller.restoreQueueFrom([track], track, play: false);
     platform.playFailuresRemaining = 2;
 
     await controller.togglePlayPause([track]);
@@ -368,7 +420,7 @@ void main() {
   });
 
   test('surfaces asynchronous backend playback errors', () async {
-    final platform = _FakePlatformPlayer();
+    final platform = FakePlatformPlayer();
     final controller = PlaybackController(
       player: Player(platformPlayer: platform),
     );
@@ -379,102 +431,6 @@ void main() {
 
     expect(controller.playbackError, 'Playback error: decoder failed');
   });
-}
-
-class _FakePlatformPlayer extends PlatformPlayer {
-  _FakePlatformPlayer({this.devices = const [AudioDevice('auto', '')]})
-    : super(configuration: const PlayerConfiguration()) {
-    state = state.copyWith(
-      audioDevice: const AudioDevice('auto', ''),
-      audioDevices: devices,
-    );
-    completer.complete();
-  }
-
-  final List<AudioDevice> devices;
-  final List<AudioDevice> selectedDevices = [];
-  bool failNextDeviceSwitch = false;
-  bool failNextOpen = false;
-  bool failBlockedOpen = false;
-  int playFailuresRemaining = 0;
-  int openCount = 0;
-  int stopCount = 0;
-  Completer<void>? blockNextDeviceSwitch;
-  Completer<void>? blockNextOpen;
-  Future<void> _deviceSwitchQueue = Future.value();
-
-  void emitDevices(List<AudioDevice> nextDevices) {
-    state = state.copyWith(audioDevices: nextDevices);
-    audioDevicesController.add(nextDevices);
-  }
-
-  Future<void> waitForDeviceSwitches() => _deviceSwitchQueue;
-
-  void emitPlaybackState({
-    required bool playing,
-    required Duration position,
-    required Duration duration,
-  }) {
-    playingController.add(playing);
-    positionController.add(position);
-    durationController.add(duration);
-  }
-
-  void emitError(String message) {
-    errorController.add(message);
-  }
-
-  @override
-  Future<void> open(Playable playable, {bool play = true}) async {
-    openCount += 1;
-    final blocker = blockNextOpen;
-    blockNextOpen = null;
-    if (blocker != null) {
-      await blocker.future;
-      if (failBlockedOpen) {
-        failBlockedOpen = false;
-        throw StateError('open failed');
-      }
-    }
-    if (failNextOpen) {
-      failNextOpen = false;
-      throw StateError('open failed');
-    }
-  }
-
-  @override
-  Future<void> stop() async {
-    stopCount += 1;
-    playingController.add(false);
-  }
-
-  @override
-  Future<void> play() async {
-    if (playFailuresRemaining > 0) {
-      playFailuresRemaining -= 1;
-      throw StateError('play failed');
-    }
-  }
-
-  @override
-  Future<void> setAudioDevice(AudioDevice audioDevice) {
-    final switchTask = _deviceSwitchQueue.then((_) async {
-      if (failNextDeviceSwitch) {
-        failNextDeviceSwitch = false;
-        throw StateError('switch failed');
-      }
-      selectedDevices.add(audioDevice);
-      final blocker = blockNextDeviceSwitch;
-      blockNextDeviceSwitch = null;
-      if (blocker != null) {
-        await blocker.future;
-      }
-      state = state.copyWith(audioDevice: audioDevice);
-      audioDeviceController.add(audioDevice);
-    });
-    _deviceSwitchQueue = switchTask.catchError((_) {});
-    return switchTask;
-  }
 }
 
 music.Track _track(String path) {

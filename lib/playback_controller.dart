@@ -5,6 +5,7 @@ import 'package:media_kit/media_kit.dart' hide Track;
 
 import 'audio_output_settings.dart';
 import 'models.dart';
+import 'playback_session.dart';
 
 class PlaybackController extends ChangeNotifier {
   PlaybackController({Player? player}) : _player = player ?? Player() {
@@ -60,9 +61,11 @@ class PlaybackController extends ChangeNotifier {
   late final StreamSubscription<List<AudioDevice>> _audioDevicesSub;
   late final StreamSubscription<String> _playbackErrorSub;
 
-  Track? _currentTrack;
-  List<Track> _queue = const [];
-  int _queueIndex = -1;
+  PlaybackSession? _session;
+  PlaybackSession? get session => _session;
+  Track? get _currentTrack => _session?.currentTrack;
+  List<Track> get _queue => _session?.queue ?? const [];
+  int get _queueIndex => _session?.index ?? -1;
   bool _playing = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
@@ -75,11 +78,12 @@ class PlaybackController extends ChangeNotifier {
   String? _playbackError;
   int _playbackErrorRevision = 0;
   int _latestOpenRequestId = 0;
-  Set<String>? _pendingOpenRemovedPaths;
+  _PendingPlaybackOpen? _pendingOpen;
   bool _restoringPreferredAudioDevice = false;
   bool _disposed = false;
 
   Track? get currentTrack => _currentTrack;
+  List<Track> get queue => _queue;
   bool get playing => _playing;
   Duration get position => _position;
   Duration get duration => _duration;
@@ -129,10 +133,14 @@ class PlaybackController extends ChangeNotifier {
     if (queue.isEmpty) {
       return;
     }
-    final index = queue.indexWhere((candidate) => candidate.path == track.path);
-    final nextIndex = index < 0 ? 0 : index;
-    await _playQueueAt(List.unmodifiable(queue), nextIndex, play: play);
+    await playSession(
+      PlaybackSession.start(tracks: queue, startTrack: track),
+      play: play,
+    );
   }
+
+  Future<void> playSession(PlaybackSession session, {bool play = true}) =>
+      _playQueueAt(session, play: play);
 
   Future<void> togglePlayPause(List<Track> defaultQueue) async {
     if (_currentTrack == null) {
@@ -187,7 +195,7 @@ class PlaybackController extends ChangeNotifier {
     if (index < 0 || index >= _queue.length) {
       return;
     }
-    await _playQueueAt(_queue, index, play: true);
+    await _playQueueAt(_session!.at(index), play: true);
   }
 
   Future<void> seek(Duration position) async {
@@ -232,44 +240,60 @@ class PlaybackController extends ChangeNotifier {
 
   Future<void> removeTracksFromQueue(Iterable<String> removedPaths) async {
     final removed = removedPaths.toSet();
-    _pendingOpenRemovedPaths?.addAll(removed);
-    final remaining = _queue
-        .where((track) => !removed.contains(track.path))
-        .toList(growable: false);
-    if (remaining.length == _queue.length) {
-      return;
+    await _retainSessionTracks((_, track) => !removed.contains(track.path));
+  }
+
+  /// Apply catalog changes to both the live session and any open rollback state.
+  Future<void> reconcileLibrary({
+    required Set<String> trackPaths,
+    required Set<String> favoritePaths,
+  }) => _retainSessionTracks(
+    (session, track) =>
+        trackPaths.contains(track.path) &&
+        (session.kind != LastPlaybackKind.favorites ||
+            favoritePaths.contains(track.path)),
+  );
+
+  Future<void> _retainSessionTracks(
+    bool Function(PlaybackSession, Track) keep,
+  ) async {
+    final pending = _pendingOpen;
+    final previous = pending?.previousSession;
+    if (previous != null) {
+      pending!.previousSession = previous.retainTracks(
+        (track) => keep(previous, track),
+      );
     }
-    await replaceQueueKeepingPosition(remaining);
+    final current = _session;
+    if (current == null) return;
+    final next = current.retainTracks((track) => keep(current, track));
+    if (identical(next, current)) return;
+    if (next == null) {
+      await stopIfCurrentRemoved([current.currentTrack.path]);
+    } else {
+      _session = next;
+      notifyListeners();
+    }
   }
 
   Future<void> replaceQueueKeepingPosition(List<Track> queue) async {
-    final current = _currentTrack;
-    if (queue.isEmpty || current == null) {
-      if (current != null) {
-        await stopIfCurrentRemoved([current.path]);
-      }
-      return;
+    final current = _session;
+    if (current == null) return;
+    final next = current.withQueue(queue);
+    if (next == null) {
+      await stopIfCurrentRemoved([current.currentTrack.path]);
+    } else {
+      _session = next;
+      notifyListeners();
     }
-    final index = queue.indexWhere((track) => track.path == current.path);
-    if (index < 0) {
-      await stopIfCurrentRemoved([current.path]);
-      return;
-    }
-    _queue = List.unmodifiable(queue);
-    _queueIndex = index;
-    notifyListeners();
   }
 
   Future<void> stopIfCurrentRemoved(Iterable<String> removedPaths) async {
     final current = _currentTrack;
-    if (current == null || !removedPaths.contains(current.path)) {
-      return;
-    }
+    if (current == null || !removedPaths.contains(current.path)) return;
     _latestOpenRequestId += 1;
-    _pendingOpenRemovedPaths = null;
-    _queue = const [];
-    _queueIndex = -1;
-    _currentTrack = null;
+    _pendingOpen = null;
+    _session = null;
     _playing = false;
     _position = Duration.zero;
     _duration = Duration.zero;
@@ -281,53 +305,34 @@ class PlaybackController extends ChangeNotifier {
     }
   }
 
-  Future<void> _playQueueAt(
-    List<Track> queue,
-    int index, {
-    required bool play,
-  }) async {
+  Future<void> _playQueueAt(PlaybackSession next, {required bool play}) async {
     final requestId = ++_latestOpenRequestId;
-    // A rescan can remove tracks while open is pending. Keep those removals
-    // when restoring the previous queue after an open failure.
-    final removedPaths = <String>{};
-    _pendingOpenRemovedPaths = removedPaths;
-    final track = queue[index];
-    final previousQueue = _queue;
-    final previousTrack = _currentTrack;
+    final pending = _PendingPlaybackOpen(_session);
+    _pendingOpen = pending;
     final previousPosition = _position;
     final previousDuration = _duration;
+    final track = next.currentTrack;
     _clearPlaybackError(notify: false);
-    _queue = queue;
-    _queueIndex = index;
-    _currentTrack = track;
+    _session = next;
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
     try {
       await _player.open(Media(track.path), play: play);
     } catch (error) {
-      if (_disposed || requestId != _latestOpenRequestId) {
-        return;
-      }
-      if (previousTrack != null && removedPaths.contains(previousTrack.path)) {
+      if (_disposed || requestId != _latestOpenRequestId) return;
+      // Catalog changes also prune the rollback session while opening is pending.
+      if (pending.hadPreviousSession && pending.previousSession == null) {
         _setPlaybackError('Could not play ${track.fileName}: $error');
         await stopIfCurrentRemoved([track.path]);
         return;
       }
-      _queue = previousQueue
-          .where((track) => !removedPaths.contains(track.path))
-          .toList(growable: false);
-      _queueIndex = _queue.indexWhere(
-        (track) => track.path == previousTrack?.path,
-      );
-      _currentTrack = previousTrack;
+      _session = pending.previousSession;
       _position = previousPosition;
       _duration = previousDuration;
       _setPlaybackError('Could not play ${track.fileName}: $error');
     } finally {
-      if (requestId == _latestOpenRequestId) {
-        _pendingOpenRemovedPaths = null;
-      }
+      if (requestId == _latestOpenRequestId) _pendingOpen = null;
     }
   }
 
@@ -438,4 +443,12 @@ class PlaybackController extends ChangeNotifier {
     unawaited(_player.dispose());
     super.dispose();
   }
+}
+
+class _PendingPlaybackOpen {
+  _PendingPlaybackOpen(this.previousSession)
+    : hadPreviousSession = previousSession != null;
+
+  PlaybackSession? previousSession;
+  final bool hadPreviousSession;
 }

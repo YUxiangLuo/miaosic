@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:miaosic/library_screen_models.dart';
 import 'package:miaosic/library_screen_selectors.dart';
 import 'package:miaosic/library_sidebar.dart';
 import 'package:miaosic/models.dart';
+import 'package:miaosic/playback_session.dart';
 
 void main() {
   test('album switch target skips empty albums and wraps', () {
@@ -121,156 +121,72 @@ void main() {
     expect(fallback, ['/covers/folder.jpg']);
   });
 
-  test('now playing prefers active playlist over active album', () {
-    final album = _album('/music/album', 'Album');
-    final playlist = _folder('/music/playlist');
-    final playlistTrack = _track(playlist.path);
-    final albumTrack = _track(album.folderPath);
-    final activePlaylist = LibraryActivePlaylistPlayback(
-      folderPath: playlist.path,
-      tracks: [playlistTrack],
-      queue: [playlistTrack],
-      shuffled: false,
-    );
-    final activeAlbum = LibraryActiveAlbumPlayback(
-      album: album,
-      tracks: [albumTrack, playlistTrack],
-    );
+  for (final kind in LastPlaybackKind.values) {
+    test('now playing keeps the explicit ${kind.name} source', () {
+      final album = _album('/music/collection', 'Album');
+      final folder = _folder(album.folderPath);
+      final track = _track(album.folderPath);
+      final target = nowPlayingTarget(
+        session: PlaybackSession.start(
+          kind: kind,
+          folderPath: kind == LastPlaybackKind.favorites ? '' : folder.path,
+          tracks: [track],
+        ),
+        playing: true,
+        albums: [album],
+        folders: [folder],
+        trackCoverCache: const {},
+      );
+      expect(target?.kind, kind);
+      expect(target?.tracks.single.path, track.path);
+      expect(
+        target?.sidebarItem.kind,
+        kind == LastPlaybackKind.album
+            ? SidebarNowPlayingKind.album
+            : SidebarNowPlayingKind.playlist,
+      );
+    });
+  }
 
-    final target = nowPlayingTarget(
-      currentTrack: playlistTrack,
-      playing: true,
-      activePlaylist: activePlaylist,
-      activeAlbum: activeAlbum,
-      activeFavorites: null,
-      albums: [album],
-      folders: [playlist],
-      favoriteTracks: const [],
-      tracksByFolder: {
-        album.folderPath: [albumTrack],
-        playlist.path: [playlistTrack],
+  for (final kind in [LastPlaybackKind.playlist, LastPlaybackKind.favorites]) {
+    test(
+      'now playing preserves shuffled ${kind.name} order and persistence',
+      () {
+        final folder = _folder('/music/collection');
+        final first = _track(folder.path, path: '${folder.path}/1.flac');
+        final second = _track(folder.path, path: '${folder.path}/2.flac');
+        final session = PlaybackSession.start(
+          kind: kind,
+          folderPath: kind == LastPlaybackKind.favorites ? '' : folder.path,
+          tracks: [first, second],
+          queue: [second, first],
+          shuffled: true,
+        );
+        final target = nowPlayingTarget(
+          session: session,
+          playing: true,
+          albums: const [],
+          folders: [folder],
+          trackCoverCache: const {},
+        );
+        expect(target?.tracks.map((track) => track.path), [
+          first.path,
+          second.path,
+        ]);
+        expect(target?.queue.map((track) => track.path), [
+          second.path,
+          first.path,
+        ]);
+        expect(target?.shuffled, isTrue);
+        final state = session.savedState(playing: true);
+        expect(state?.kind, kind);
+        expect(state?.folderPath, session.folderPath);
+        expect(state?.trackPath, second.path);
+        expect(state?.playing, isTrue);
+        expect(state?.shuffled, isTrue);
       },
-      trackCoverCache: const {},
-      isCurrentQueue: (_) => true,
     );
-
-    expect(target?.kind, LibraryNowPlayingKind.playlist);
-    expect(target?.folder?.path, playlist.path);
-    expect(target?.sidebarItem.kind, SidebarNowPlayingKind.playlist);
-  });
-
-  test('now playing can target the favorites queue', () {
-    final favoriteTrack = _track('/music/favorites');
-
-    final target = nowPlayingTarget(
-      currentTrack: favoriteTrack,
-      playing: true,
-      activePlaylist: null,
-      activeAlbum: null,
-      activeFavorites: null,
-      albums: const [],
-      folders: const [],
-      favoriteTracks: [favoriteTrack],
-      tracksByFolder: const {},
-      trackCoverCache: const {},
-      isCurrentQueue: (queue) => queue.single.path == favoriteTrack.path,
-    );
-
-    expect(target?.kind, LibraryNowPlayingKind.favorites);
-    expect(target?.tracks.single.path, favoriteTrack.path);
-    expect(target?.queue.single.path, favoriteTrack.path);
-    expect(target?.shuffled, isFalse);
-    expect(target?.sidebarItem.kind, SidebarNowPlayingKind.playlist);
-  });
-
-  test('now playing prefers album identity over matching favorite tracks', () {
-    final album = _album('/music/album', 'Album');
-    final track = _track(album.folderPath);
-    final tracks = [track];
-
-    final target = nowPlayingTarget(
-      currentTrack: track,
-      playing: true,
-      activePlaylist: null,
-      activeAlbum: LibraryActiveAlbumPlayback(album: album, tracks: tracks),
-      activeFavorites: null,
-      albums: [album],
-      folders: const [],
-      favoriteTracks: tracks,
-      tracksByFolder: {album.folderPath: tracks},
-      trackCoverCache: const {},
-      isCurrentQueue: (_) => true,
-    );
-
-    expect(target?.kind, LibraryNowPlayingKind.album);
-    expect(target?.album?.folderPath, album.folderPath);
-  });
-
-  test('now playing preserves active shuffled favorites queue', () {
-    final first = _track('/music/favorites', path: '/music/favorites/1.flac');
-    final second = _track('/music/favorites', path: '/music/favorites/2.flac');
-    final tracks = [first, second];
-    final queue = [second, first];
-    final activeFavorites = LibraryActiveFavoritesPlayback(
-      tracks: tracks,
-      queue: queue,
-      shuffled: true,
-    );
-
-    final target = nowPlayingTarget(
-      currentTrack: second,
-      playing: true,
-      activePlaylist: null,
-      activeAlbum: null,
-      activeFavorites: activeFavorites,
-      albums: const [],
-      folders: const [],
-      favoriteTracks: tracks,
-      tracksByFolder: const {},
-      trackCoverCache: const {},
-      isCurrentQueue: (candidate) =>
-          candidate.map((track) => track.path).join('|') ==
-          queue.map((track) => track.path).join('|'),
-    );
-
-    expect(target?.kind, LibraryNowPlayingKind.favorites);
-    expect(target?.tracks.map((track) => track.path), [
-      first.path,
-      second.path,
-    ]);
-    expect(target?.queue.map((track) => track.path), [second.path, first.path]);
-    expect(target?.shuffled, isTrue);
-  });
-
-  test('current playback state persists an active favorites queue', () {
-    final first = _track('/music/favorites', path: '/music/favorites/1.flac');
-    final second = _track('/music/favorites', path: '/music/favorites/2.flac');
-    final queue = [second, first];
-    final activeFavorites = LibraryActiveFavoritesPlayback(
-      tracks: [first, second],
-      queue: queue,
-      shuffled: true,
-    );
-
-    final state = currentPlaybackState(
-      currentTrack: second,
-      playing: true,
-      activePlaylist: null,
-      activeAlbum: null,
-      activeFavorites: activeFavorites,
-      albums: const [],
-      tracksByFolder: const {},
-      isCurrentQueue: (candidate) =>
-          candidate.map((track) => track.path).join('|') ==
-          queue.map((track) => track.path).join('|'),
-    );
-
-    expect(state?.kind, LastPlaybackKind.favorites);
-    expect(state?.folderPath, isEmpty);
-    expect(state?.trackPath, second.path);
-    expect(state?.playing, isTrue);
-    expect(state?.shuffled, isTrue);
-  });
+  }
 
   test('theme and last playback values stay stable', () {
     const state = LastPlaybackState(

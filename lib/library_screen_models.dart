@@ -4,8 +4,8 @@ import 'library_sidebar.dart';
 import 'library_types.dart';
 import 'models.dart';
 
-class LibraryActiveAlbumPlayback {
-  const LibraryActiveAlbumPlayback({required this.album, required this.tracks});
+class LibraryAlbumSelection {
+  const LibraryAlbumSelection({required this.album, required this.tracks});
 
   final AlbumSummary album;
   final List<Track> tracks;
@@ -35,65 +35,37 @@ class LibraryPlaybackOverlay {
   const LibraryPlaybackOverlay.album({
     required this.album,
     required this.tracks,
-  }) : kind = LibraryNowPlayingKind.album,
+  }) : kind = LastPlaybackKind.album,
        folder = null;
 
   const LibraryPlaybackOverlay.playlist({
     required this.folder,
     required this.tracks,
-  }) : kind = LibraryNowPlayingKind.playlist,
+  }) : kind = LastPlaybackKind.playlist,
        album = null;
 
   const LibraryPlaybackOverlay.favorites()
-    : kind = LibraryNowPlayingKind.favorites,
+    : kind = LastPlaybackKind.favorites,
       album = null,
       folder = null,
       tracks = const [];
 
-  final LibraryNowPlayingKind kind;
+  final LastPlaybackKind kind;
   final AlbumSummary? album;
   final FolderSummary? folder;
   final List<Track> tracks;
 
-  bool get isAlbum => kind == LibraryNowPlayingKind.album;
-  bool get isPlaylist => kind == LibraryNowPlayingKind.playlist;
-  bool get isFavorites => kind == LibraryNowPlayingKind.favorites;
+  bool get isAlbum => kind == LastPlaybackKind.album;
+  bool get isPlaylist => kind == LastPlaybackKind.playlist;
+  bool get isFavorites => kind == LastPlaybackKind.favorites;
 }
-
-class LibraryActivePlaylistPlayback {
-  const LibraryActivePlaylistPlayback({
-    required this.folderPath,
-    required this.tracks,
-    required this.queue,
-    required this.shuffled,
-  });
-
-  final String folderPath;
-  final List<Track> tracks;
-  final List<Track> queue;
-  final bool shuffled;
-}
-
-class LibraryActiveFavoritesPlayback {
-  const LibraryActiveFavoritesPlayback({
-    required this.tracks,
-    required this.queue,
-    required this.shuffled,
-  });
-
-  final List<Track> tracks;
-  final List<Track> queue;
-  final bool shuffled;
-}
-
-enum LibraryNowPlayingKind { album, playlist, favorites }
 
 class LibraryNowPlayingTarget {
   const LibraryNowPlayingTarget.album({
     required AlbumSummary this.album,
     required List<Track> tracks,
     required this.sidebarItem,
-  }) : kind = LibraryNowPlayingKind.album,
+  }) : kind = LastPlaybackKind.album,
        tracks = tracks,
        queue = tracks,
        shuffled = false,
@@ -101,12 +73,11 @@ class LibraryNowPlayingTarget {
 
   const LibraryNowPlayingTarget.playlist({
     required FolderSummary this.folder,
-    required List<Track> tracks,
+    required this.tracks,
+    required this.queue,
+    required this.shuffled,
     required this.sidebarItem,
-  }) : kind = LibraryNowPlayingKind.playlist,
-       tracks = tracks,
-       queue = tracks,
-       shuffled = false,
+  }) : kind = LastPlaybackKind.playlist,
        album = null;
 
   const LibraryNowPlayingTarget.favorites({
@@ -114,11 +85,11 @@ class LibraryNowPlayingTarget {
     required this.queue,
     required this.shuffled,
     required this.sidebarItem,
-  }) : kind = LibraryNowPlayingKind.favorites,
+  }) : kind = LastPlaybackKind.favorites,
        album = null,
        folder = null;
 
-  final LibraryNowPlayingKind kind;
+  final LastPlaybackKind kind;
   final AlbumSummary? album;
   final FolderSummary? folder;
   final List<Track> tracks;

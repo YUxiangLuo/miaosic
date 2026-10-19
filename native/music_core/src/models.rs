@@ -39,8 +39,6 @@ pub(crate) struct ScanResult {
     pub albums: Vec<AlbumSummary>,
     pub elapsed_ms: u128,
     pub covers_cached: u64,
-    pub skipped_files: u64,
-    pub error_samples: Vec<String>,
 }
 
 #[derive(Clone, Deserialize, Serialize)]

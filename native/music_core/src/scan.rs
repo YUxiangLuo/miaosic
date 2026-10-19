@@ -38,7 +38,7 @@ impl ProgressReporter {
     }
 
     pub(crate) fn should_emit(&self) -> bool {
-        self.files_seen == 1 || self.files_seen % PROGRESS_INTERVAL == 0
+        self.files_seen == 1 || self.files_seen.is_multiple_of(PROGRESS_INTERVAL)
     }
 
     pub(crate) fn emit_path(&self, current_path: &Path) {
@@ -103,8 +103,6 @@ pub(crate) fn scan_library(
         albums,
         elapsed_ms: started.elapsed().as_millis(),
         covers_cached: cover_cache.writes,
-        skipped_files: issues.skipped_files,
-        error_samples: issues.error_samples,
     })
 }
 
@@ -188,8 +186,6 @@ pub(crate) fn scan_library_incremental(
         albums,
         elapsed_ms: started.elapsed().as_millis(),
         covers_cached: cover_cache.writes,
-        skipped_files: issues.skipped_files,
-        error_samples: issues.error_samples,
     })
 }
 

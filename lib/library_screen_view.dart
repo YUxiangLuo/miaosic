@@ -60,7 +60,7 @@ class LibraryScreenViewModel {
   final Map<String, String?> trackCoverCache;
   final ThemeMode themeMode;
   final LibraryNowPlayingTarget? nowPlayingTarget;
-  final LibraryActiveAlbumPlayback? activeAlbumPlayback;
+  final LibraryAlbumSelection? activeAlbumPlayback;
   final Track? activeAlbumTrack;
   final LibraryNowPlayingTarget? dockNowPlayingAlbumTarget;
   final FolderSummary? activePlaylistOverlayFolder;

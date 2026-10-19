@@ -12,6 +12,37 @@ import 'package:miaosic/playlist_cover_indexer.dart';
 import 'package:miaosic/rust_music_scanner.dart';
 
 void main() {
+  test(
+    'rejects an incompatible Rust library before resolving scan functions',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('miaosic_abi_test_');
+      addTearDown(() => dir.delete(recursive: true));
+      final source = File('${dir.path}/wrong_abi.c');
+      await source.writeAsString(
+        'unsigned int miaosic_abi_version(void) { return 999; }',
+      );
+      final libraryPath = '${dir.path}/wrong_abi.so';
+      final build = await Process.run('clang', [
+        '-shared',
+        '-fPIC',
+        source.path,
+        '-o',
+        libraryPath,
+      ]);
+      expect(build.exitCode, 0, reason: '${build.stderr}');
+      expect(
+        () => RustMusicScanner.open(libraryPath),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.toString(),
+            'message',
+            contains('ABI 999 does not match'),
+          ),
+        ),
+      );
+    },
+  );
+
   for (final mode in ['incremental', 'full', 'direct']) {
     test(
       '$mode scan preserves library and favorites on unreadable subtree',
@@ -245,7 +276,7 @@ void main() {
 
   test('incremental Rust scan reuses unchanged track metadata', () async {
     final rustScanner = _requireRustScanner();
-    expect(rustScanner.supportsIncrementalScan, isTrue);
+    expect(rustScanner.abiVersion, RustMusicScanner.expectedAbiVersion);
 
     final dir = await Directory.systemTemp.createTemp(
       'miaosic_incremental_scan_fixture_',
@@ -283,7 +314,7 @@ void main() {
 
   test('incremental Rust scan revalidates changed folder artwork', () async {
     final rustScanner = _requireRustScanner();
-    expect(rustScanner.supportsIncrementalScan, isTrue);
+    expect(rustScanner.abiVersion, RustMusicScanner.expectedAbiVersion);
 
     final dir = await Directory.systemTemp.createTemp(
       'miaosic_incremental_cover_fixture_',

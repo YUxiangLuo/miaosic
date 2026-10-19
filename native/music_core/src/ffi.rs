@@ -5,6 +5,12 @@ use std::ffi::{CStr, CString};
 use std::os::raw::c_char;
 use std::panic::{self, AssertUnwindSafe};
 
+/// Version of the bundled Dart/Rust scanning protocol.
+#[no_mangle]
+pub extern "C" fn miaosic_abi_version() -> u32 {
+    1
+}
+
 #[no_mangle]
 pub extern "C" fn miaosic_scan_library(root_path: *const c_char) -> *mut c_char {
     catch_native(|| miaosic_scan_library_with_covers(root_path, std::ptr::null()))
@@ -204,8 +210,12 @@ pub(crate) fn respond_json(json: String) -> *mut c_char {
     }
 }
 
+/// Releases a response returned by this library.
+///
+/// # Safety
+/// `value` must be null or an unfreed pointer returned by a Miaosic FFI call.
 #[no_mangle]
-pub extern "C" fn miaosic_free_string(value: *mut c_char) {
+pub unsafe extern "C" fn miaosic_free_string(value: *mut c_char) {
     if value.is_null() {
         return;
     }

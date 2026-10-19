@@ -5,12 +5,12 @@ import 'dart:io';
 import 'package:ffi/ffi.dart';
 import 'package:path/path.dart' as p;
 
+import 'app_diagnostics.dart';
 import 'models.dart';
+import 'rust_scanner_codec.dart';
 
-typedef _ScanLibraryNative =
-    Pointer<Utf8> Function(Pointer<Utf8> rootPath, Pointer<Utf8> coverCacheDir);
-typedef _ScanLibraryDart =
-    Pointer<Utf8> Function(Pointer<Utf8> rootPath, Pointer<Utf8> coverCacheDir);
+export 'rust_scanner_codec.dart' show RustTrackCoverResult;
+
 typedef _ProgressCallbackNative =
     Void Function(
       Uint64 filesSeen,
@@ -59,36 +59,65 @@ typedef _FreeStringDart = void Function(Pointer<Utf8> value);
 typedef RustScanProgressCallback = void Function(ScanProgress progress);
 
 class RustMusicScanner {
-  RustMusicScanner._(DynamicLibrary library)
-    : _scanLibrary = library
-          .lookupFunction<_ScanLibraryNative, _ScanLibraryDart>(
-            'miaosic_scan_library_with_covers',
+  static const expectedAbiVersion = 1;
+
+  factory RustMusicScanner.open(String libraryPath) {
+    final library = DynamicLibrary.open(libraryPath);
+    final version = library.lookupFunction<Uint32 Function(), int Function()>(
+      'miaosic_abi_version',
+    )();
+    if (version != expectedAbiVersion) {
+      throw StateError(
+        'Rust scanner ABI $version does not match $expectedAbiVersion: $libraryPath',
+      );
+    }
+    return RustMusicScanner._(library, libraryPath, version);
+  }
+
+  RustMusicScanner._(DynamicLibrary library, this.libraryPath, this.abiVersion)
+    : _scanLibraryWithProgress = library
+          .lookupFunction<
+            _ScanLibraryWithProgressNative,
+            _ScanLibraryWithProgressDart
+          >('miaosic_scan_library_with_covers_and_progress'),
+      _scanLibraryIncrementalWithProgress = library
+          .lookupFunction<
+            _ScanLibraryIncrementalWithProgressNative,
+            _ScanLibraryIncrementalWithProgressDart
+          >('miaosic_scan_library_incremental_with_covers_and_progress'),
+      _extractTrackCovers = library
+          .lookupFunction<_ExtractTrackCoversNative, _ExtractTrackCoversDart>(
+            'miaosic_extract_track_covers',
           ),
-      _scanLibraryWithProgress = _lookupScanLibraryWithProgress(library),
-      _scanLibraryIncrementalWithProgress =
-          _lookupScanLibraryIncrementalWithProgress(library),
-      _extractTrackCovers = _lookupExtractTrackCovers(library),
       _freeString = library.lookupFunction<_FreeStringNative, _FreeStringDart>(
         'miaosic_free_string',
       );
 
-  final _ScanLibraryDart _scanLibrary;
-  final _ScanLibraryWithProgressDart? _scanLibraryWithProgress;
-  final _ScanLibraryIncrementalWithProgressDart?
+  final String libraryPath;
+  final int abiVersion;
+  final _ScanLibraryWithProgressDart _scanLibraryWithProgress;
+  final _ScanLibraryIncrementalWithProgressDart
   _scanLibraryIncrementalWithProgress;
-  final _ExtractTrackCoversDart? _extractTrackCovers;
+  final _ExtractTrackCoversDart _extractTrackCovers;
   final _FreeStringDart _freeString;
 
-  bool get supportsIncrementalScan =>
-      _scanLibraryIncrementalWithProgress != null;
-
   static RustMusicScanner? tryLoad() {
+    final failures = <String>[];
+    StackTrace? lastStack;
     for (final candidate in _libraryCandidates()) {
       try {
-        return RustMusicScanner._(DynamicLibrary.open(candidate));
-      } catch (_) {
-        continue;
+        return RustMusicScanner.open(candidate);
+      } catch (error, stackTrace) {
+        failures.add('$candidate: $error');
+        lastStack = stackTrace;
       }
+    }
+    if (failures.isNotEmpty) {
+      reportAppError(
+        'load Rust scanner',
+        StateError(failures.join('\n')),
+        lastStack!,
+      );
     }
     return null;
   }
@@ -105,12 +134,7 @@ class RustMusicScanner {
         ? nullptr.cast<Utf8>()
         : jsonEncode({
             'previous_tracks': [
-              for (final track in previousTracks)
-                track.toMap()
-                  ..remove('id')
-                  ..remove(
-                    'cover_art_path',
-                  ), // apply_folder_covers recomputes these
+              for (final track in previousTracks) encodeRustTrack(track),
             ],
           }).toNativeUtf8();
     NativeCallable<_ProgressCallbackNative>? progressCallback;
@@ -142,28 +166,18 @@ class RustMusicScanner {
         progressPointer = progressCallback.nativeFunction;
       }
 
-      final incrementalScanner = _scanLibraryIncrementalWithProgress;
-      if (previousTracks != null &&
-          previousTracks.isNotEmpty &&
-          incrementalScanner != null) {
-        responsePointer = incrementalScanner(
-          rootPointer,
-          previousTracksPointer,
-          coverCachePointer,
-          progressPointer,
-        );
-      } else {
-        final progressScanner = _scanLibraryWithProgress;
-        if (progressScanner != null && onProgress != null) {
-          responsePointer = progressScanner(
-            rootPointer,
-            coverCachePointer,
-            progressPointer,
-          );
-        } else {
-          responsePointer = _scanLibrary(rootPointer, coverCachePointer);
-        }
-      }
+      responsePointer = previousTracks != null && previousTracks.isNotEmpty
+          ? _scanLibraryIncrementalWithProgress(
+              rootPointer,
+              previousTracksPointer,
+              coverCachePointer,
+              progressPointer,
+            )
+          : _scanLibraryWithProgress(
+              rootPointer,
+              coverCachePointer,
+              progressPointer,
+            );
       if (responsePointer == nullptr) {
         throw const FormatException('Rust scanner returned a null response');
       }
@@ -178,7 +192,7 @@ class RustMusicScanner {
           'Rust scanner response did not include result',
         );
       }
-      return _scanResultFromJson(result);
+      return decodeRustScanResult(result);
     } finally {
       calloc.free(rootPointer);
       calloc.free(coverCachePointer);
@@ -196,15 +210,11 @@ class RustMusicScanner {
     List<String> paths,
     String coverCacheDir,
   ) async {
-    final extractor = _extractTrackCovers;
-    if (extractor == null) {
-      return const [];
-    }
     final pathsPointer = jsonEncode({'paths': paths}).toNativeUtf8();
     final coverCachePointer = coverCacheDir.toNativeUtf8();
     Pointer<Utf8> responsePointer = nullptr;
     try {
-      responsePointer = extractor(pathsPointer, coverCachePointer);
+      responsePointer = _extractTrackCovers(pathsPointer, coverCachePointer);
       if (responsePointer == nullptr) {
         throw const FormatException('Rust cover extractor returned null');
       }
@@ -234,44 +244,6 @@ class RustMusicScanner {
     }
   }
 
-  static _ScanLibraryWithProgressDart? _lookupScanLibraryWithProgress(
-    DynamicLibrary library,
-  ) {
-    try {
-      return library.lookupFunction<
-        _ScanLibraryWithProgressNative,
-        _ScanLibraryWithProgressDart
-      >('miaosic_scan_library_with_covers_and_progress');
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static _ScanLibraryIncrementalWithProgressDart?
-  _lookupScanLibraryIncrementalWithProgress(DynamicLibrary library) {
-    try {
-      return library.lookupFunction<
-        _ScanLibraryIncrementalWithProgressNative,
-        _ScanLibraryIncrementalWithProgressDart
-      >('miaosic_scan_library_incremental_with_covers_and_progress');
-    } catch (_) {
-      return null;
-    }
-  }
-
-  static _ExtractTrackCoversDart? _lookupExtractTrackCovers(
-    DynamicLibrary library,
-  ) {
-    try {
-      return library
-          .lookupFunction<_ExtractTrackCoversNative, _ExtractTrackCoversDart>(
-            'miaosic_extract_track_covers',
-          );
-    } catch (_) {
-      return null;
-    }
-  }
-
   static List<String> _libraryCandidates() {
     if (!Platform.isLinux) {
       return const [];
@@ -280,7 +252,6 @@ class RustMusicScanner {
     final executableDir = p.dirname(Platform.resolvedExecutable);
     final cwd = Directory.current.path;
     return [
-      'libmusic_core.so',
       p.join(executableDir, 'lib', 'libmusic_core.so'),
       p.join(
         cwd,
@@ -308,96 +279,7 @@ class RustMusicScanner {
         'lib',
         'libmusic_core.so',
       ),
+      'libmusic_core.so',
     ];
   }
-}
-
-class RustTrackCoverResult {
-  const RustTrackCoverResult({required this.path, required this.coverArtPath});
-
-  final String path;
-  final String? coverArtPath;
-
-  static RustTrackCoverResult fromJson(Map<String, Object?> json) {
-    return RustTrackCoverResult(
-      path: json['path'] as String,
-      coverArtPath: json['cover_art_path'] as String?,
-    );
-  }
-}
-
-ScanResult _scanResultFromJson(Map<String, Object?> json) {
-  return ScanResult(
-    rootPath: json['root_path'] as String,
-    engine: 'rust',
-    tracks: _list(json['tracks']).map(_trackFromJson).toList(),
-    folders: _list(json['folders']).map(_folderFromJson).toList(),
-    albums: _list(json['albums']).map(_albumFromJson).toList(),
-    elapsed: Duration(milliseconds: _int(json['elapsed_ms']) ?? 0),
-    coversCached: _int(json['covers_cached']) ?? 0,
-    skippedFiles: _int(json['skipped_files']) ?? 0,
-    errorSamples: [
-      for (final sample in json['error_samples'] as List<Object?>? ?? const [])
-        if (sample is String && sample.isNotEmpty) sample,
-    ],
-  );
-}
-
-Track _trackFromJson(Map<String, Object?> json) {
-  return Track(
-    path: json['path'] as String,
-    folderPath: json['folder_path'] as String,
-    title: json['title'] as String,
-    artist: json['artist'] as String,
-    album: json['album'] as String,
-    albumArtist: json['album_artist'] as String,
-    trackNumber: _int(json['track_number']),
-    discNumber: _int(json['disc_number']),
-    year: _int(json['year']),
-    durationMs: _int(json['duration_ms']),
-    sizeBytes: _int(json['size_bytes']) ?? 0,
-    modifiedMs: _int(json['modified_ms']) ?? 0,
-    coverArtPath: json['cover_art_path'] as String?,
-  );
-}
-
-FolderSummary _folderFromJson(Map<String, Object?> json) {
-  return FolderSummary(
-    path: json['path'] as String,
-    name: json['name'] as String,
-    kind: FolderKind.fromDb(json['kind'] as String),
-    confidence: _double(json['confidence']),
-    trackCount: _int(json['track_count']) ?? 0,
-    albumCount: _int(json['album_count']) ?? 0,
-    albumArtistCount: _int(json['album_artist_count']) ?? 0,
-    artistCount: _int(json['artist_count']) ?? 0,
-    yearCount: _int(json['year_count']) ?? 0,
-    coverArtPath: json['cover_art_path'] as String?,
-  );
-}
-
-AlbumSummary _albumFromJson(Map<String, Object?> json) {
-  return AlbumSummary(
-    folderPath: json['folder_path'] as String,
-    title: json['title'] as String,
-    albumArtist: json['album_artist'] as String,
-    year: _int(json['year']),
-    trackCount: _int(json['track_count']) ?? 0,
-    coverArtPath: json['cover_art_path'] as String?,
-  );
-}
-
-Iterable<Map<String, Object?>> _list(Object? value) {
-  return (value as List<Object?>).cast<Map<String, Object?>>();
-}
-
-int? _int(Object? value) {
-  if (value == null) {
-    return null;
-  }
-  return (value as num).toInt();
-}
-
-double _double(Object? value) {
-  return (value as num).toDouble();
 }

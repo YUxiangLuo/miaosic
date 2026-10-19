@@ -111,7 +111,10 @@ void main() {
         ),
       ]);
 
-      await database.saveMusicRootAndClearLibrary('/new/root');
+      await database.replaceLibraryForMusicRoot(
+        '/new/root',
+        _scanResult([], rootPath: '/new/root'),
+      );
 
       expect(await database.loadMusicRoot(), '/new/root');
       expect(await database.loadThemeMode(), 'dark');
@@ -122,7 +125,7 @@ void main() {
       expect(await database.loadTracks(), isEmpty);
       expect(await database.loadFolders(), isEmpty);
       expect(await database.loadAlbums(), isEmpty);
-      expect(await database.loadScanState(), isNull);
+      expect((await database.loadScanState())?['root_path'], '/new/root');
       expect(await database.loadLastPlayback(), isNull);
       expect(await database.loadFavoriteTracks(), isEmpty);
       expect(await database.loadFavoriteTrackPaths(), isEmpty);
@@ -354,8 +357,11 @@ void main() {
     );
     final unchangedId = (await database.loadTracks()).single.id;
 
-    await database.saveScanState(
-      _scanResult([unchanged], elapsed: const Duration(milliseconds: 25)),
+    await database.applyDiff(
+      diffLibrary(
+        await database.loadSnapshot(),
+        _scanResult([unchanged], elapsed: const Duration(milliseconds: 25)),
+      ),
     );
 
     final scanState = await database.loadScanState();

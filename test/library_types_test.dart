@@ -26,17 +26,4 @@ void main() {
     expect(cleared.error, isNull);
     expect(cleared.phase, RescanPhase.scanning);
   });
-
-  test('copyWith keeps error samples unless they are replaced', () {
-    const state = RescanUiState(
-      phase: RescanPhase.done,
-      message: 'Library refreshed',
-      errorSamples: ['/music/a.flac: unreadable'],
-    );
-
-    expect(state.copyWith(message: 'Done').errorSamples, [
-      '/music/a.flac: unreadable',
-    ]);
-    expect(state.copyWith(errorSamples: const []).errorSamples, isEmpty);
-  });
 }

@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'app_diagnostics.dart';
 import 'library_controller.dart';
+import 'library_playback_coordinator.dart';
 import 'library_screen_dialogs.dart';
 import 'library_screen_models.dart';
 import 'library_screen_selectors.dart';
@@ -10,6 +12,7 @@ import 'library_screen_view.dart';
 import 'library_types.dart';
 import 'models.dart';
 import 'playback_controller.dart';
+import 'playback_session.dart';
 
 part 'library_screen_actions.dart';
 
@@ -41,24 +44,14 @@ class _LibraryScreenState extends State<LibraryScreen>
 
   late final LibraryController _library;
   late final PlaybackController _playback;
+  late final LibraryPlaybackCoordinator _libraryPlayback;
   late final bool _ownsLibrary;
   late final bool _ownsPlayback;
   final _scrollMemory = LibraryScrollMemory();
 
   LibraryPlaybackOverlay? _overlay;
-  LibraryActiveAlbumPlayback? _activeAlbumPlayback;
-  LibraryActivePlaylistPlayback? _activePlaylistPlayback;
-  LibraryActiveFavoritesPlayback? _activeFavoritesPlayback;
-  String? _lastPlaybackPath;
-  String? _lastNowPlayingPath;
-  String? _lastPersistedPlaybackKey;
-  LastPlaybackState? _pendingPlaybackState;
-  bool _savingPlaybackState = false;
-  int _playbackSessionRevision = 0;
-  bool _lastPlaybackPlaying = false;
-  bool _lastNowPlayingPlaying = false;
-  bool _lastPlaybackRestoreAttempted = false;
-  bool _lastPlaybackRestoring = false;
+  PlaybackSession? _lastRenderedSession;
+  bool _lastRenderedPlaying = false;
   bool _audioOutputSettingsApplied = false;
   LibraryView _view = LibraryView.albums;
   bool _rescanDialogOpen = false;
@@ -66,7 +59,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   int? _lastShownPlaybackErrorRevision;
   String? _lastShownBackgroundWarning;
   DateTime? _appLeftAt;
-  Future<void> _favoriteMutation = Future<void>.value();
 
   @override
   void initState() {
@@ -76,6 +68,18 @@ class _LibraryScreenState extends State<LibraryScreen>
     _playback = widget.playbackController ?? PlaybackController();
     _ownsLibrary = widget.libraryController == null;
     _ownsPlayback = widget.playbackController == null;
+    _libraryPlayback = LibraryPlaybackCoordinator(
+      library: _library,
+      playback: _playback,
+      onSaveError: (error) {
+        if (mounted) {
+          _showTransientMessage(
+            'Could not save playback: $error',
+            onRetry: _libraryPlayback.saveCurrentState,
+          );
+        }
+      },
+    );
     _library.addListener(_handleLibraryChanged);
     _playback.addListener(_handlePlaybackChanged);
     unawaited(_library.open());
@@ -85,6 +89,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _scrollMemory.dispose();
+    _libraryPlayback.dispose();
     _library.removeListener(_handleLibraryChanged);
     if (_ownsLibrary) {
       _library.dispose();
@@ -122,14 +127,35 @@ class _LibraryScreenState extends State<LibraryScreen>
     setState(update);
   }
 
-  LibraryActiveAlbumPlayback? get _viewedAlbumPlayback {
+  LibraryAlbumSelection? get _activeAlbumPlayback {
+    final session = _playback.session;
+    if (session?.kind != LastPlaybackKind.album) return null;
+    final album = _library.albums
+        .where((album) => album.folderPath == session!.folderPath)
+        .firstOrNull;
+    return album == null
+        ? null
+        : LibraryAlbumSelection(album: album, tracks: session!.tracks);
+  }
+
+  PlaybackSession? get _activePlaylistPlayback =>
+      _playback.session?.kind == LastPlaybackKind.playlist
+      ? _playback.session
+      : null;
+
+  PlaybackSession? get _activeFavoritesPlayback =>
+      _playback.session?.kind == LastPlaybackKind.favorites
+      ? _playback.session
+      : null;
+
+  LibraryAlbumSelection? get _viewedAlbumPlayback {
     final overlay = _overlay;
     final album = overlay?.album;
     if (overlay == null || !overlay.isAlbum || album == null) {
       return null;
     }
     final tracks = _tracksByFolder[album.folderPath] ?? overlay.tracks;
-    return LibraryActiveAlbumPlayback(album: album, tracks: tracks);
+    return LibraryAlbumSelection(album: album, tracks: tracks);
   }
 
   FolderSummary? get _activePlaylistOverlayFolder {
@@ -163,9 +189,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         ? const <Track>[]
         : _tracksByFolder[activePlaylistOverlayFolder.path] ?? const <Track>[];
     final activePlaylistPlayback = _activePlaylistPlayback;
-    final activePlaylistPlaybackTrack = activePlaylistPlayback == null
-        ? null
-        : _currentTrackForPlaylist(activePlaylistPlayback);
+    final activePlaylistPlaybackTrack = activePlaylistPlayback?.currentTrack;
     final playlistOverlayPlaybackActive =
         activePlaylistOverlayFolder != null &&
         activePlaylistPlayback != null &&
@@ -175,9 +199,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         ? activePlaylistPlaybackTrack
         : null;
     final activeFavoritesPlayback = _activeFavoritesPlayback;
-    final activeFavoritesPlaybackTrack = activeFavoritesPlayback == null
-        ? null
-        : _currentTrackForFavorites(activeFavoritesPlayback);
+    final activeFavoritesPlaybackTrack = activeFavoritesPlayback?.currentTrack;
     final favoritesPlaybackActive =
         activeFavoritesPlayback != null &&
         _playback.isCurrentQueue(activeFavoritesPlayback.queue) &&
@@ -199,7 +221,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         ? albumQueue.tracks
         : viewedAlbumPlayback?.tracks ?? const <Track>[];
     final activeAlbumTrack = viewingNowPlayingAlbum
-        ? _currentTrackForAlbum(albumQueue)
+        ? _playback.currentTrack
         : null;
     final nowPlayingTarget = _nowPlayingTarget;
     final dockNowPlayingTarget = _dockNowPlayingTarget(
@@ -323,7 +345,7 @@ class _LibraryScreenState extends State<LibraryScreen>
         onCloseFavoritesPlayback: _closeFavoritesOverlay,
         onOpenNowPlayingFromFavorites:
             nowPlayingTarget == null ||
-                nowPlayingTarget.kind == LibraryNowPlayingKind.favorites
+                nowPlayingTarget.kind == LastPlaybackKind.favorites
             ? null
             : () => _openNowPlaying(nowPlayingTarget),
         onClosePlaylistPlayback: _closePlaylistPlayback,
@@ -335,7 +357,7 @@ class _LibraryScreenState extends State<LibraryScreen>
             : () => _switchPlaylistPlayback(1),
         onOpenNowPlayingFromPlaylist:
             nowPlayingTarget == null ||
-                (nowPlayingTarget.kind == LibraryNowPlayingKind.playlist &&
+                (nowPlayingTarget.kind == LastPlaybackKind.playlist &&
                     nowPlayingTarget.folder?.path ==
                         activePlaylistOverlayFolder?.path)
             ? null

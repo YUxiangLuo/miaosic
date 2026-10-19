@@ -180,18 +180,15 @@ void main() {
         onProgress,
         previousTracks,
       }) async {
-        fail('open should load the seeded library without scanning');
+        return _diff(hasChanges: true).result;
       }),
       coverIndexer: _NoopTrackCoverIndexer(),
     );
 
     try {
       await controller.open();
-      final diff = _diff(hasChanges: true);
-      controller.rescanState.value = RescanUiState(
-        phase: RescanPhase.ready,
-        diff: diff,
-      );
+      await controller.startRescanDiff();
+      final diff = controller.rescanState.value.diff!;
 
       final applied = await controller.applyPendingDiff(
         confirmLargeDeletion: (_) async => true,
@@ -286,10 +283,8 @@ void main() {
         await controller.open();
         expect(controller.tracks.single.path, oldTrack.path);
         expect(controller.lastPlayback?.trackPath, oldPlayback.trackPath);
-        controller.rescanState.value = RescanUiState(
-          phase: RescanPhase.ready,
-          diff: _diff(hasChanges: true, rootPath: oldRoot.path),
-        );
+        await controller.startRescanDiff();
+        expect(controller.rescanState.value.phase, RescanPhase.ready);
 
         final changed = await controller.changeMusicRoot(newRoot.path);
 

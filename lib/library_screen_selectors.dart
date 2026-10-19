@@ -1,11 +1,10 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import 'artwork_resolver.dart';
 import 'library_screen_models.dart';
 import 'library_sidebar.dart';
 import 'models.dart';
+import 'playback_session.dart';
 
 ThemeMode themeModeFromDb(String value) {
   return value == 'dark' ? ThemeMode.dark : ThemeMode.light;
@@ -13,79 +12,6 @@ ThemeMode themeModeFromDb(String value) {
 
 String themeModeToDb(ThemeMode mode) {
   return mode == ThemeMode.dark ? 'dark' : 'light';
-}
-
-String lastPlaybackStateKey(LastPlaybackState state) {
-  return '${state.kind.dbValue}\n${state.folderPath}\n${state.trackPath}\n${state.playing}\n${state.shuffled}';
-}
-
-List<Track> shuffledTracks(List<Track> tracks, {math.Random? random}) {
-  return tracks.toList(growable: false)..shuffle(random);
-}
-
-Track trackByPathOrFirst(List<Track> tracks, String path) {
-  return tracks.firstWhere(
-    (track) => track.path == path,
-    orElse: () => tracks.first,
-  );
-}
-
-bool activeAlbumStillAvailable({
-  required LibraryActiveAlbumPlayback activeAlbum,
-  required List<AlbumSummary> albums,
-  required Set<String> currentTrackPaths,
-}) {
-  return albums.any(
-        (album) => album.folderPath == activeAlbum.album.folderPath,
-      ) &&
-      activeAlbum.tracks.any((track) => currentTrackPaths.contains(track.path));
-}
-
-bool activePlaylistStillAvailable({
-  required LibraryActivePlaylistPlayback activePlaylist,
-  required List<FolderSummary> folders,
-  required Set<String> currentTrackPaths,
-}) {
-  return folders.any((folder) => folder.path == activePlaylist.folderPath) &&
-      activePlaylist.tracks.any(
-        (track) => currentTrackPaths.contains(track.path),
-      );
-}
-
-Track? currentTrackForAlbum({
-  required LibraryActiveAlbumPlayback albumPlayback,
-  required Track? currentTrack,
-}) {
-  if (currentTrack == null) {
-    return null;
-  }
-  return albumPlayback.tracks.any((track) => track.path == currentTrack.path)
-      ? currentTrack
-      : null;
-}
-
-Track? currentTrackForPlaylist({
-  required LibraryActivePlaylistPlayback playlistPlayback,
-  required Track? currentTrack,
-}) {
-  if (currentTrack == null) {
-    return null;
-  }
-  return playlistPlayback.tracks.any((track) => track.path == currentTrack.path)
-      ? currentTrack
-      : null;
-}
-
-Track? currentTrackForFavorites({
-  required LibraryActiveFavoritesPlayback favoritesPlayback,
-  required Track? currentTrack,
-}) {
-  if (currentTrack == null) {
-    return null;
-  }
-  return favoritesPlayback.queue.any((track) => track.path == currentTrack.path)
-      ? currentTrack
-      : null;
 }
 
 AlbumSummary? albumForCurrentTrack(
@@ -205,192 +131,58 @@ List<String?> playlistCoverArtPaths({
 }
 
 LibraryNowPlayingTarget? nowPlayingTarget({
-  required Track? currentTrack,
+  required PlaybackSession? session,
   required bool playing,
-  required LibraryActivePlaylistPlayback? activePlaylist,
-  required LibraryActiveAlbumPlayback? activeAlbum,
-  required LibraryActiveFavoritesPlayback? activeFavorites,
   required List<AlbumSummary> albums,
   required List<FolderSummary> folders,
-  required List<Track> favoriteTracks,
-  required Map<String, List<Track>> tracksByFolder,
   required Map<String, String?> trackCoverCache,
-  required bool Function(List<Track> queue) isCurrentQueue,
 }) {
-  if (currentTrack == null) {
-    return null;
-  }
-
-  if (activePlaylist != null &&
-      currentTrackForPlaylist(
-            playlistPlayback: activePlaylist,
-            currentTrack: currentTrack,
-          ) !=
-          null) {
-    final folder = playlistFolderForPath(activePlaylist.folderPath, folders);
-    if (folder != null) {
+  if (session == null) return null;
+  switch (session.kind) {
+    case LastPlaybackKind.album:
+      final album = albums
+          .where((album) => album.folderPath == session.folderPath)
+          .firstOrNull;
+      if (album == null) return null;
+      return LibraryNowPlayingTarget.album(
+        album: album,
+        tracks: session.tracks,
+        sidebarItem: SidebarNowPlaying.album(
+          coverArtPath: album.coverArtPath,
+          playing: playing,
+        ),
+      );
+    case LastPlaybackKind.playlist:
+      final folder = playlistFolderForPath(session.folderPath, folders);
+      if (folder == null) return null;
       return LibraryNowPlayingTarget.playlist(
         folder: folder,
-        tracks: activePlaylist.tracks,
+        tracks: session.tracks,
+        queue: session.queue,
+        shuffled: session.shuffled,
         sidebarItem: SidebarNowPlaying.playlist(
           playlistCoverArtPaths: playlistCoverArtPaths(
             folder: folder,
-            tracks: activePlaylist.tracks,
+            tracks: session.tracks,
             trackCoverCache: trackCoverCache,
           ),
           playing: playing,
         ),
       );
-    }
-  }
-
-  if (activeAlbum != null &&
-      isCurrentQueue(activeAlbum.tracks) &&
-      currentTrackForAlbum(
-            albumPlayback: activeAlbum,
-            currentTrack: currentTrack,
-          ) !=
-          null) {
-    return LibraryNowPlayingTarget.album(
-      album: activeAlbum.album,
-      tracks: activeAlbum.tracks,
-      sidebarItem: SidebarNowPlaying.album(
-        coverArtPath: activeAlbum.album.coverArtPath,
-        playing: playing,
-      ),
-    );
-  }
-
-  if (activeFavorites != null &&
-      isCurrentQueue(activeFavorites.queue) &&
-      currentTrackForFavorites(
-            favoritesPlayback: activeFavorites,
-            currentTrack: currentTrack,
-          ) !=
-          null) {
-    return LibraryNowPlayingTarget.favorites(
-      tracks: activeFavorites.tracks,
-      queue: activeFavorites.queue,
-      shuffled: activeFavorites.shuffled,
-      sidebarItem: SidebarNowPlaying.playlist(
-        playlistCoverArtPaths: favoriteCoverArtPaths(
-          tracks: activeFavorites.tracks,
-          trackCoverCache: trackCoverCache,
+    case LastPlaybackKind.favorites:
+      return LibraryNowPlayingTarget.favorites(
+        tracks: session.tracks,
+        queue: session.queue,
+        shuffled: session.shuffled,
+        sidebarItem: SidebarNowPlaying.playlist(
+          playlistCoverArtPaths: favoriteCoverArtPaths(
+            tracks: session.tracks,
+            trackCoverCache: trackCoverCache,
+          ),
+          playing: playing,
         ),
-        playing: playing,
-      ),
-    );
+      );
+    case null:
+      return null;
   }
-
-  if (favoriteTracks.isNotEmpty &&
-      isCurrentQueue(favoriteTracks) &&
-      favoriteTracks.any((track) => track.path == currentTrack.path)) {
-    return LibraryNowPlayingTarget.favorites(
-      tracks: favoriteTracks,
-      queue: favoriteTracks,
-      shuffled: false,
-      sidebarItem: SidebarNowPlaying.playlist(
-        playlistCoverArtPaths: favoriteCoverArtPaths(
-          tracks: favoriteTracks,
-          trackCoverCache: trackCoverCache,
-        ),
-        playing: playing,
-      ),
-    );
-  }
-
-  final album = albumForCurrentTrack(currentTrack, albums);
-  if (album == null) {
-    return null;
-  }
-  final tracks = tracksByFolder[album.folderPath] ?? const <Track>[];
-  if (!isCurrentQueue(tracks)) {
-    return null;
-  }
-  return LibraryNowPlayingTarget.album(
-    album: album,
-    tracks: tracks,
-    sidebarItem: SidebarNowPlaying.album(
-      coverArtPath: album.coverArtPath,
-      playing: playing,
-    ),
-  );
-}
-
-LastPlaybackState? currentPlaybackState({
-  required Track? currentTrack,
-  required bool playing,
-  required LibraryActivePlaylistPlayback? activePlaylist,
-  required LibraryActiveAlbumPlayback? activeAlbum,
-  required LibraryActiveFavoritesPlayback? activeFavorites,
-  required List<AlbumSummary> albums,
-  required Map<String, List<Track>> tracksByFolder,
-  required bool Function(List<Track> queue) isCurrentQueue,
-}) {
-  if (currentTrack == null) {
-    return null;
-  }
-
-  if (activePlaylist != null &&
-      currentTrackForPlaylist(
-            playlistPlayback: activePlaylist,
-            currentTrack: currentTrack,
-          ) !=
-          null) {
-    return LastPlaybackState(
-      kind: LastPlaybackKind.playlist,
-      folderPath: activePlaylist.folderPath,
-      trackPath: currentTrack.path,
-      playing: playing,
-      shuffled: activePlaylist.shuffled,
-    );
-  }
-
-  if (activeFavorites != null &&
-      isCurrentQueue(activeFavorites.queue) &&
-      currentTrackForFavorites(
-            favoritesPlayback: activeFavorites,
-            currentTrack: currentTrack,
-          ) !=
-          null) {
-    return LastPlaybackState(
-      kind: LastPlaybackKind.favorites,
-      folderPath: '',
-      trackPath: currentTrack.path,
-      playing: playing,
-      shuffled: activeFavorites.shuffled,
-    );
-  }
-
-  if (activeAlbum != null &&
-      isCurrentQueue(activeAlbum.tracks) &&
-      currentTrackForAlbum(
-            albumPlayback: activeAlbum,
-            currentTrack: currentTrack,
-          ) !=
-          null) {
-    return LastPlaybackState(
-      kind: LastPlaybackKind.album,
-      folderPath: activeAlbum.album.folderPath,
-      trackPath: currentTrack.path,
-      playing: playing,
-      shuffled: false,
-    );
-  }
-
-  final album = albumForCurrentTrack(currentTrack, albums);
-  if (album == null) {
-    return null;
-  }
-  final tracks = tracksByFolder[album.folderPath] ?? const <Track>[];
-  if (!isCurrentQueue(tracks)) {
-    return null;
-  }
-  return LastPlaybackState(
-    kind: LastPlaybackKind.album,
-    folderPath: album.folderPath,
-    trackPath: currentTrack.path,
-    playing: playing,
-    shuffled: false,
-  );
 }

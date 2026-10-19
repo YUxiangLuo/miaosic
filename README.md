@@ -99,24 +99,44 @@ rm -rf build/linux
 flutter build linux --release
 ```
 
+The app loads only the matching bundled Rust protocol (ABI version 1). Scan
+progress, incremental scanning, and cover extraction are required capabilities;
+older libraries no longer silently disable features. Native responses and
+incremental requests are converted in `lib/rust_scanner_codec.dart`, separately
+from database row mappings.
+
+## Code Structure
+
+- `PlaybackController` owns one immutable `PlaybackSession`, including the source,
+  track order, and current index. Queue edits also update pending open rollback
+  state. UI overlays do not own a separate playback queue.
+- `LibraryPlaybackCoordinator` reconciles catalog/favorite changes with playback
+  and handles restoration, serialized favorite writes, and playback persistence.
+- `LibraryScanTask` owns scan startup, progress, cancellation, and errors.
+  `LibraryController` keeps the distinct database policies for direct replacement,
+  root changes, and reviewed diffs. Consumers receive a read-only scan listenable.
+- The playlist and favorites screens share `CollectionPlaybackDock` and
+  `CollectionTrackTable`; their source-specific headings and artwork stay local.
+- Widget tests use the real controllers with the shared fake media backend and an
+  in-memory SQLite store in `test/support`, rather than reimplementing queue or
+  catalog mutations.
+
 ## Development Checks
 
 ```sh
-dart format --output=none --set-exit-if-changed lib test tool
-flutter analyze
-cargo build --locked --manifest-path native/music_core/Cargo.toml
-flutter test
-cargo fmt --manifest-path native/music_core/Cargo.toml --check
-cargo test --locked --manifest-path native/music_core/Cargo.toml
-flutter build linux --release
-scripts/smoke_linux_bundle.sh
+scripts/check.sh          # formatting, analysis, Clippy, Dart and Rust tests
+scripts/check.sh --linux  # also check fonts, build release, and smoke test it
 ```
 
-Flutter's scanner integration tests require the Rust dynamic library built by
-`cargo build` above. A missing library fails the tests instead of skipping them.
-The Linux smoke tests require `xvfb-run` and GNU `timeout`. The bundle smoke
-test uses isolated app and runtime directories and requires a rendered first
-frame followed by a running process until the test timeout.
+CI and the release script use this same entry point. Add `--clean` with
+`--linux` to reset the Linux build directory before checking the bundle.
+Rust and its required components are selected by `rust-toolchain.toml`.
+
+The script builds the Rust dynamic library before Flutter's scanner integration
+tests. A missing library fails the tests instead of skipping them. The Linux
+checks require a CJK font, `xvfb-run`, and GNU `timeout`. The bundle smoke test
+uses isolated app and runtime directories and requires a rendered first frame
+followed by a running process until the test timeout.
 
 The scanner can also be run without opening the UI:
 
