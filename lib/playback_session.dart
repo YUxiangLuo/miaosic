@@ -14,7 +14,7 @@ class PlaybackSession {
   });
 
   factory PlaybackSession.start({
-    LastPlaybackKind? kind,
+    required LastPlaybackKind kind,
     String folderPath = '',
     required List<Track> tracks,
     Track? startTrack,
@@ -36,7 +36,7 @@ class PlaybackSession {
     );
   }
 
-  final LastPlaybackKind? kind;
+  final LastPlaybackKind kind;
   final String folderPath;
   final List<Track> tracks;
   final List<Track> queue;
@@ -58,12 +58,8 @@ class PlaybackSession {
   }
 
   PlaybackSession? retainTracks(bool Function(Track) keep) {
-    final remaining = queue.where(keep).toList(growable: false);
-    if (remaining.length == queue.length) return this;
-    return withQueue(remaining);
-  }
-
-  PlaybackSession? withQueue(List<Track> nextQueue) {
+    final nextQueue = queue.where(keep).toList(growable: false);
+    if (nextQueue.length == queue.length) return this;
     final nextIndex = nextQueue.indexWhere(
       (track) => track.path == currentTrack.path,
     );
@@ -81,11 +77,9 @@ class PlaybackSession {
     );
   }
 
-  LastPlaybackState? savedState({required bool playing}) {
-    final source = kind;
-    if (source == null) return null;
+  LastPlaybackState savedState({required bool playing}) {
     return LastPlaybackState(
-      kind: source,
+      kind: kind,
       folderPath: folderPath,
       trackPath: currentTrack.path,
       playing: playing,

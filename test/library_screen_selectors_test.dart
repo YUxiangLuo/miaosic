@@ -150,7 +150,7 @@ void main() {
 
   for (final kind in [LastPlaybackKind.playlist, LastPlaybackKind.favorites]) {
     test(
-      'now playing preserves shuffled ${kind.name} order and persistence',
+      'now playing keeps browse order for a shuffled ${kind.name} session',
       () {
         final folder = _folder('/music/collection');
         final first = _track(folder.path, path: '${folder.path}/1.flac');
@@ -173,17 +173,16 @@ void main() {
           first.path,
           second.path,
         ]);
-        expect(target?.queue.map((track) => track.path), [
+        expect(session.queue.map((track) => track.path), [
           second.path,
           first.path,
         ]);
-        expect(target?.shuffled, isTrue);
         final state = session.savedState(playing: true);
-        expect(state?.kind, kind);
-        expect(state?.folderPath, session.folderPath);
-        expect(state?.trackPath, second.path);
-        expect(state?.playing, isTrue);
-        expect(state?.shuffled, isTrue);
+        expect(state.kind, kind);
+        expect(state.folderPath, session.folderPath);
+        expect(state.trackPath, second.path);
+        expect(state.playing, isTrue);
+        expect(state.shuffled, isTrue);
       },
     );
   }

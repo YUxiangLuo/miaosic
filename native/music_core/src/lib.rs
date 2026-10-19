@@ -8,8 +8,8 @@ mod util;
 
 // Re-export the public C ABI and the items referenced by tests below.
 pub use ffi::{
-    miaosic_abi_version, miaosic_extract_track_covers, miaosic_free_string, miaosic_scan_library,
-    miaosic_scan_library_incremental_with_covers_and_progress, miaosic_scan_library_with_covers,
+    miaosic_abi_version, miaosic_extract_track_covers, miaosic_free_string,
+    miaosic_scan_library_incremental_with_covers_and_progress,
     miaosic_scan_library_with_covers_and_progress,
 };
 

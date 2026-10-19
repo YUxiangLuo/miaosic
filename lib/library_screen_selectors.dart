@@ -14,15 +14,6 @@ String themeModeToDb(ThemeMode mode) {
   return mode == ThemeMode.dark ? 'dark' : 'light';
 }
 
-AlbumSummary? albumForCurrentTrack(
-  Track currentTrack,
-  List<AlbumSummary> albums,
-) {
-  return albums
-      .where((album) => album.folderPath == currentTrack.folderPath)
-      .firstOrNull;
-}
-
 FolderSummary? playlistFolderForPath(String path, List<FolderSummary> folders) {
   return folders
       .where(
@@ -158,8 +149,6 @@ LibraryNowPlayingTarget? nowPlayingTarget({
       return LibraryNowPlayingTarget.playlist(
         folder: folder,
         tracks: session.tracks,
-        queue: session.queue,
-        shuffled: session.shuffled,
         sidebarItem: SidebarNowPlaying.playlist(
           playlistCoverArtPaths: playlistCoverArtPaths(
             folder: folder,
@@ -172,8 +161,6 @@ LibraryNowPlayingTarget? nowPlayingTarget({
     case LastPlaybackKind.favorites:
       return LibraryNowPlayingTarget.favorites(
         tracks: session.tracks,
-        queue: session.queue,
-        shuffled: session.shuffled,
         sidebarItem: SidebarNowPlaying.playlist(
           playlistCoverArtPaths: favoriteCoverArtPaths(
             tracks: session.tracks,
@@ -182,7 +169,5 @@ LibraryNowPlayingTarget? nowPlayingTarget({
           playing: playing,
         ),
       );
-    case null:
-      return null;
   }
 }

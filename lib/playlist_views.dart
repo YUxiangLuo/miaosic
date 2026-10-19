@@ -29,7 +29,6 @@ class PlaylistList extends StatefulWidget {
     required this.scrollController,
     required this.keyboardShortcutsEnabled,
     required this.onOpen,
-    this.focusRequestToken,
   });
 
   final List<FolderSummary> folders;
@@ -38,7 +37,6 @@ class PlaylistList extends StatefulWidget {
   final ScrollController scrollController;
   final bool keyboardShortcutsEnabled;
   final ValueChanged<FolderSummary> onOpen;
-  final Object? focusRequestToken;
 
   @override
   State<PlaylistList> createState() => _PlaylistListState();
@@ -58,8 +56,7 @@ class _PlaylistListState extends State<PlaylistList> {
   void didUpdateWidget(covariant PlaylistList oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.keyboardShortcutsEnabled &&
-        (!oldWidget.keyboardShortcutsEnabled ||
-            oldWidget.focusRequestToken != widget.focusRequestToken)) {
+        !oldWidget.keyboardShortcutsEnabled) {
       _scheduleShortcutFocusRequest();
     }
   }

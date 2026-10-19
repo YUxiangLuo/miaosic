@@ -212,10 +212,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
       LastPlaybackKind.playlist =>
         _overlay?.isPlaylist == true &&
             _overlay?.folder?.path == target.folder?.path,
-      LastPlaybackKind.favorites =>
-        _overlay?.isFavorites == true &&
-            _activeFavoritesPlayback != null &&
-            _playback.isCurrentQueue(target.queue),
+      LastPlaybackKind.favorites => _overlay?.isFavorites == true,
     };
   }
 
@@ -377,12 +374,9 @@ extension _LibraryScreenActions on _LibraryScreenState {
 
   void _openFavoritesPlaybackFromTrack(Track track) {
     _saveBrowseScrollForFavoritesOverlay();
-    final nowPlaying = _nowPlayingTarget;
     final alreadyThisTrack =
         _playback.currentTrack?.path == track.path &&
-        (nowPlaying?.kind == LastPlaybackKind.favorites ||
-            (_activeFavoritesPlayback != null &&
-                _playback.isCurrentQueue(_activeFavoritesPlayback!.queue)));
+        _playback.session?.kind == LastPlaybackKind.favorites;
     if (alreadyThisTrack) {
       _mutate(() {
         _showFavoritesOverlay();

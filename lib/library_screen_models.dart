@@ -63,27 +63,20 @@ class LibraryPlaybackOverlay {
 class LibraryNowPlayingTarget {
   const LibraryNowPlayingTarget.album({
     required AlbumSummary this.album,
-    required List<Track> tracks,
+    required this.tracks,
     required this.sidebarItem,
   }) : kind = LastPlaybackKind.album,
-       tracks = tracks,
-       queue = tracks,
-       shuffled = false,
        folder = null;
 
   const LibraryNowPlayingTarget.playlist({
     required FolderSummary this.folder,
     required this.tracks,
-    required this.queue,
-    required this.shuffled,
     required this.sidebarItem,
   }) : kind = LastPlaybackKind.playlist,
        album = null;
 
   const LibraryNowPlayingTarget.favorites({
     required this.tracks,
-    required this.queue,
-    required this.shuffled,
     required this.sidebarItem,
   }) : kind = LastPlaybackKind.favorites,
        album = null,
@@ -93,8 +86,6 @@ class LibraryNowPlayingTarget {
   final AlbumSummary? album;
   final FolderSummary? folder;
   final List<Track> tracks;
-  final List<Track> queue;
-  final bool shuffled;
   final SidebarNowPlaying sidebarItem;
 }
 

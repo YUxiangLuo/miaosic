@@ -12,19 +12,6 @@ pub extern "C" fn miaosic_abi_version() -> u32 {
 }
 
 #[no_mangle]
-pub extern "C" fn miaosic_scan_library(root_path: *const c_char) -> *mut c_char {
-    catch_native(|| miaosic_scan_library_with_covers(root_path, std::ptr::null()))
-}
-
-#[no_mangle]
-pub extern "C" fn miaosic_scan_library_with_covers(
-    root_path: *const c_char,
-    cover_cache_dir: *const c_char,
-) -> *mut c_char {
-    catch_native(|| scan_library_response(root_path, cover_cache_dir, None))
-}
-
-#[no_mangle]
 pub extern "C" fn miaosic_scan_library_with_covers_and_progress(
     root_path: *const c_char,
     cover_cache_dir: *const c_char,

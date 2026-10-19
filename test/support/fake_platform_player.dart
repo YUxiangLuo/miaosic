@@ -50,6 +50,10 @@ class FakePlatformPlayer extends PlatformPlayer {
     errorController.add(message);
   }
 
+  void emitCompleted() {
+    completedController.add(true);
+  }
+
   @override
   Future<void> open(Playable playable, {bool play = true}) async {
     openCount += 1;

@@ -10,6 +10,67 @@ import 'package:miaosic/playback_session.dart';
 import 'support/fake_platform_player.dart';
 
 void main() {
+  test(
+    'playback controls do not create a session when none is selected',
+    () async {
+      final platform = FakePlatformPlayer();
+      final controller = PlaybackController(
+        player: Player(platformPlayer: platform),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.togglePlayPause();
+      await controller.skip(1);
+      await controller.skip(-1);
+
+      expect(controller.session, isNull);
+      expect(controller.playing, isFalse);
+      expect(platform.openCount, 0);
+      expect(platform.state.playing, isFalse);
+    },
+  );
+
+  test(
+    'completion follows the shuffled session and ends at the queue boundary',
+    () async {
+      final platform = FakePlatformPlayer();
+      final controller = PlaybackController(
+        player: Player(platformPlayer: platform),
+      );
+      addTearDown(controller.dispose);
+      final first = _track('/music/first.flac');
+      final second = _track('/music/second.flac');
+      await controller.playSession(
+        PlaybackSession.start(
+          kind: music.LastPlaybackKind.favorites,
+          tracks: [first, second],
+          queue: [second, first],
+          shuffled: true,
+        ),
+      );
+
+      await controller.skip(-1);
+      expect(platform.openCount, 1);
+      platform.emitCompleted();
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.currentTrack?.path, first.path);
+      expect(controller.session?.kind, music.LastPlaybackKind.favorites);
+      expect(controller.session?.index, 1);
+      expect(controller.session?.shuffled, isTrue);
+      expect(platform.openCount, 2);
+
+      platform.emitCompleted();
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.currentTrack?.path, first.path);
+      expect(platform.openCount, 2);
+
+      await controller.skip(-1);
+      expect(controller.currentTrack?.path, second.path);
+      expect(controller.session?.index, 0);
+    },
+  );
+
   for (final playing in [true, false]) {
     test(
       'removing queued tracks preserves playback (playing: $playing)',
@@ -26,7 +87,10 @@ void main() {
           _track('/music/second.flac'),
         ];
         final current = tracks[1];
-        await controller.restoreQueueFrom(tracks, current, play: playing);
+        await controller.playSession(
+          _albumSession(tracks, startTrack: current),
+          play: playing,
+        );
         platform.emitPlaybackState(
           playing: playing,
           position: const Duration(seconds: 30),
@@ -34,22 +98,25 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        await controller.removeTracksFromQueue([
-          tracks[0].path,
-          tracks[2].path,
-        ]);
+        await controller.reconcileLibrary(
+          trackPaths: {current.path, tracks.last.path},
+          favoritePaths: const {},
+        );
 
         expect(controller.currentTrack, current);
-        expect(controller.isCurrentQueue([current, tracks.last]), isTrue);
+        expect(controller.queue.map((track) => track.path), [
+          current.path,
+          tracks.last.path,
+        ]);
         expect(controller.playing, playing);
         expect(controller.position, const Duration(seconds: 30));
         expect(controller.duration, const Duration(minutes: 2));
         expect(platform.openCount, 1);
         expect(platform.stopCount, 0);
 
-        await controller.playNextFromQueue();
+        await controller.skip(1);
         expect(controller.currentTrack, tracks.last);
-        await controller.skip(-1, const []);
+        await controller.skip(-1);
         expect(controller.currentTrack, current);
       },
     );
@@ -65,10 +132,13 @@ void main() {
       addTearDown(controller.dispose);
       final first = _track('/music/first.flac');
       final second = _track('/music/second.flac');
-      await controller.playQueueFrom([first, second], first);
+      await controller.playSession(_albumSession([first, second]));
 
-      await controller.removeTracksFromQueue([first.path]);
-      await controller.playNextFromQueue();
+      await controller.reconcileLibrary(
+        trackPaths: {second.path},
+        favoritePaths: const {},
+      );
+      await controller.skip(1);
 
       expect(controller.currentTrack, isNull);
       expect(controller.position, Duration.zero);
@@ -92,28 +162,34 @@ void main() {
           _track('/music/second.flac'),
           _track('/music/third.flac'),
         ];
-        await controller.playQueueFrom(tracks, tracks.first);
+        await controller.playSession(_albumSession(tracks));
         final blocker = Completer<void>();
         platform.blockNextOpen = blocker;
         platform.failBlockedOpen = true;
-        final opening = controller.playQueueAt(2);
+        final opening = controller.skip(2);
         await Future<void>.delayed(Duration.zero);
 
-        await controller.removeTracksFromQueue([tracks[removedIndex].path]);
+        await controller.reconcileLibrary(
+          trackPaths: {
+            for (final track in tracks)
+              if (track.path != tracks[removedIndex].path) track.path,
+          },
+          favoritePaths: const {},
+        );
         blocker.complete();
         await opening;
 
         if (removedIndex == 1) {
           expect(controller.currentTrack, tracks.first);
-          expect(
-            controller.isCurrentQueue([tracks.first, tracks.last]),
-            isTrue,
-          );
+          expect(controller.queue.map((track) => track.path), [
+            tracks.first.path,
+            tracks.last.path,
+          ]);
           expect(controller.playbackError, contains('open failed'));
         } else {
           expect(controller.currentTrack, isNull);
           expect(platform.stopCount, 1);
-          await controller.playNextFromQueue();
+          await controller.skip(1);
           expect(platform.openCount, 2);
         }
       },
@@ -358,12 +434,12 @@ void main() {
       final first = _track('/music/first.flac');
       final second = _track('/music/second.flac');
 
-      await controller.playQueueFrom([first], first);
+      await controller.playSession(_albumSession([first]));
       platform.failNextOpen = true;
-      await controller.playQueueFrom([second], second);
+      await controller.playSession(_albumSession([second]));
 
       expect(controller.currentTrack?.path, first.path);
-      expect(controller.isCurrentQueue([first]), isTrue);
+      expect(controller.queue.map((track) => track.path), [first.path]);
       expect(controller.playbackError, contains('second.flac'));
       expect(controller.playbackError, contains('open failed'));
 
@@ -382,20 +458,20 @@ void main() {
     final second = _track('/music/second.flac');
     final third = _track('/music/third.flac');
 
-    await controller.playQueueFrom([first], first);
+    await controller.playSession(_albumSession([first]));
 
     final blockedOpen = Completer<void>();
     platform.blockNextOpen = blockedOpen;
     platform.failBlockedOpen = true;
-    final supersededRequest = controller.playQueueFrom([second], second);
+    final supersededRequest = controller.playSession(_albumSession([second]));
     await Future<void>.delayed(Duration.zero);
 
-    await controller.playQueueFrom([third], third);
+    await controller.playSession(_albumSession([third]));
     blockedOpen.complete();
     await supersededRequest;
 
     expect(controller.currentTrack?.path, third.path);
-    expect(controller.isCurrentQueue([third]), isTrue);
+    expect(controller.queue.map((track) => track.path), [third.path]);
     expect(controller.playbackError, isNull);
   });
 
@@ -406,14 +482,14 @@ void main() {
     );
     addTearDown(controller.dispose);
     final track = _track('/music/first.flac');
-    await controller.restoreQueueFrom([track], track, play: false);
+    await controller.playSession(_albumSession([track]), play: false);
     platform.playFailuresRemaining = 2;
 
-    await controller.togglePlayPause([track]);
+    await controller.togglePlayPause();
     final firstRevision = controller.playbackErrorRevision;
     final firstError = controller.playbackError;
 
-    await controller.togglePlayPause([track]);
+    await controller.togglePlayPause();
 
     expect(controller.playbackError, firstError);
     expect(controller.playbackErrorRevision, firstRevision + 1);
@@ -432,6 +508,16 @@ void main() {
     expect(controller.playbackError, 'Playback error: decoder failed');
   });
 }
+
+PlaybackSession _albumSession(
+  List<music.Track> tracks, {
+  music.Track? startTrack,
+}) => PlaybackSession.start(
+  kind: music.LastPlaybackKind.album,
+  folderPath: tracks.first.folderPath,
+  tracks: tracks,
+  startTrack: startTrack,
+);
 
 music.Track _track(String path) {
   return music.Track(

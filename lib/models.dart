@@ -79,25 +79,6 @@ class Track {
   String get fileName => p.basename(path);
   String get folderName => p.basename(folderPath);
 
-  Track copyWith({int? id}) {
-    return Track(
-      id: id ?? this.id,
-      path: path,
-      folderPath: folderPath,
-      title: title,
-      artist: artist,
-      album: album,
-      albumArtist: albumArtist,
-      trackNumber: trackNumber,
-      discNumber: discNumber,
-      year: year,
-      durationMs: durationMs,
-      sizeBytes: sizeBytes,
-      modifiedMs: modifiedMs,
-      coverArtPath: coverArtPath,
-    );
-  }
-
   Map<String, Object?> toMap() {
     return {
       'id': id,

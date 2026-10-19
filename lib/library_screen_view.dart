@@ -199,7 +199,11 @@ class LibraryScreenView extends StatelessWidget {
                   ),
                 ),
                 const VerticalDivider(width: 1),
-                Expanded(child: RepaintBoundary(child: _buildContent())),
+                Expanded(
+                  child: RepaintBoundary(
+                    child: _buildContent(overlayOpen: overlayOpen),
+                  ),
+                ),
               ],
             ),
           ),
@@ -284,32 +288,61 @@ class LibraryScreenView extends StatelessWidget {
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent({required bool overlayOpen}) {
     if (model.loading) {
       return const Center(child: CircularProgressIndicator());
     }
-    return _LibraryContentCache(
-      selectedView: model.browseView,
-      albums: model.albums,
-      playlistFolders: model.playlistFolders,
-      tracksByFolder: model.tracksByFolder,
-      trackCoverCache: model.trackCoverCache,
-      overlayOpen:
-          model.activeAlbumPlayback != null ||
-          model.activePlaylistOverlayFolder != null ||
-          model.favoritesOverlayOpen,
-      albumGridScrollController: model.albumGridScrollController,
-      playlistListScrollController: model.playlistListScrollController,
-      favoritesListScrollController: model.favoritesListScrollController,
-      favoriteTracks: model.favoriteTracks,
-      currentFavoriteTrack: model.favoritesPlaybackActive
-          ? model.playbackCurrentTrack
-          : null,
-      favoritesPlaying: model.favoritesPlaybackActive && model.playbackPlaying,
-      onOpenAlbum: actions.onOpenAlbum,
-      onOpenPlaylistPlayback: actions.onOpenPlaylistPlayback,
-      onPlayFavoriteTrack: actions.onPlayFavoriteTrack,
-      onToggleFavoriteTrack: actions.onToggleFavoriteTrack,
+    final albumsActive = !overlayOpen && model.browseView == LibraryView.albums;
+    final playlistsActive =
+        !overlayOpen && model.browseView == LibraryView.playlists;
+    final favoritesActive =
+        !overlayOpen && model.browseView == LibraryView.favorites;
+    return IndexedStack(
+      index: switch (model.browseView) {
+        LibraryView.albums => 0,
+        LibraryView.playlists => 1,
+        LibraryView.favorites => 2,
+      },
+      children: [
+        _LibraryContentSlot(
+          active: albumsActive,
+          child: AlbumGrid(
+            key: const PageStorageKey<String>('library-content-albums'),
+            albums: model.albums,
+            tracksByFolder: model.tracksByFolder,
+            scrollController: model.albumGridScrollController,
+            keyboardShortcutsEnabled: albumsActive,
+            onOpen: actions.onOpenAlbum,
+          ),
+        ),
+        _LibraryContentSlot(
+          active: playlistsActive,
+          child: PlaylistList(
+            key: const PageStorageKey<String>('library-content-playlists'),
+            folders: model.playlistFolders,
+            tracksByFolder: model.tracksByFolder,
+            trackCoverCache: model.trackCoverCache,
+            scrollController: model.playlistListScrollController,
+            keyboardShortcutsEnabled: playlistsActive,
+            onOpen: actions.onOpenPlaylistPlayback,
+          ),
+        ),
+        _LibraryContentSlot(
+          active: favoritesActive,
+          child: FavoriteBrowseList(
+            key: const PageStorageKey<String>('library-content-favorites'),
+            tracks: model.favoriteTracks,
+            trackCoverCache: model.trackCoverCache,
+            currentTrack: model.favoritesPlaybackActive
+                ? model.playbackCurrentTrack
+                : null,
+            playing: model.favoritesPlaybackActive && model.playbackPlaying,
+            scrollController: model.favoritesListScrollController,
+            onPlayTrack: actions.onPlayFavoriteTrack,
+            onToggleFavorite: actions.onToggleFavoriteTrack,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -328,47 +361,6 @@ AlbumPlaybackNowPlaying _albumNowPlayingChip(LibraryNowPlayingTarget target) {
   );
 }
 
-class _LibraryContentCache extends StatefulWidget {
-  const _LibraryContentCache({
-    required this.selectedView,
-    required this.albums,
-    required this.playlistFolders,
-    required this.tracksByFolder,
-    required this.trackCoverCache,
-    required this.overlayOpen,
-    required this.albumGridScrollController,
-    required this.playlistListScrollController,
-    required this.favoritesListScrollController,
-    required this.favoriteTracks,
-    required this.currentFavoriteTrack,
-    required this.favoritesPlaying,
-    required this.onOpenAlbum,
-    required this.onOpenPlaylistPlayback,
-    required this.onPlayFavoriteTrack,
-    required this.onToggleFavoriteTrack,
-  });
-
-  final LibraryView selectedView;
-  final List<AlbumSummary> albums;
-  final List<FolderSummary> playlistFolders;
-  final Map<String, List<Track>> tracksByFolder;
-  final Map<String, String?> trackCoverCache;
-  final bool overlayOpen;
-  final ScrollController albumGridScrollController;
-  final ScrollController playlistListScrollController;
-  final ScrollController favoritesListScrollController;
-  final List<Track> favoriteTracks;
-  final Track? currentFavoriteTrack;
-  final bool favoritesPlaying;
-  final void Function(AlbumSummary album, List<Track> tracks) onOpenAlbum;
-  final ValueChanged<FolderSummary> onOpenPlaylistPlayback;
-  final ValueChanged<Track> onPlayFavoriteTrack;
-  final ValueChanged<Track> onToggleFavoriteTrack;
-
-  @override
-  State<_LibraryContentCache> createState() => _LibraryContentCacheState();
-}
-
 class _LibraryContentSlot extends StatelessWidget {
   const _LibraryContentSlot({required this.active, required this.child});
 
@@ -384,118 +376,5 @@ class _LibraryContentSlot extends StatelessWidget {
         child: ExcludeFocus(excluding: !active, child: child),
       ),
     );
-  }
-}
-
-class _LibraryContentCacheState extends State<_LibraryContentCache> {
-  final Map<LibraryView, Widget> _pages = {};
-  final Map<LibraryView, Object> _tokens = {};
-  int _activationSerial = 0;
-
-  bool get _keyboardShortcutsEnabled => !widget.overlayOpen;
-
-  @override
-  void didUpdateWidget(covariant _LibraryContentCache oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedView != widget.selectedView) {
-      _activationSerial += 1;
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    _ensureSelectedPageIsFresh();
-    const browseViews = [
-      LibraryView.albums,
-      LibraryView.playlists,
-      LibraryView.favorites,
-    ];
-    final selected = switch (widget.selectedView) {
-      LibraryView.playlists => LibraryView.playlists,
-      LibraryView.favorites => LibraryView.favorites,
-      _ => LibraryView.albums,
-    };
-    return IndexedStack(
-      index: browseViews.indexOf(selected),
-      children: [
-        for (final view in browseViews)
-          _LibraryContentSlot(
-            active: view == selected,
-            child: _pages[view] ?? const SizedBox.expand(),
-          ),
-      ],
-    );
-  }
-
-  void _ensureSelectedPageIsFresh() {
-    final view = widget.selectedView;
-    final token = _tokenFor(view);
-    if (_tokens[view] == token) {
-      return;
-    }
-    _tokens[view] = token;
-    _pages[view] = _buildPage(view);
-  }
-
-  Object _tokenFor(LibraryView view) {
-    return switch (view) {
-      LibraryView.albums => (
-        widget.albums,
-        widget.tracksByFolder,
-        widget.albumGridScrollController,
-        _keyboardShortcutsEnabled,
-        _activationSerial,
-      ),
-      LibraryView.playlists => (
-        widget.playlistFolders,
-        widget.tracksByFolder,
-        widget.trackCoverCache,
-        widget.playlistListScrollController,
-        _keyboardShortcutsEnabled,
-        _activationSerial,
-      ),
-      LibraryView.favorites => (
-        widget.favoriteTracks,
-        widget.trackCoverCache,
-        widget.favoritesListScrollController,
-        widget.currentFavoriteTrack,
-        widget.favoritesPlaying,
-        _activationSerial,
-      ),
-    };
-  }
-
-  Widget _buildPage(LibraryView view) {
-    return switch (view) {
-      LibraryView.albums => AlbumGrid(
-        key: const PageStorageKey<String>('library-content-albums'),
-        albums: widget.albums,
-        tracksByFolder: widget.tracksByFolder,
-        scrollController: widget.albumGridScrollController,
-        keyboardShortcutsEnabled: _keyboardShortcutsEnabled,
-        focusRequestToken: _activationSerial,
-        onOpen: widget.onOpenAlbum,
-      ),
-      LibraryView.playlists => PlaylistList(
-        key: const PageStorageKey<String>('library-content-playlists'),
-        folders: widget.playlistFolders,
-        tracksByFolder: widget.tracksByFolder,
-        trackCoverCache: widget.trackCoverCache,
-        scrollController: widget.playlistListScrollController,
-        keyboardShortcutsEnabled: _keyboardShortcutsEnabled,
-        focusRequestToken: _activationSerial,
-        onOpen: widget.onOpenPlaylistPlayback,
-      ),
-      LibraryView.favorites => FavoriteBrowseList(
-        key: const PageStorageKey<String>('library-content-favorites'),
-        tracks: widget.favoriteTracks,
-        trackCoverCache: widget.trackCoverCache,
-        currentTrack: widget.currentFavoriteTrack,
-        playing: widget.favoritesPlaying,
-        scrollController: widget.favoritesListScrollController,
-        onPlayTrack: widget.onPlayFavoriteTrack,
-        onToggleFavorite: widget.onToggleFavoriteTrack,
-      ),
-    };
   }
 }

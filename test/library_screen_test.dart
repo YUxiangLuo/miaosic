@@ -16,11 +16,108 @@ import 'package:miaosic/models.dart';
 import 'package:miaosic/playback_controller.dart';
 import 'package:miaosic/playback_session.dart';
 import 'package:miaosic/playlist_playback_view.dart';
+import 'package:miaosic/playlist_views.dart';
 
 import 'support/fake_platform_player.dart';
 import 'support/library_test_store.dart';
 
 void main() {
+  testWidgets(
+    'browse tabs retain scroll, restore focus, and show library updates',
+    (tester) async {
+      final albums = [
+        for (var i = 0; i < 24; i++)
+          _albumSummary('/music/album-$i', 'Album $i'),
+      ];
+      final folders = [
+        for (var i = 0; i < 8; i++) _playlistFolder('/music/mix-$i', 'Mix $i'),
+      ];
+      final tracks = [
+        for (final album in albums)
+          _track(
+            '${album.folderPath}/song.flac',
+            folderPath: album.folderPath,
+            title: album.title,
+            album: album.title,
+            artist: 'Artist',
+          ),
+        for (final folder in folders)
+          _track(
+            '${folder.path}/song.flac',
+            folderPath: folder.path,
+            title: folder.name,
+            album: folder.name,
+            artist: 'Artist',
+          ),
+      ];
+      final library = _InjectedLibraryController(
+        albums: albums,
+        folders: folders,
+        tracks: tracks,
+        favoriteTracks: tracks,
+      );
+      final playback = _InjectedPlaybackController();
+      await _pumpLibraryScreen(
+        tester,
+        library: library,
+        playback: playback,
+        now: DateTime.now,
+      );
+      await tester.pumpAndSettle();
+      final albumScroll = tester
+          .widget<AlbumGrid>(find.byType(AlbumGrid))
+          .scrollController;
+      albumScroll.jumpTo(180);
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(InkWell, 'Playlists'));
+      await tester.pumpAndSettle();
+      final playlistScroll = tester
+          .widget<PlaylistList>(find.byType(PlaylistList))
+          .scrollController;
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      final playlistOffset = playlistScroll.offset;
+      expect(playlistOffset, greaterThan(0));
+      expect(albumScroll.offset, closeTo(180, 0.1));
+
+      await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+      await tester.pumpAndSettle();
+      final favoritesScroll = tester
+          .widget<FavoriteBrowseList>(find.byType(FavoriteBrowseList))
+          .scrollController!;
+      favoritesScroll.jumpTo(120);
+      await tester.pump();
+
+      await tester.tap(find.widgetWithText(InkWell, 'Albums'));
+      await tester.pumpAndSettle();
+      expect(albumScroll.offset, closeTo(180, 0.1));
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      expect(albumScroll.offset, greaterThan(180));
+      expect(playlistScroll.offset, closeTo(playlistOffset, 0.1));
+      final albumOffset = albumScroll.offset;
+
+      // Update favorites while their browse page is hidden.
+      await library.toggleFavoriteTrack(tracks.first);
+      await tester.pump();
+      await tester.tap(find.widgetWithText(InkWell, 'Favorites'));
+      await tester.pumpAndSettle();
+      expect(favoritesScroll.offset, closeTo(120, 0.1));
+      expect(find.text('31 favorite tracks'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(InkWell, 'Playlists'));
+      await tester.pumpAndSettle();
+      expect(playlistScroll.offset, closeTo(playlistOffset, 0.1));
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      expect(playlistScroll.offset, greaterThan(playlistOffset));
+      expect(albumScroll.offset, closeTo(albumOffset, 0.1));
+      expect(playback.session, isNull);
+      await _disposeLibraryScreen(tester, library, playback);
+    },
+  );
+
   for (final sameQueue in [false, true]) {
     testWidgets(
       'pending unfavorite cannot alter a new album (same queue: $sameQueue)',
@@ -75,7 +172,10 @@ void main() {
         await tester.pump();
         expect(playback.currentTrack?.path, fixture.tracks.first.path);
         expect(playback.playing, isTrue);
-        expect(playback.isCurrentQueue(fixture.tracks), isTrue);
+        expect(
+          playback.queue.map((track) => track.path),
+          fixture.tracks.map((track) => track.path),
+        );
         expect(playback.stopIfCurrentRemovedCount, 0);
         expect(
           library.favoriteTrackPaths,
@@ -118,7 +218,6 @@ void main() {
     await tester.pump();
     await library.prepareRescan(tracks.take(2).toList());
     await library.applyPendingDiff(confirmLargeDeletion: (_) async => true);
-    await playback.removeTracksFromQueue([tracks.last.path]);
     blocker.complete();
     await tester.pump();
     expect(playback.currentQueueForTest.map((track) => track.path), [
@@ -1698,9 +1797,9 @@ class _InjectedPlaybackController extends PlaybackController {
   void emitPlaybackErrorForTest(String message) => platform.emitError(message);
 
   @override
-  Future<void> togglePlayPause(List<Track> defaultQueue) {
+  Future<void> togglePlayPause() {
     toggleCount += 1;
-    return super.togglePlayPause(defaultQueue);
+    return super.togglePlayPause();
   }
 
   @override

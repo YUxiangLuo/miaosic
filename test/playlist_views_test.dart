@@ -99,71 +99,71 @@ void main() {
     expect(opened?.path, folders.first.path);
   });
 
-  testWidgets('playlist list resumes space paging after focus token changes', (
-    tester,
-  ) async {
-    final scrollController = ScrollController();
-    final otherFocusNode = FocusNode();
-    addTearDown(scrollController.dispose);
-    addTearDown(otherFocusNode.dispose);
-    final folders = _folders(24);
-    final tracksByFolder = {
-      for (final folder in folders)
-        folder.path: [_track(folderPath: folder.path)],
-    };
-    var focusRequestToken = 0;
-    late StateSetter updateState;
+  testWidgets(
+    'playlist list resumes space paging after shortcuts are re-enabled',
+    (tester) async {
+      final scrollController = ScrollController();
+      final otherFocusNode = FocusNode();
+      addTearDown(scrollController.dispose);
+      addTearDown(otherFocusNode.dispose);
+      final folders = _folders(24);
+      final tracksByFolder = {
+        for (final folder in folders)
+          folder.path: [_track(folderPath: folder.path)],
+      };
+      var keyboardShortcutsEnabled = false;
+      late StateSetter updateState;
 
-    await tester.pumpWidget(
-      StatefulBuilder(
-        builder: (context, setState) {
-          updateState = setState;
-          return MaterialApp(
-            home: Scaffold(
-              body: Column(
-                children: [
-                  SizedBox(
-                    width: 900,
-                    height: 360,
-                    child: PlaylistList(
-                      folders: folders,
-                      tracksByFolder: tracksByFolder,
-                      trackCoverCache: const {},
-                      scrollController: scrollController,
-                      keyboardShortcutsEnabled: true,
-                      focusRequestToken: focusRequestToken,
-                      onOpen: (_) {},
+      await tester.pumpWidget(
+        StatefulBuilder(
+          builder: (context, setState) {
+            updateState = setState;
+            return MaterialApp(
+              home: Scaffold(
+                body: Column(
+                  children: [
+                    SizedBox(
+                      width: 900,
+                      height: 360,
+                      child: PlaylistList(
+                        folders: folders,
+                        tracksByFolder: tracksByFolder,
+                        trackCoverCache: const {},
+                        scrollController: scrollController,
+                        keyboardShortcutsEnabled: keyboardShortcutsEnabled,
+                        onOpen: (_) {},
+                      ),
                     ),
-                  ),
-                  Focus(
-                    focusNode: otherFocusNode,
-                    child: const SizedBox(width: 1, height: 1),
-                  ),
-                ],
+                    Focus(
+                      focusNode: otherFocusNode,
+                      child: const SizedBox(width: 1, height: 1),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          );
-        },
-      ),
-    );
-    await tester.pump();
-    otherFocusNode.requestFocus();
-    await tester.pump();
+            );
+          },
+        ),
+      );
+      await tester.pump();
+      otherFocusNode.requestFocus();
+      await tester.pump();
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.space);
-    await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
 
-    expect(scrollController.offset, 0);
+      expect(scrollController.offset, 0);
 
-    updateState(() => focusRequestToken += 1);
-    await tester.pump();
-    await tester.pump();
+      updateState(() => keyboardShortcutsEnabled = true);
+      await tester.pump();
+      await tester.pump();
 
-    await tester.sendKeyEvent(LogicalKeyboardKey.space);
-    await tester.pumpAndSettle();
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
 
-    expect(scrollController.offset, greaterThan(0));
-  });
+      expect(scrollController.offset, greaterThan(0));
+    },
+  );
 
   testWidgets('playlist row fits in a narrow layout', (tester) async {
     final scrollController = ScrollController();

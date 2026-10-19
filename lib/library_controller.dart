@@ -77,8 +77,6 @@ class LibraryController extends ChangeNotifier {
   AudioOutputSettings get audioOutputSettings => _audioOutputSettings;
   String get musicRoot => _musicRoot;
   String get themeMode => _themeMode;
-  ScanProgress? get scanProgress =>
-      _scanTask.running ? _scanTask.value.progress : null;
   String? get backgroundWarning => _backgroundWarning;
   bool get loading => _loading;
   bool get settingsLoaded => _settingsLoaded;
@@ -181,7 +179,6 @@ class LibraryController extends ChangeNotifier {
       phase: RescanPhase.applying,
       message: 'Applying library changes',
     );
-    _emit();
 
     try {
       await database.applyDiff(diff);
@@ -196,7 +193,6 @@ class LibraryController extends ChangeNotifier {
         phase: RescanPhase.done,
         message: 'Library refreshed',
       );
-      _emit();
       return diff;
     } catch (error) {
       if (!_disposed) {
@@ -205,7 +201,6 @@ class LibraryController extends ChangeNotifier {
           message: 'Apply failed',
           error: error.toString(),
         );
-        _emit();
       }
       return null;
     }

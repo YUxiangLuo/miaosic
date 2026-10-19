@@ -26,9 +26,7 @@ Miaosic is intentionally narrow:
 
 - Supported runtime: Linux.
 - Supported library format: `.flac`.
-- Android, iOS, macOS, Windows, and web directories are Flutter-generated
-  scaffolding only. They are not tested, packaged, or maintained as supported
-  targets.
+- Only the Linux platform runner is included.
 
 ## Library Data
 
@@ -109,7 +107,9 @@ from database row mappings.
 
 - `PlaybackController` owns one immutable `PlaybackSession`, including the source,
   track order, and current index. Queue edits also update pending open rollback
-  state. UI overlays do not own a separate playback queue.
+  state. Every session has an explicit source; playback starts through
+  `playSession`, while pause and skip operate on that session. UI overlays do not
+  own a separate playback queue.
 - `LibraryPlaybackCoordinator` reconciles catalog/favorite changes with playback
   and handles restoration, serialized favorite writes, and playback persistence.
 - `LibraryScanTask` owns scan startup, progress, cancellation, and errors.
@@ -117,6 +117,9 @@ from database row mappings.
   root changes, and reviewed diffs. Consumers receive a read-only scan listenable.
 - The playlist and favorites screens share `CollectionPlaybackDock` and
   `CollectionTrackTable`; their source-specific headings and artwork stay local.
+- Browse tabs use a regular `IndexedStack` to preserve widget and scroll state.
+  Only the visible browse page enables keyboard shortcuts, focus, and tickers;
+  there is no separate widget cache or cache invalidation protocol.
 - Widget tests use the real controllers with the shared fake media backend and an
   in-memory SQLite store in `test/support`, rather than reimplementing queue or
   catalog mutations.
