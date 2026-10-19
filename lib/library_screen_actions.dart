@@ -151,6 +151,13 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _activeAlbumPlayback = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
+    } else if (activeAlbum != null) {
+      _activeAlbumPlayback = LibraryActiveAlbumPlayback(
+        album: activeAlbum.album,
+        tracks: activeAlbum.tracks
+            .where((track) => currentTrackPaths.contains(track.path))
+            .toList(growable: false),
+      );
     }
 
     final activePlaylist = _activePlaylistPlayback;
@@ -163,6 +170,17 @@ extension _LibraryScreenActions on _LibraryScreenState {
       _activePlaylistPlayback = null;
       _lastPlaybackPath = null;
       _lastPlaybackPlaying = false;
+    } else if (activePlaylist != null) {
+      _activePlaylistPlayback = LibraryActivePlaylistPlayback(
+        folderPath: activePlaylist.folderPath,
+        tracks: activePlaylist.tracks
+            .where((track) => currentTrackPaths.contains(track.path))
+            .toList(growable: false),
+        queue: activePlaylist.queue
+            .where((track) => currentTrackPaths.contains(track.path))
+            .toList(growable: false),
+        shuffled: activePlaylist.shuffled,
+      );
     }
 
     final activeFavorites = _activeFavoritesPlayback;
@@ -176,6 +194,16 @@ extension _LibraryScreenActions on _LibraryScreenState {
         _activeFavoritesPlayback = null;
         _lastPlaybackPath = null;
         _lastPlaybackPlaying = false;
+      } else {
+        _activeFavoritesPlayback = LibraryActiveFavoritesPlayback(
+          tracks: activeFavorites.tracks
+              .where((track) => availableFavoritePaths.contains(track.path))
+              .toList(growable: false),
+          queue: activeFavorites.queue
+              .where((track) => availableFavoritePaths.contains(track.path))
+              .toList(growable: false),
+          shuffled: activeFavorites.shuffled,
+        );
       }
     }
   }
@@ -460,9 +488,12 @@ extension _LibraryScreenActions on _LibraryScreenState {
           showLargeDeletionConfirmation(context, risk),
     );
     if (mounted && diff != null) {
-      await _playback.stopIfCurrentRemoved(
+      await _playback.removeTracksFromQueue(
         diff.removed.map((change) => change.path),
       );
+      if (mounted) {
+        _mutate(_syncActiveSelectionsWithLibrary);
+      }
     }
     return diff != null;
   }
@@ -487,7 +518,7 @@ extension _LibraryScreenActions on _LibraryScreenState {
       final currentTrackPaths = _library.tracks
           .map((track) => track.path)
           .toSet();
-      await _playback.stopIfCurrentRemoved(
+      await _playback.removeTracksFromQueue(
         previousTrackPaths.difference(currentTrackPaths),
       );
       _mutate(() {

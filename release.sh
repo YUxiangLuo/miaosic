@@ -77,6 +77,7 @@ echo "Preparing release $tag from branch $branch"
 run dart format --output=none --set-exit-if-changed lib test tool
 run cargo fmt --manifest-path native/music_core/Cargo.toml --check
 run flutter analyze
+run cargo build --locked --manifest-path native/music_core/Cargo.toml
 run flutter test
 run cargo test --locked --manifest-path native/music_core/Cargo.toml
 run rm -rf build/linux

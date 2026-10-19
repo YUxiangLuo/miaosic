@@ -53,10 +53,7 @@ void main() {
   });
 
   test('Rust scanner scans generated FLAC fixture', () async {
-    if (RustMusicScanner.tryLoad() == null) {
-      markTestSkipped('Rust dynamic library is not available');
-      return;
-    }
+    _requireRustScanner();
 
     final dir = await Directory.systemTemp.createTemp('miaosic_scan_fixture_');
     addTearDown(() async {
@@ -73,10 +70,7 @@ void main() {
   });
 
   test('Rust scanner keeps root tracks in place', () async {
-    if (RustMusicScanner.tryLoad() == null) {
-      markTestSkipped('Rust dynamic library is not available');
-      return;
-    }
+    _requireRustScanner();
 
     final dir = await Directory.systemTemp.createTemp(
       'miaosic_root_track_fixture_',
@@ -107,10 +101,7 @@ void main() {
   });
 
   test('Rust scanner rejects root paths that cannot be opened', () async {
-    if (RustMusicScanner.tryLoad() == null) {
-      markTestSkipped('Rust dynamic library is not available');
-      return;
-    }
+    _requireRustScanner();
 
     final dir = await Directory.systemTemp.createTemp(
       'miaosic_file_root_fixture_',
@@ -136,15 +127,8 @@ void main() {
   });
 
   test('incremental Rust scan reuses unchanged track metadata', () async {
-    final rustScanner = RustMusicScanner.tryLoad();
-    if (rustScanner == null) {
-      markTestSkipped('Rust dynamic library is not available');
-      return;
-    }
-    if (!rustScanner.supportsIncrementalScan) {
-      markTestSkipped('Rust dynamic library does not support incremental scan');
-      return;
-    }
+    final rustScanner = _requireRustScanner();
+    expect(rustScanner.supportsIncrementalScan, isTrue);
 
     final dir = await Directory.systemTemp.createTemp(
       'miaosic_incremental_scan_fixture_',
@@ -181,15 +165,8 @@ void main() {
   });
 
   test('incremental Rust scan revalidates changed folder artwork', () async {
-    final rustScanner = RustMusicScanner.tryLoad();
-    if (rustScanner == null) {
-      markTestSkipped('Rust dynamic library is not available');
-      return;
-    }
-    if (!rustScanner.supportsIncrementalScan) {
-      markTestSkipped('Rust dynamic library does not support incremental scan');
-      return;
-    }
+    final rustScanner = _requireRustScanner();
+    expect(rustScanner.supportsIncrementalScan, isTrue);
 
     final dir = await Directory.systemTemp.createTemp(
       'miaosic_incremental_cover_fixture_',
@@ -227,6 +204,18 @@ void main() {
       isNull,
     );
   });
+}
+
+RustMusicScanner _requireRustScanner() {
+  final scanner = RustMusicScanner.tryLoad();
+  expect(
+    scanner,
+    isNotNull,
+    reason:
+        'Build the Rust scanner before running Flutter tests: '
+        'cargo build --locked --manifest-path native/music_core/Cargo.toml',
+  );
+  return scanner!;
 }
 
 MusicScanner _scannerFor(Directory root) {

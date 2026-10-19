@@ -75,6 +75,7 @@ class PlaybackController extends ChangeNotifier {
   String? _playbackError;
   int _playbackErrorRevision = 0;
   int _latestOpenRequestId = 0;
+  Set<String>? _pendingOpenRemovedPaths;
   bool _restoringPreferredAudioDevice = false;
   bool _disposed = false;
 
@@ -229,6 +230,18 @@ class PlaybackController extends ChangeNotifier {
     return applyAudioOutputSettings(AudioOutputSettings.fromDevice(device));
   }
 
+  Future<void> removeTracksFromQueue(Iterable<String> removedPaths) async {
+    final removed = removedPaths.toSet();
+    _pendingOpenRemovedPaths?.addAll(removed);
+    final remaining = _queue
+        .where((track) => !removed.contains(track.path))
+        .toList(growable: false);
+    if (remaining.length == _queue.length) {
+      return;
+    }
+    await replaceQueueKeepingPosition(remaining);
+  }
+
   Future<void> replaceQueueKeepingPosition(List<Track> queue) async {
     final current = _currentTrack;
     if (queue.isEmpty || current == null) {
@@ -252,9 +265,12 @@ class PlaybackController extends ChangeNotifier {
     if (current == null || !removedPaths.contains(current.path)) {
       return;
     }
+    _latestOpenRequestId += 1;
+    _pendingOpenRemovedPaths = null;
     _queue = const [];
     _queueIndex = -1;
     _currentTrack = null;
+    _playing = false;
     _position = Duration.zero;
     _duration = Duration.zero;
     notifyListeners();
@@ -271,9 +287,12 @@ class PlaybackController extends ChangeNotifier {
     required bool play,
   }) async {
     final requestId = ++_latestOpenRequestId;
+    // A rescan can remove tracks while open is pending. Keep those removals
+    // when restoring the previous queue after an open failure.
+    final removedPaths = <String>{};
+    _pendingOpenRemovedPaths = removedPaths;
     final track = queue[index];
     final previousQueue = _queue;
-    final previousQueueIndex = _queueIndex;
     final previousTrack = _currentTrack;
     final previousPosition = _position;
     final previousDuration = _duration;
@@ -290,12 +309,25 @@ class PlaybackController extends ChangeNotifier {
       if (_disposed || requestId != _latestOpenRequestId) {
         return;
       }
-      _queue = previousQueue;
-      _queueIndex = previousQueueIndex;
+      if (previousTrack != null && removedPaths.contains(previousTrack.path)) {
+        _setPlaybackError('Could not play ${track.fileName}: $error');
+        await stopIfCurrentRemoved([track.path]);
+        return;
+      }
+      _queue = previousQueue
+          .where((track) => !removedPaths.contains(track.path))
+          .toList(growable: false);
+      _queueIndex = _queue.indexWhere(
+        (track) => track.path == previousTrack?.path,
+      );
       _currentTrack = previousTrack;
       _position = previousPosition;
       _duration = previousDuration;
       _setPlaybackError('Could not play ${track.fileName}: $error');
+    } finally {
+      if (requestId == _latestOpenRequestId) {
+        _pendingOpenRemovedPaths = null;
+      }
     }
   }
 

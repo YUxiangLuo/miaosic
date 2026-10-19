@@ -38,9 +38,7 @@ bool activeAlbumStillAvailable({
   return albums.any(
         (album) => album.folderPath == activeAlbum.album.folderPath,
       ) &&
-      activeAlbum.tracks.every(
-        (track) => currentTrackPaths.contains(track.path),
-      );
+      activeAlbum.tracks.any((track) => currentTrackPaths.contains(track.path));
 }
 
 bool activePlaylistStillAvailable({
@@ -49,7 +47,7 @@ bool activePlaylistStillAvailable({
   required Set<String> currentTrackPaths,
 }) {
   return folders.any((folder) => folder.path == activePlaylist.folderPath) &&
-      activePlaylist.tracks.every(
+      activePlaylist.tracks.any(
         (track) => currentTrackPaths.contains(track.path),
       );
 }

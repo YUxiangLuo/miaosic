@@ -70,18 +70,15 @@ else()
   set(MUSIC_CORE_LIBRARY "${MUSIC_CORE_DIR}/target/release/libmusic_core.so")
 endif()
 
-add_custom_command(
-  OUTPUT "${MUSIC_CORE_LIBRARY}"
+# Let Cargo track Rust modules and configuration on every build. It skips
+# compilation itself when the crate is unchanged.
+add_custom_target(music_core ALL
   COMMAND cargo build --locked --manifest-path "${MUSIC_CORE_DIR}/Cargo.toml" ${MUSIC_CORE_CARGO_ARGS}
-  DEPENDS
-    "${MUSIC_CORE_DIR}/Cargo.toml"
-    "${MUSIC_CORE_DIR}/Cargo.lock"
-    "${MUSIC_CORE_DIR}/src/lib.rs"
+  BYPRODUCTS "${MUSIC_CORE_LIBRARY}"
   WORKING_DIRECTORY "${MUSIC_CORE_DIR}"
   COMMENT "Building Rust music_core"
   VERBATIM
 )
-add_custom_target(music_core ALL DEPENDS "${MUSIC_CORE_LIBRARY}")
 add_dependencies(${BINARY_NAME} music_core)
 
 # Only the install-generated bundle's copy of the executable will launch

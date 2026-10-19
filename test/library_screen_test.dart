@@ -9,14 +9,104 @@ import 'package:miaosic/audio_output_settings.dart';
 import 'package:miaosic/favorite_views.dart';
 import 'package:miaosic/favorites_playback_view.dart';
 import 'package:miaosic/library_controller.dart';
+import 'package:miaosic/library_diff.dart';
 import 'package:miaosic/library_screen.dart';
 import 'package:miaosic/library_sidebar.dart';
+import 'package:miaosic/library_types.dart';
 import 'package:miaosic/models.dart';
 import 'package:miaosic/playback_controller.dart';
 import 'package:miaosic/playlist_playback_view.dart';
 
 void main() {
   setUpAll(MediaKit.ensureInitialized);
+
+  for (final kind in LastPlaybackKind.values) {
+    testWidgets('applying a rescan prunes the active ${kind.name} queue', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(1440, 1000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final tracks = _favoriteTracks(4);
+      final folderPath = tracks.first.folderPath;
+      final album = _albumSummary(folderPath, 'Favorites');
+      final folder = _playlistFolder(folderPath, 'Favorites');
+      final current = tracks[1];
+      var now = DateTime(2026);
+      final library = _InjectedLibraryController(
+        tracks: tracks,
+        albums: kind == LastPlaybackKind.album ? [album] : [],
+        folders: kind == LastPlaybackKind.playlist ? [folder] : [],
+        favoriteTracks: kind == LastPlaybackKind.favorites ? tracks : [],
+        tracksByFolder: {folderPath: tracks},
+        lastPlaybackState: LastPlaybackState(
+          kind: kind,
+          folderPath: kind == LastPlaybackKind.favorites ? '' : folderPath,
+          trackPath: current.path,
+          playing: true,
+          shuffled: kind != LastPlaybackKind.album,
+        ),
+        canRestorePlayback: true,
+      );
+      final playback = _InjectedPlaybackController();
+      await _pumpLibraryScreen(
+        tester,
+        library: library,
+        playback: playback,
+        now: () => now,
+      );
+      await tester.pump();
+      final originalQueue = List<Track>.of(playback.currentQueueForTest);
+      final removed = originalQueue.lastWhere(
+        (track) => track.path != current.path,
+      );
+      final remaining = tracks
+          .where((track) => track.path != removed.path)
+          .toList();
+      library.prepareRescan(remaining);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.tap(find.byTooltip('Library settings'));
+      await _pumpDialogTransition(tester);
+      await tester.tap(find.text('Apply'));
+      await _pumpDialogTransition(tester);
+      if (kind == LastPlaybackKind.favorites) {
+        await tester.tap(find.text('Cancel'));
+        await _pumpDialogTransition(tester);
+        expect(playback.currentQueueForTest, originalQueue);
+        await tester.tap(find.text('Apply'));
+        await _pumpDialogTransition(tester);
+      }
+      await tester.tap(find.text('Apply anyway'));
+      await _pumpDialogTransition(tester);
+
+      expect(playback.currentTrack, current);
+      expect(playback.playing, isTrue);
+      expect(playback.restoreCount, 1);
+      expect(playback.stopIfCurrentRemovedCount, 0);
+      expect(
+        playback.currentQueueForTest,
+        originalQueue.where((track) => track.path != removed.path).toList(),
+      );
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      now = now.add(const Duration(seconds: 31));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      final view = switch (kind) {
+        LastPlaybackKind.album => find.byType(AlbumPlaybackView),
+        LastPlaybackKind.playlist => find.byType(PlaylistPlaybackView),
+        LastPlaybackKind.favorites => find.byType(FavoritesPlaybackView),
+      };
+      expect(view, findsOneWidget);
+      expect(find.byTooltip('Pause'), findsWidgets);
+      expect(find.text(removed.title), findsNothing);
+
+      await _disposeLibraryScreen(tester, library, playback);
+    });
+  }
 
   testWidgets('injected controllers are not disposed by LibraryScreen', (
     tester,
@@ -1114,6 +1204,12 @@ AlbumSummary _albumSummary(String folderPath, String title) {
   );
 }
 
+Future<void> _pumpDialogTransition(WidgetTester tester) async {
+  // Playback keeps animating, so pumpAndSettle cannot finish here.
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 300));
+}
+
 Future<void> _pumpLibraryScreen(
   WidgetTester tester, {
   required _InjectedLibraryController library,
@@ -1230,16 +1326,62 @@ class _InjectedLibraryController extends LibraryController {
   bool opened = false;
   bool disposedByScreen = false;
   final bool canEditMusicRoot;
-  final List<Track> _tracks;
-  final List<FolderSummary> _folders;
-  final List<AlbumSummary> _albums;
+  List<Track> _tracks;
+  List<FolderSummary> _folders;
+  List<AlbumSummary> _albums;
   List<Track> _favoriteTracks;
-  final Map<String, List<Track>> _tracksByFolder;
+  Map<String, List<Track>> _tracksByFolder;
   final LastPlaybackState? lastPlaybackState;
   final bool canRestorePlayback;
   String? savedThemeMode;
   String? changedMusicRoot;
   final String? themeSaveError;
+
+  void prepareRescan(List<Track> nextTracks) {
+    final diff = diffLibrary(
+      LibrarySnapshot(
+        tracks: _tracks,
+        folders: _folders,
+        albums: _albums,
+        scanState: null,
+      ),
+      ScanResult(
+        rootPath: musicRoot,
+        engine: 'test',
+        tracks: nextTracks,
+        folders: _folders,
+        albums: _albums,
+        elapsed: Duration.zero,
+        coversCached: 0,
+      ),
+    );
+    rescanState.value = RescanUiState(phase: RescanPhase.ready, diff: diff);
+  }
+
+  @override
+  Future<LibraryDiff?> applyPendingDiff({
+    required LargeDeletionConfirmation confirmLargeDeletion,
+  }) async {
+    final diff = rescanState.value.diff!;
+    final risk = diff.deletionRisk();
+    if (risk.isLargeDeletion && !await confirmLargeDeletion(risk)) {
+      return null;
+    }
+    _tracks = diff.result.tracks;
+    _folders = diff.result.folders;
+    _albums = diff.result.albums;
+    final paths = _tracks.map((track) => track.path).toSet();
+    _favoriteTracks = _favoriteTracks
+        .where((track) => paths.contains(track.path))
+        .toList();
+    _tracksByFolder = {};
+    for (final track in _tracks) {
+      _tracksByFolder.putIfAbsent(track.folderPath, () => []).add(track);
+    }
+    rescanState.value = RescanUiState(phase: RescanPhase.done, diff: diff);
+    notifyListeners();
+    return diff;
+  }
 
   @override
   Future<void> open() async {
@@ -1426,6 +1568,14 @@ class _InjectedPlaybackController extends PlaybackController {
     _currentTrack = track;
     _playing = true;
     notifyListeners();
+  }
+
+  @override
+  Future<void> removeTracksFromQueue(Iterable<String> removedPaths) async {
+    final paths = removedPaths.toSet();
+    await replaceQueueKeepingPosition(
+      _currentQueue.where((track) => !paths.contains(track.path)).toList(),
+    );
   }
 
   @override

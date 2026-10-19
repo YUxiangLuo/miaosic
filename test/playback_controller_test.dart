@@ -7,6 +7,116 @@ import 'package:miaosic/models.dart' as music;
 import 'package:miaosic/playback_controller.dart';
 
 void main() {
+  for (final playing in [true, false]) {
+    test(
+      'removing queued tracks preserves playback (playing: $playing)',
+      () async {
+        final platform = _FakePlatformPlayer();
+        final controller = PlaybackController(
+          player: Player(platformPlayer: platform),
+        );
+        addTearDown(controller.dispose);
+        final tracks = [
+          _track('/music/third.flac'),
+          _track('/music/first.flac'),
+          _track('/music/fourth.flac'),
+          _track('/music/second.flac'),
+        ];
+        final current = tracks[1];
+        await controller.restoreQueueFrom(tracks, current, play: playing);
+        platform.emitPlaybackState(
+          playing: playing,
+          position: const Duration(seconds: 30),
+          duration: const Duration(minutes: 2),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await controller.removeTracksFromQueue([
+          tracks[0].path,
+          tracks[2].path,
+        ]);
+
+        expect(controller.currentTrack, current);
+        expect(controller.isCurrentQueue([current, tracks.last]), isTrue);
+        expect(controller.playing, playing);
+        expect(controller.position, const Duration(seconds: 30));
+        expect(controller.duration, const Duration(minutes: 2));
+        expect(platform.openCount, 1);
+        expect(platform.stopCount, 0);
+
+        await controller.playNextFromQueue();
+        expect(controller.currentTrack, tracks.last);
+        await controller.skip(-1, const []);
+        expect(controller.currentTrack, current);
+      },
+    );
+  }
+
+  test(
+    'removing the current track stops playback and clears the queue',
+    () async {
+      final platform = _FakePlatformPlayer();
+      final controller = PlaybackController(
+        player: Player(platformPlayer: platform),
+      );
+      addTearDown(controller.dispose);
+      final first = _track('/music/first.flac');
+      final second = _track('/music/second.flac');
+      await controller.playQueueFrom([first, second], first);
+
+      await controller.removeTracksFromQueue([first.path]);
+      await controller.playNextFromQueue();
+
+      expect(controller.currentTrack, isNull);
+      expect(controller.position, Duration.zero);
+      expect(controller.duration, Duration.zero);
+      expect(platform.openCount, 1);
+      expect(platform.stopCount, 1);
+    },
+  );
+
+  for (final removedIndex in [0, 1, 2]) {
+    test(
+      'a failed pending open cannot restore removed track $removedIndex',
+      () async {
+        final platform = _FakePlatformPlayer();
+        final controller = PlaybackController(
+          player: Player(platformPlayer: platform),
+        );
+        addTearDown(controller.dispose);
+        final tracks = [
+          _track('/music/first.flac'),
+          _track('/music/second.flac'),
+          _track('/music/third.flac'),
+        ];
+        await controller.playQueueFrom(tracks, tracks.first);
+        final blocker = Completer<void>();
+        platform.blockNextOpen = blocker;
+        platform.failBlockedOpen = true;
+        final opening = controller.playQueueAt(2);
+        await Future<void>.delayed(Duration.zero);
+
+        await controller.removeTracksFromQueue([tracks[removedIndex].path]);
+        blocker.complete();
+        await opening;
+
+        if (removedIndex == 1) {
+          expect(controller.currentTrack, tracks.first);
+          expect(
+            controller.isCurrentQueue([tracks.first, tracks.last]),
+            isTrue,
+          );
+          expect(controller.playbackError, contains('open failed'));
+        } else {
+          expect(controller.currentTrack, isNull);
+          expect(platform.stopCount, 1);
+          await controller.playNextFromQueue();
+          expect(platform.openCount, 2);
+        }
+      },
+    );
+  }
+
   test(
     'restores the preferred device if it appears while applying settings',
     () async {
@@ -287,6 +397,8 @@ class _FakePlatformPlayer extends PlatformPlayer {
   bool failNextOpen = false;
   bool failBlockedOpen = false;
   int playFailuresRemaining = 0;
+  int openCount = 0;
+  int stopCount = 0;
   Completer<void>? blockNextDeviceSwitch;
   Completer<void>? blockNextOpen;
   Future<void> _deviceSwitchQueue = Future.value();
@@ -298,12 +410,23 @@ class _FakePlatformPlayer extends PlatformPlayer {
 
   Future<void> waitForDeviceSwitches() => _deviceSwitchQueue;
 
+  void emitPlaybackState({
+    required bool playing,
+    required Duration position,
+    required Duration duration,
+  }) {
+    playingController.add(playing);
+    positionController.add(position);
+    durationController.add(duration);
+  }
+
   void emitError(String message) {
     errorController.add(message);
   }
 
   @override
   Future<void> open(Playable playable, {bool play = true}) async {
+    openCount += 1;
     final blocker = blockNextOpen;
     blockNextOpen = null;
     if (blocker != null) {
@@ -317,6 +440,12 @@ class _FakePlatformPlayer extends PlatformPlayer {
       failNextOpen = false;
       throw StateError('open failed');
     }
+  }
+
+  @override
+  Future<void> stop() async {
+    stopCount += 1;
+    playingController.add(false);
   }
 
   @override

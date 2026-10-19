@@ -46,7 +46,7 @@ jobs:
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          flutter-version: "3.47.1"
+          channel: stable
           cache: true
 
       - name: Set up Rust
@@ -70,8 +70,8 @@ jobs:
             pkg-config \
             xvfb
 
-      - name: Get locked Flutter dependencies
-        run: flutter pub get --enforce-lockfile
+      - name: Get Flutter dependencies
+        run: flutter pub get
 
       - name: Check Dart formatting
         run: dart format --output=none --set-exit-if-changed lib test tool
@@ -81,6 +81,9 @@ jobs:
 
       - name: Check Rust formatting
         run: cargo fmt --manifest-path native/music_core/Cargo.toml --check
+
+      - name: Build Rust scanner for Flutter integration tests
+        run: cargo build --locked --manifest-path native/music_core/Cargo.toml
 
       - name: Run Flutter tests
         run: flutter test

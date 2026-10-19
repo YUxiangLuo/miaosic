@@ -53,7 +53,9 @@ the build:
 sudo apt install clang cmake libgtk-3-dev fonts-noto-cjk libmpv-dev ninja-build pkg-config
 ```
 
-Use Flutter 3.47.1, CMake 3.13 or newer, and Rust 1.96.0 to match CI. The Rust version is selected
+Use Flutter's stable channel, CMake 3.13 or newer, and Rust 1.96.0 to match CI.
+Flutter is not pinned to a specific version; run `flutter pub get` after an SDK
+update to refresh SDK-dependent packages. The Rust version is selected
 automatically through `rust-toolchain.toml`.
 
 Miaosic uses the standard Flutter SDK engine. CD rotation uses an
@@ -98,11 +100,15 @@ flutter build linux --release
 ```sh
 dart format --output=none --set-exit-if-changed lib test tool
 flutter analyze
+cargo build --locked --manifest-path native/music_core/Cargo.toml
 flutter test
 cargo fmt --manifest-path native/music_core/Cargo.toml --check
 cargo test --locked --manifest-path native/music_core/Cargo.toml
 flutter build linux --release
 ```
+
+Flutter's scanner integration tests require the Rust dynamic library built by
+`cargo build` above. A missing library fails the tests instead of skipping them.
 
 The scanner can also be run without opening the UI:
 
